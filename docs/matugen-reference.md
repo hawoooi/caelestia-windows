@@ -78,7 +78,7 @@ tertiary_fixed
 tertiary_fixed_dim
 ```
 
-That's **48 color roles**. In a real template these are accessed as e.g.
+That's **50 color roles**. In a real template these are accessed as e.g.
 `{{colors.primary.default.hex}}` or `{{colors.on_surface.default.rgba}}`.
 
 ### `base16.*` roles (each has `.dark`, `.default`, `.light`, each of those has `.color`)
