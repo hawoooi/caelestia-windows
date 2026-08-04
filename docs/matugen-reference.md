@@ -284,3 +284,59 @@ itself). Note this says nothing about BOMs introduced by *other* tools in the pi
 PowerShell `Set-Content -Encoding UTF8` elsewhere would still add one - that risk is unrelated to
 matugen and is why this project's own file-write convention uses
 `[System.IO.File]::WriteAllText($path, $text, (New-Object System.Text.UTF8Encoding($false)))`).
+
+## Why `matugen/mapping.json` has `set_alpha` values like `0.797`/`0.801`/`0.995`/`0.999`
+
+If you are editing `matugen/mapping.json` (yasb Task 4) and see entries where several
+different literals resolve to the *same* role but with slightly different, seemingly-arbitrary
+alpha values (e.g. seven different chip-fill literals all mapped to
+`{{colors.primary.default.rgba | set_alpha: 0.797}}` through `...0.803}}`, or several hex
+literals mapped to `{{colors.<role>.default.rgba | set_alpha: 0.995}}` through `...0.999}}`
+instead of the plain `.hex` form) - **do not "clean these up" to a single shared value.** They
+are deliberate disambiguation jitter, not tuning, and normalizing them will silently break the
+round-trip gate.
+
+**Why they exist:** `Test-Roundtrip` (`scripts/Test-Roundtrip.ps1`) reverses a generated template
+by doing `$template.Replace($prop.Value.expression, $prop.Name)` for every mapping entry. This
+only works if every entry's `expression` string is textually unique. Task 4 deliberately collapses
+many visually-distinct Catppuccin literals onto a small set of roles (see
+`.superpowers/sdd/2026-08-04-wallpaper-theming-pipeline/task-4-report.md` for the full reasoning)
+- e.g. seven different pastel chip fills all become `primary`, and several near-white/near-text
+literals all become `on_surface`/`outline`/`on_surface_variant`. Mapped straightforwardly, several
+of those entries would produce the *identical* expression string (e.g. six different hex literals
+all becoming `{{colors.primary.default.hex}}`), which made `Test-Roundtrip` fail: it cannot invert
+a many-to-one map, since replacing one shared expression string necessarily picks only one of the
+several literals that used to produce it. The fix is to nudge the `set_alpha` argument by a few
+thousandths (`0.797`-`0.803` instead of seven copies of `0.8`; `0.995`-`0.999` instead of several
+copies of a bare `.hex`) so every expression string in the mapping is unique again, while every
+nudged value still renders as the intended color.
+
+**Why it's safe, with evidence:** matugen rounds `rgba(...)` alpha to one decimal place before
+rendering. Verified directly (v4.1.0, same probe-image/`--prefer saturation` methodology as the
+BOM test above) with a template containing one `set_alpha` call per candidate value:
+
+```
+0.797: {{colors.primary.default.rgba | set_alpha: 0.797}}   ->  rgba(216, 199, 112, 0.8)
+0.798: {{colors.primary.default.rgba | set_alpha: 0.798}}   ->  rgba(216, 199, 112, 0.8)
+0.799: {{colors.primary.default.rgba | set_alpha: 0.799}}   ->  rgba(216, 199, 112, 0.8)
+0.8:   {{colors.primary.default.rgba | set_alpha: 0.8}}     ->  rgba(216, 199, 112, 0.8)
+0.801: {{colors.primary.default.rgba | set_alpha: 0.801}}   ->  rgba(216, 199, 112, 0.8)
+0.802: {{colors.primary.default.rgba | set_alpha: 0.802}}   ->  rgba(216, 199, 112, 0.8)
+0.803: {{colors.primary.default.rgba | set_alpha: 0.803}}   ->  rgba(216, 199, 112, 0.8)
+0.995: {{colors.primary.default.rgba | set_alpha: 0.995}}   ->  rgba(216, 199, 112, 1)
+0.999: {{colors.primary.default.rgba | set_alpha: 0.999}}   ->  rgba(216, 199, 112, 1)
+```
+
+`0.797` through `0.803` all render as exactly `0.8` - completely inert with respect to what a
+user ever sees. `0.995` and `0.999` both round to `1` (fully opaque), i.e. they render identically
+to the plain `.hex` accessor they stand in for. **The nudge is disambiguation jitter for the
+round-trip gate's text-matching mechanism, not color tuning - it has zero effect on rendered
+output.**
+
+**If you "fix" this:** normalizing any of these nudged values back to a single shared value (e.g.
+making all seven chip-fill entries read `set_alpha: 0.8`, or all the near-opaque entries read
+plain `.hex`) will make two or more mapping entries produce byte-identical `expression` strings
+again. `matugen/templates/yasb.styles.css` will still *generate* fine (forward substitution
+doesn't care about duplicate expressions), but `Test-Roundtrip` will fail the next time it runs,
+because it can no longer tell which literal a shared expression string is supposed to reverse
+into. Re-introduce distinct (even if visually meaningless) alpha values instead.
