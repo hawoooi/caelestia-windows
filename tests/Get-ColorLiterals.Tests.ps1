@@ -6,12 +6,18 @@ BeforeAll {
 Describe "Get-ColorLiterals" {
     It "finds every distinct color" {
         $r = Get-ColorLiterals -Path $script:fixture
-        $r.Count | Should -Be 4
+        $r.Count | Should -Be 5
     }
 
     It "treats hex case-insensitively and counts both uses" {
         $r = Get-ColorLiterals -Path $script:fixture
         ($r | Where-Object { $_.Literal -eq '#cba6f7' }).Count | Should -Be 2
+    }
+
+    It "emits hex literals lowercased even when uppercase appears first" {
+        $r = Get-ColorLiterals -Path $script:fixture
+        @($r | Where-Object { $_.Literal -ceq '#abcdef' }).Count | Should -Be 1
+        @($r | Where-Object { $_.Literal -ceq '#ABCDEF' }).Count | Should -Be 0
     }
 
     It "normalizes whitespace inside rgba() and counts both uses" {
