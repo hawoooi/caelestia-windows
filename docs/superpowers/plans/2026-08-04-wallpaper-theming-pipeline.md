@@ -690,20 +690,33 @@ Substitute any role absent from `docs/matugen-reference.md` and note it in a com
 
 - [ ] **Step 2: Add the guarded read to `.wezterm.lua`**
 
-Insert immediately before the config is returned. `pcall` means a missing or malformed palette leaves WezTerm on its built-in colors rather than failing to start:
+**Read the existing file before editing.** It does not use `config.colors`. It defines named schemes in `config.color_schemes` (line ~11) and selects one with `config.color_scheme = THEME` (line ~99). Register a generated scheme the same way rather than introducing `config.colors`, which would sit in an awkward precedence relationship with the named scheme already set.
+
+Insert **after** line ~99 (`config.color_scheme = THEME`), so the generated scheme wins when present:
 
 ```lua
+---------------------------------------------------------------------------------
+-- Generated palette (matugen). Falls through to THEME when absent.
+---------------------------------------------------------------------------------
+
 local ok, p = pcall(dofile, os.getenv("USERPROFILE") .. "/.config/palette.lua")
 if ok and p then
-  config.colors = {
+  config.color_schemes["Matugen"] = {
     background = p.surface,
     foreground = p.on_surface,
     cursor_bg  = p.primary,
     ansi       = p.ansi,
     brights    = p.brights,
   }
+  config.color_scheme = "Matugen"
 end
 ```
+
+`pcall` means a missing or malformed palette leaves WezTerm on `THEME` rather than failing to start.
+
+**Do not touch the focus handler** (`window:set_config_overrides`, line ~234). It overrides only opacity and window decorations, and `set_config_overrides` affects solely the keys present in its table — colors are unaffected by it.
+
+**Reload requires touching `.wezterm.lua` itself** — confirmed in Task 1: editing only the `dofile`'d include produced no reload after 20+ seconds, while touching the main file picked up the pending change in ~5 seconds. `Apply-Theme` already does this.
 
 - [ ] **Step 3: Test the failure path first**
 
@@ -721,7 +734,9 @@ return {
 '@ | Set-Content "$env:USERPROFILE\.config\palette.lua" -Encoding ascii
 ```
 
-Launch WezTerm. Expected: a red background. Then apply the reload finding from Task 1 Step 9 — if WezTerm does not pick up a change to `palette.lua` alone, confirm that touching `.wezterm.lua` triggers it.
+Launch WezTerm. Expected: a red background. Verify by screenshotting the window (PowerShell `System.Drawing` `CopyFromScreen` to a PNG under `$env:TEMP`, then read the PNG) — do not automate clicks or SendKeys, a human is at this machine.
+
+Task 1 established that WezTerm will **not** notice a change to `palette.lua` alone; touching `.wezterm.lua` is what triggers the reload. Confirm that here.
 
 - [ ] **Step 5: Clean up and commit**
 
@@ -783,11 +798,13 @@ Render manually with a probe palette and check starship accepts it:
 ```powershell
 $probe = Get-ChildItem "C:\Program Files (x86)\Steam\steamapps\workshop\content\431960" -Recurse -Filter "preview.jpg" | Select-Object -First 1 -ExpandProperty FullName
 @"
+[config]
+
 [templates.starship]
 input_path = '$PWD\matugen\templates\starship.toml'
 output_path = '$env:TEMP\starship-probe.toml'
 "@ | Set-Content "$env:TEMP\probe.toml" -Encoding ascii
-matugen image $probe --mode dark --config "$env:TEMP\probe.toml"
+matugen image $probe --mode dark --prefer saturation --config "$env:TEMP\probe.toml"
 $env:STARSHIP_CONFIG = "$env:TEMP\starship-probe.toml"
 starship prompt
 $env:STARSHIP_CONFIG = $null
@@ -819,7 +836,11 @@ git commit -m "feat: templatize starship prompt colors"
 
 Output paths point at a temp staging directory, **not** at live configs. `Apply-Theme` moves files into place only after validation.
 
+**A top-level `[config]` table is mandatory**, even when empty. Without it matugen fails with a cryptic `missing field \`config\`` error (found in Task 1).
+
 ```toml
+[config]
+
 [templates.yasb]
 input_path = 'C:\Users\PC\Documents\git\setup\matugen\templates\yasb.styles.css'
 output_path = 'C:\Users\PC\Documents\git\setup\state\staging\styles.css'
@@ -1021,7 +1042,11 @@ function Apply-Theme {
 
     New-Item -ItemType Directory -Force -Path $script:Staging, $script:LastGood | Out-Null
 
-    matugen image $Image --mode dark --type $Scheme --config (Join-Path $script:Root "matugen\config.toml")
+    # --prefer is REQUIRED for scripted use. Many images yield multiple
+    # candidate source colors; without a preference matugen tries to prompt,
+    # detects no terminal, and fails. Verified in Task 1: gif previews (70% of
+    # this library) fail without it and succeed with it.
+    matugen image $Image --mode dark --type $Scheme --prefer saturation --config (Join-Path $script:Root "matugen\config.toml")
     if ($LASTEXITCODE -ne 0) {
         Write-Warning "matugen failed with exit code $LASTEXITCODE"
         return [PSCustomObject]@{ Success = $false; Failed = @('matugen') }
@@ -1282,6 +1307,11 @@ function Resolve-PreviewImage {
     }
     return $null
 }
+```
+
+Task 1 measured the real coverage across 57 installed wallpapers: **~70% are gif-only** (no `preview.jpg`) and **2 have no preview asset at all**. So the gif branch is the common path, not an edge case — and matugen handles gifs fine given `--prefer` (verified). The `$null` return for the 2 uncovered wallpapers is handled by the caller, which warns and leaves the theme unchanged.
+
+```powershell
 
 function Switch-Wallpaper {
     [CmdletBinding()]
