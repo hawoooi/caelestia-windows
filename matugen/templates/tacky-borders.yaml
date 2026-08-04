@@ -87,14 +87,20 @@ global:
   #       Each value (dark/light) can be a hex code, "accent", or a gradient.
   #       Borders automatically update when the system theme changes.
   # Gradient stops chosen for tonal progression (dark -> mid -> bright):
-  # surface_dim (darkest) -> primary_container -> primary -> inverse_primary (brightest).
-  # All four roles verified present in docs/matugen-reference.md; no substitution needed.
+  # surface_dim -> primary_container -> inverse_primary -> primary.
+  # Verified monotonically increasing in relative luminance by actually rendering this
+  # template through matugen against 4 real probe images (--prefer saturation) and computing
+  # sRGB relative luminance of each rendered hex stop; see
+  # .superpowers/sdd/2026-08-04-wallpaper-theming-pipeline/task-5-report.md for the per-palette
+  # luminance table. `primary` (not `inverse_primary`) is the brightest role in dark mode:
+  # inverse_primary is designed to contrast against inverse_surface (light-toned in dark mode),
+  # so it renders as a mid-dark saturated tone, never the brightest stop.
   active_color:
     colors:
       - "{{colors.surface_dim.default.hex}}"
       - "{{colors.primary_container.default.hex}}"
-      - "{{colors.primary.default.hex}}"
       - "{{colors.inverse_primary.default.hex}}"
+      - "{{colors.primary.default.hex}}"
     direction: 45deg
 
   inactive_color:
