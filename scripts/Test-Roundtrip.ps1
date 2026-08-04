@@ -20,7 +20,11 @@ function Test-Roundtrip {
     foreach ($prop in $map.PSObject.Properties) {
         $literal = $prop.Name
         if ($literal.StartsWith('#')) {
-            $source = [regex]::Replace($source, [regex]::Escape($literal), $literal, 'IgnoreCase')
+            # Same lookahead as New-Template, for the same reason. These two
+            # patterns MUST stay identical: if they diverge, or if both share a
+            # flaw, corruption cancels out symmetrically and the gate passes
+            # code it should reject.
+            $source = [regex]::Replace($source, ([regex]::Escape($literal) + '(?![0-9a-fA-F])'), $literal, 'IgnoreCase')
         }
         else {
             $loose = [regex]::Escape($literal) -replace ',', '\s*,\s*' -replace '\\\(', '\(\s*' -replace '\\\)', '\s*\)'
