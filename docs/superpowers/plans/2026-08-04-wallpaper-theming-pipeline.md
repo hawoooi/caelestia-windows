@@ -732,17 +732,35 @@ end
 
 With no `~/.config/palette.lua` present, launch WezTerm. Expected: it starts normally on its built-in colors, no error dialog.
 
-- [ ] **Step 4: Test the success path**
+- [ ] **Step 4: Test the success path — IN ISOLATION**
+
+⚠️ **Do not write a test palette to `~/.config/palette.lua`.** That is the live path the running config reads, and `automatically_reload_config` defaults to `true`, so the user's active terminal picks it up within seconds. This happened once already: a red test palette hijacked the live session mid-task.
+
+Test against a throwaway config instead, so nothing touches the live one:
 
 ```powershell
+$sandbox = "$env:TEMP\wezterm-t6"
+New-Item -ItemType Directory -Force -Path $sandbox | Out-Null
+
+# A copy of the real config, pointed at a sandboxed palette path.
+$cfg = (Get-Content "$env:USERPROFILE\.wezterm.lua" -Raw).Replace(
+  'os.getenv("USERPROFILE") .. "/.config/palette.lua"',
+  '"' + ($sandbox -replace '\\','/') + '/palette.lua"')
+[System.IO.File]::WriteAllText("$sandbox\wezterm.lua", $cfg, (New-Object System.Text.UTF8Encoding($false)))
+
 @'
 return {
   surface = "#ff0000", on_surface = "#00ff00", primary = "#0000ff",
-  ansi = {"#111","#222","#333","#444","#555","#666","#777","#888"},
-  brights = {"#999","#aaa","#bbb","#ccc","#ddd","#eee","#fff","#000"},
+  ansi = {"#111111","#222222","#333333","#444444","#555555","#666666","#777777","#888888"},
+  brights = {"#999999","#aaaaaa","#bbbbbb","#cccccc","#dddddd","#eeeeee","#ffffff","#000000"},
 }
-'@ | Set-Content "$env:USERPROFILE\.config\palette.lua" -Encoding ascii
+'@ | Set-Content "$sandbox\palette.lua" -Encoding ascii
+
+# Spawn a window using ONLY the sandbox config. Screenshot it, then close it.
+& "C:\Program Files\WezTerm\wezterm.exe" --config-file "$sandbox\wezterm.lua" start
 ```
+
+Verify by screenshotting that spawned window. **Close the window you spawned and delete `$sandbox` when done.** The live `~/.config/palette.lua` is written for the first time by `Apply-Theme` in Task 8, not here.
 
 Launch WezTerm. Expected: a red background. Verify by screenshotting the window (PowerShell `System.Drawing` `CopyFromScreen` to a PNG under `$env:TEMP`, then read the PNG) — do not automate clicks or SendKeys, a human is at this machine.
 
@@ -1481,6 +1499,20 @@ Screenshot the top 36px and confirm workspace numbers render. **Do not write `co
 - The line telling readers to ignore komorebi widgets — they render now.
 - The claim that the `komorebic.exe is not recognized` warning is expected — it is not.
 - Add a section stating `styles.css` is **generated** from `setup/matugen/templates/yasb.styles.css`, that hand-edits are overwritten on the next wallpaper switch, and that color changes belong in `setup/matugen/mapping.json`.
+
+- [ ] **Step 4b: Record the `.wezterm.lua` edits in a tracked file**
+
+`~/.wezterm.lua` is **not under version control** (the home directory is not a git repo), yet Task 6 made two changes there that the pipeline depends on. If that file is ever restored from a backup or rebuilt, the WezTerm integration breaks with no trace of why.
+
+Create `docs/wezterm-integration.md` recording, precisely enough to reapply from scratch:
+
+1. **The generated-scheme block**, inserted after `config.color_scheme = THEME` (~line 99) — the `pcall(dofile, ...)` guard, registration into `config.color_schemes["Matugen"]`, and the reassignment of `config.color_scheme`. Include the actual code.
+2. **The focus-handler fix** — that `local scheme = config.color_schemes[THEME]` must become
+   `local scheme = config.color_schemes[config.color_scheme] or config.color_schemes[THEME]`,
+   **and why**: the `window-focus-changed` handler assigns `overrides.colors` from `scheme`, so reading `THEME` directly makes the generated palette revert to the static theme on the first focus change. This presents as "theming randomly stopped working" and is hard to diagnose after the fact.
+3. **Ordering constraint** — the generated-scheme block must run *before* the `local scheme = ...` line.
+4. **Testing note** — never write a test palette to `~/.config/palette.lua`; `automatically_reload_config` defaults to `true` and it will hijack the live session. Use a sandboxed config via `--config-file` (see Task 6 Step 4).
+5. **Validation note** — `wezterm ... show-keys` returns **exit 0 even on a broken config**, silently falling back to defaults. Check for a known marker string in the output instead of trusting the exit code.
 
 - [ ] **Step 5: Commit both repos**
 
