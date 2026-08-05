@@ -11,10 +11,11 @@ if (-not (Get-Command matugen -ErrorAction SilentlyContinue)) {
     }
 }
 
-$script:Root    = Split-Path $PSScriptRoot -Parent
-$script:Staging = Join-Path $script:Root "state\staging"
-$script:LastGood= Join-Path $script:Root "state\last-good"
-$script:Yasbc   = "C:\Program Files\yasb\yasbc.exe"
+$script:Root        = Split-Path $PSScriptRoot -Parent
+$script:Staging     = Join-Path $script:Root "state\staging"
+$script:LastGood    = Join-Path $script:Root "state\last-good"
+$script:LastGoodPrev= Join-Path $script:Root "state\last-good-prev"
+$script:Yasbc       = "C:\Program Files\yasb\yasbc.exe"
 
 $script:Targets = @(
     @{ Name='yasb';     Staged='styles.css';       Live="$env:USERPROFILE\.config\yasb\styles.css" }
@@ -34,13 +35,22 @@ function Remove-Bom {
 function Test-StagedFile {
     <#
       Pre-move validation. Returns $true if the staged file looks usable.
-      yasb and tacky-borders have no offline validator, so they are checked
-      after the move via their logs instead.
+      tacky-borders has no offline validator, so it is checked after the
+      move via its log instead.
+
+      yasb ALSO has no offline validator, but unlike tacky it cannot be
+      checked after the move either: see docs/validation-limits.md. yasb's
+      CSS loader only logs on file-read errors, and its bundled CSS parser
+      does spec-mandated lenient error recovery, so content corruption is
+      invisible to the post-copy log grep -- confirmed live (Task 8 report).
+      The checks below are therefore the ONLY gate for yasb; they run
+      pre-copy, deliberately, so a rejection here never touches a live file.
     #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$Name,
-        [Parameter(Mandatory)][string]$Path
+        [Parameter(Mandatory)][string]$Path,
+        [string]$LastGoodDir = $script:LastGood
     )
 
     $text = [System.IO.File]::ReadAllText($Path)
@@ -52,6 +62,59 @@ function Test-StagedFile {
     }
 
     switch ($Name) {
+        'yasb' {
+            # Structural checks only -- no offline QSS/CSS validator exists
+            # (Qt's own parser doesn't surface content errors either; see
+            # docs/validation-limits.md). Each check below was proven to
+            # actually fire against real corruption, not just synthetic
+            # fixtures -- see tests/ApplyTheme.Tests.ps1.
+
+            # Balanced braces: catches truncation and unterminated blocks.
+            # This alone would have caught the Task 8 unterminated-block
+            # corruption that the log check missed entirely.
+            $open  = ([regex]::Matches($text, '\{')).Count
+            $close = ([regex]::Matches($text, '\}')).Count
+            if ($open -ne $close) {
+                Write-Warning "styles.css has unbalanced braces ($open open, $close close)"
+                return $false
+            }
+
+            $lastGoodPath = Join-Path $LastGoodDir 'styles.css'
+            if (Test-Path $lastGoodPath) {
+                $lastGoodItem = Get-Item $lastGoodPath
+                $lastGoodText = [System.IO.File]::ReadAllText($lastGoodPath)
+
+                # Selector-count sanity: a palette swap only rewrites color
+                # values, never adds/removes rules, so the number of rule
+                # blocks (one `{` per selector prelude) should stay stable.
+                # +-5% tolerance for incidental future template edits.
+                $lastRuleCount = ([regex]::Matches($lastGoodText, '\{')).Count
+                if ($lastRuleCount -gt 0) {
+                    $ruleDelta = [math]::Abs($open - $lastRuleCount) / $lastRuleCount
+                    if ($ruleDelta -gt 0.05) {
+                        Write-Warning "styles.css rule count changed by $([math]::Round($ruleDelta * 100, 1))% ($lastRuleCount -> $open braces) -- more than the 5% tolerance"
+                        return $false
+                    }
+                }
+
+                # Size sanity: catches truncation and runaway duplication
+                # that could coincidentally preserve rule count and balance.
+                # +-20% tolerance.
+                $size     = (Get-Item $Path).Length
+                $lastSize = $lastGoodItem.Length
+                if ($lastSize -gt 0) {
+                    $sizeDelta = [math]::Abs($size - $lastSize) / $lastSize
+                    if ($sizeDelta -gt 0.20) {
+                        Write-Warning "styles.css size changed by $([math]::Round($sizeDelta * 100, 1))% ($lastSize -> $size bytes) -- more than the 20% tolerance"
+                        return $false
+                    }
+                }
+            }
+            # else: no last-good baseline yet (first-ever apply) -- nothing
+            # to compare against, so only the brace-balance check above applies.
+
+            return $true
+        }
         'wezterm' {
             # Structural check, not a full Lua parse: no interpreter is installed.
             if ($text -notmatch '(?s)^\s*--.*?return\s*\{' -and $text -notmatch '(?s)^\s*return\s*\{') {
@@ -128,7 +191,7 @@ function Apply-Theme {
         return [PSCustomObject]@{ Success = $false; Failed = @('preflight') }
     }
 
-    New-Item -ItemType Directory -Force -Path $script:Staging, $script:LastGood | Out-Null
+    New-Item -ItemType Directory -Force -Path $script:Staging, $script:LastGood, $script:LastGoodPrev | Out-Null
 
     # --prefer is REQUIRED for scripted use. Many images yield multiple
     # candidate source colors; without a preference matugen tries to prompt,
@@ -157,10 +220,14 @@ function Apply-Theme {
         return [PSCustomObject]@{ Success = $true; Failed = @() }
     }
 
-    # Snapshot current live files before touching anything.
-    foreach ($t in $script:Targets) {
-        if (Test-Path $t.Live) { Copy-Item $t.Live (Join-Path $script:LastGood $t.Staged) -Force }
-    }
+    # NOTE: last-good is deliberately NOT refreshed here from current live
+    # content. It used to be (a pre-copy snapshot-from-live), which meant an
+    # undetected-bad apply became the new "last known good" baseline on the
+    # very next run, silently destroying the only real safety net (found for
+    # real in Task 8: an undetected-broken yasb stylesheet got snapshotted as
+    # last-good by the following apply). last-good is now only refreshed
+    # further down, after THIS run has passed every check -- pre-copy
+    # structural validation AND the post-copy log check.
 
     # Mark both logs BEFORE copying -- tacky-borders may react to its config
     # changing on disk, without waiting for an explicit reload.
@@ -195,6 +262,20 @@ function Apply-Theme {
         }
         & $script:Yasbc reload | Out-Null
         return [PSCustomObject]@{ Success = $false; Failed = $failed }
+    }
+
+    # Passed every check (pre-copy structural validation + post-copy log
+    # check): only NOW is it safe to call this run's output "known good".
+    # Rotate two generations -- move the previous last-good to
+    # last-good-prev before overwriting last-good with this run's staged
+    # output -- so a single bad-but-undetected apply cannot, by itself,
+    # destroy the only known-good copy; last-good-prev is one apply further
+    # back as a second fallback.
+    foreach ($t in $script:Targets) {
+        $curBackup  = Join-Path $script:LastGood $t.Staged
+        $prevBackup = Join-Path $script:LastGoodPrev $t.Staged
+        if (Test-Path $curBackup) { Copy-Item $curBackup $prevBackup -Force }
+        Copy-Item (Join-Path $script:Staging $t.Staged) $curBackup -Force
     }
 
     # Force WezTerm to notice the new palette (see docs/spikes.md, unknown #2).

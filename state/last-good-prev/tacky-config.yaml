@@ -86,25 +86,16 @@ global:
   #           light: "#000000"
   #       Each value (dark/light) can be a hex code, "accent", or a gradient.
   #       Borders automatically update when the system theme changes.
-  # Gradient stops chosen for tonal progression (dark -> mid -> bright):
-  # surface_dim -> primary_container -> inverse_primary -> primary.
-  # Verified monotonically increasing in relative luminance by actually rendering this
-  # template through matugen against 4 real probe images (--prefer saturation) and computing
-  # sRGB relative luminance of each rendered hex stop; see
-  # .superpowers/sdd/2026-08-04-wallpaper-theming-pipeline/task-5-report.md for the per-palette
-  # luminance table. `primary` (not `inverse_primary`) is the brightest role in dark mode:
-  # inverse_primary is designed to contrast against inverse_surface (light-toned in dark mode),
-  # so it renders as a mid-dark saturated tone, never the brightest stop.
   active_color:
     colors:
-      - "#15130c"
-      - "#514700"
-      - "#6b5e10"
-      - "#d8c770"
+      - "#282a3a"
+      - "#53566e"
+      - "#9a9db8"
+      - "#c7c9d9"
     direction: 45deg
 
   inactive_color:
-    colors: ["#222017", "#4a4739"]
+    colors: ["#30304f", "#363c69"]
     direction:
       start: [0.0, 1.0]
       end: [1.0, 0.0]
@@ -113,9 +104,9 @@ global:
   #   - active_color is used for komorebi's "Single" window kind
   #   - inactive_color is used for komorebi's "Unfocused" window kind
   komorebi_colors:
-    stack_color: "#a8d0b5"
-    monocle_color: "#d0c7a2"
-    floating_color: "#93000a"
+    stack_color: "#e762b7"
+    monocle_color: "#62e793"
+    floating_color: "#f5f5a5"
     enabled: False
 
   # animations: Configure animation behavior for window borders
