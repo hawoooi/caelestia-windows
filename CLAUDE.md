@@ -32,17 +32,27 @@ Switch-Wallpaper.ps1
        -> renders all 4 templates into state/staging/
        -> Remove-Bom + Test-StagedFile on every staged file (pre-copy, structural, per-target)
        -> abort here if any target fails -- nothing live has been touched yet
-       -> snapshot current live files is NOT done pre-copy -- last-good is only refreshed
-          AFTER this run passes every check (pre-copy structural validation + post-copy log
-          check), because a pre-copy snapshot let an undetected-bad apply silently become the
-          new "last-good" baseline on the very next run (found live in Task 8; see
-          Apply-Theme.ps1's own comment above its `Update-LastGood` call for the full account)
-       -> copy staged files over the live configs
-       -> yasbc reload; wait 8s; grep yasb.log tail for error|critical|invalid|could not be read
+       -> New-PreApplySnapshot: snapshot the CURRENTLY LIVE content of all 4 targets into
+          state/pre-apply/ (a directory SEPARATE from state/last-good/ -- see below)
+       -> state/last-good/ itself is NOT refreshed pre-copy -- it is only refreshed AFTER this
+          run passes every check (pre-copy structural validation + post-copy log check), because
+          a pre-copy refresh of last-good let an undetected-bad apply silently become the new
+          "last-good" baseline on the very next run (found live in Task 8; see Apply-Theme.ps1's
+          own comment above its `Update-LastGood` call for the full account)
+       -> Copy-StagedToLive: copy staged files over the live configs (-ErrorAction Stop; a
+          partial copy rolls back from state/pre-apply/ immediately, before any post-copy check)
+       -> yasbc reload; wait 8s; Test-YasbLogFailure greps the yasb.log tail for a
+          CSS/stylesheet-specific signal (narrowed from a blanket error|critical|invalid|could
+          not be read grep, which matched unrelated widget noise and false-triggered rollback)
        -> tacky-borders log grep, but ONLY if the tacky-borders process is actually running
-       -> on any post-copy failure: roll back every target from state/last-good/, reload again
-       -> on success: Update-LastGood (atomic 2-generation rotation), touch ~/.wezterm.lua
-  -> writes state/current.json ({ wallpaper, preview, appliedUtc })
+       -> on any post-copy failure: roll back every target from state/pre-apply/ (NOT
+          state/last-good/ -- pre-apply holds what was actually live a moment ago, hand-edits
+          included; last-good holds the last VALIDATED PIPELINE generation, which is a different
+          thing and would silently discard a hand-edited live file on rollback), reload again
+       -> on success: Update-LastGood (atomic 2-generation rotation; a failed rotation warns
+          rather than rolling back an already-good live apply), touch ~/.wezterm.lua
+  -> writes state/current.json ({ wallpaper, preview, appliedUtc }) -- also now the -Image
+     fallback source: `Apply-Theme` with no -Image reads this file's `preview` field
 ```
 
 **Two entry-point scripts:**
@@ -207,6 +217,18 @@ Invoke-Pester tests\ -Output Detailed
 Whatever caused the drift (`state/last-good/styles.css` size/rule-count baseline in
 `Test-StagedFile`'s yasb checks) will also need a fresh successful apply to re-baseline itself —
 that happens automatically via `Update-LastGood` the next time `Apply-Theme` succeeds.
+
+**This used to be circular** for a genuinely large intentional change (e.g. a maintainer adding
+~9 rules to a 175-block template): the ±5%/±20% rule-count/size checks reject the apply for
+drifting too far from the stale baseline, so `Apply-Theme` never succeeds, so `Update-LastGood`
+never runs, so the baseline can never re-baseline itself — the remedy required the thing it was
+supposed to fix. `Apply-Theme -AcceptStructuralChange` (threaded through to
+`Test-StagedFile -AcceptStructuralChange`) breaks the cycle: it bypasses ONLY the rule-count/size
+comparison against `state/last-good/` for that one apply (brace-balance and
+unterminated-comment/string detection — the checks that actually catch corruption — still run in
+full). Use it for exactly one apply after a deliberate structural template edit; if that apply
+succeeds, `Update-LastGood` re-baselines normally and every apply after that is compared against
+the new, larger baseline with the full ±5%/±20% tolerance back in effect.
 
 ## The five original unknowns — resolved answers
 

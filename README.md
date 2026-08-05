@@ -54,3 +54,16 @@ machine) has these keys free, confirmed by inspection of the current bindings:
 
 To wire one up, add a line to `~/.config/whkdrc` invoking a PowerShell command that dot-sources
 and calls `Switch-Wallpaper`, then reload komorebi/whkd's config.
+
+## Portability (M4)
+
+**This repo is not relocatable as-is.** `matugen/config.toml` hardcodes every template's
+`input_path`/`output_path` as an absolute Windows path
+(`C:\Users\PC\Documents\git\setup\matugen\templates\...` /
+`...\state\staging\...`) rather than anything relative to the config file's own location or the
+current working directory. Cloning this repo to a different path, or onto a different machine
+under a different username, means every `input_path`/`output_path` in `matugen/config.toml` needs
+hand-editing to match before `Apply-Theme` will render correctly — matugen v4.1 has no documented
+repo-relative or CWD-relative path substitution for `[templates.*]` entries (see
+`docs/matugen-reference.md` for what its `[config]`/`[templates.*]` schema does support). Not
+fixed here; recorded so a future move/clone isn't surprised by silent path failures.

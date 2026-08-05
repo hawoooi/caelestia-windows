@@ -126,6 +126,40 @@ for that lesson once, on Task 2's `Test-StagedFile`-adjacent work).
 one failure class it *can* see (file-level read errors), and it's nearly free to check. It must
 never again be the *only* signal for this target.
 
+### Update: the log-grep pattern itself was too broad (final fix wave, I1)
+
+The post-copy check originally matched the whole yasb.log tail against
+`(?i)error|critical|invalid|could not be read`. yasb.log carries **every widget's** own log
+output on the same timeline, not just CSS-loading messages - live capture found 7 lines matching
+that pattern with zero relation to `styles.css` (a `traffic_manager.py` JSON parse error, a
+`glazewm_client` WebSocket reconnect warning, a `KeyError` from an unrelated menu callback). Any
+one of those landing in the 8-second post-copy window triggered a full four-target rollback for a
+stylesheet that was never the problem. `Test-YasbLogFailure` (in `scripts/Apply-Theme.ps1`)
+narrows the match to `(?i)CSSProcessor` - the identifier this doc's own source-extraction above
+confirms is unique to `CSSProcessor._read_css_file`'s error log line
+(`"CSSProcessor Error '%s': %s"`), i.e. still the one failure class this check can actually see,
+with the unrelated-widget false positives eliminated. tacky-borders' log check keeps the original
+broad pattern - it logs only its own activity, not dozens of unrelated widgets, so this
+false-positive class doesn't apply there.
+
+### Update: tacky-borders now gets a real pre-copy structural check (final fix wave, I2)
+
+`Test-StagedFile`'s `switch` previously had no `'tacky'` case at all, so it fell through to
+`default { return $true }` - **zero validation**, verified: a staged file containing literally
+`"totally: garbage`n`not even: [yaml"` passed unconditionally. It now checks for the five expected
+top-level keys (`watch_config_changes`, `enable_logging`, `rendering_backend`, `global`,
+`window_rules`) and a balanced quote count - a structural sanity check, same ceiling as yasb's
+(no offline YAML parser available either), not a real parse.
+
+### Update: starship's PATH guard (final fix wave, I3)
+
+If `starship` isn't resolvable on `PATH`, `& starship prompt` previously raised a non-terminating
+"term not recognized" error, leaving `$LASTEXITCODE` at whatever it was **before** that call - in
+the real `Apply-Theme` flow, `0`, from matugen's own preceding success check. That stale `0` read
+as "starship accepted the config", silently passing validation for a target that was never
+actually checked. `Test-StagedFile`'s `'starship'` case now guards with
+`Get-Command starship -ErrorAction SilentlyContinue` first and fails closed if it's missing.
+
 ## What this does NOT fix
 
 - **These are structural checks, not a real CSS validator.** As of this fix, the structural checks
@@ -150,11 +184,40 @@ never again be the *only* signal for this target.
   generation and `last-good` holds the second - there is no third generation to fall back to. This
   is the buffer's designed scope, not an oversight; making it explicit here so the boundary isn't
   assumed away.
-- **`last-good-prev` is never read automatically.** The rollback path in `Apply-Theme` only ever
-  restores from `last-good` when the post-copy log check fails; `last-good-prev` is not consulted
-  by any code path. It exists solely as a manual human recovery option (copy its files over live
-  by hand) if `last-good` itself later turns out to have been bad. Do not assume it's an automatic
+- **`last-good-prev` is never read automatically.** Neither is `last-good`, as of the final fix
+  wave - see "`state/pre-apply/` - the rollback source" below. `last-good-prev` is not consulted by
+  any code path; it exists solely as a manual human recovery option (copy its files over live by
+  hand) if `last-good` itself later turns out to have been bad. Do not assume it's an automatic
   second line of defence - it isn't wired to anything.
+
+## `state/pre-apply/` - the rollback source (final fix wave, C2)
+
+**Rollback no longer restores from `state/last-good/`.** It used to, and that was a real bug: the
+scenario below is not hypothetical, it's the exact failure mode C2 in the final fix report exists
+to close.
+
+`last-good` is the last **validated pipeline generation** - refreshed only after a full successful
+apply (see below). It is not, and was never meant to be, a snapshot of whatever happens to be live
+right now. Between two applies, a live file can legitimately diverge from `last-good` with nothing
+wrong at all - most concretely, a hand-edit to `~/.config/starship.toml` (or any of the other three
+live configs). `~/.config` is not a git repo; a hand-edit has no history and no other backup.
+If a *later* apply then fails its post-copy check, the old rollback restored `last-good` over the
+live file - discarding the hand-edit and replacing it with the pipeline's own prior output, not
+with what was actually live a moment before the failed apply.
+
+`New-PreApplySnapshot` (in `scripts/Apply-Theme.ps1`) fixes this by snapshotting the CURRENTLY
+LIVE content of all four targets into a directory separate from `last-good`/`last-good-prev` -
+`state/pre-apply/` (gitignored: it is pure runtime scratch, rewritten in full before every live
+copy, same category as `state/staging/`) - immediately before the copy loop. `Restore-
+PreApplySnapshot` is what rollback now calls, on both failure paths (a partial `Copy-StagedToLive`
+failure, and a post-copy log-check failure). `last-good`/`last-good-prev` keep their existing
+meaning and rotation exactly as documented below - this fix does not touch or reintroduce the
+Task 8 pre-copy-snapshot bug that section describes; that bug was about `last-good` being
+refreshed too early (before validation), not about which directory rollback reads from.
+
+First-apply caveat, unchanged in shape from the old `last-good`-based rollback: if a target has no
+live file yet, there's nothing to snapshot for it, and a rollback finds no backup either -
+`Restore-PreApplySnapshot`'s per-target `Test-Path` guard no-ops rather than erroring.
 
 ## `state/last-good/` and `state/last-good-prev/`
 
@@ -197,3 +260,59 @@ missing but `last-good-prev` is present, `last-good-prev` is left untouched and 
 logged (`"last-good is missing but last-good-prev exists -- a prior rotation may have been
 interrupted."`) instead of being silently discarded. Covered by its own Pester test asserting both
 the file content survives and the warning fires.
+
+**A failed rotation now surfaces instead of orphaning silently (final fix wave, I4).** Every
+`Copy-Item`/`Rename-Item` inside `Update-LastGood` passes `-ErrorAction Stop`. Previously none of
+them did - a mid-loop failure (e.g. one staged file missing) was non-terminating, so the loop kept
+going, and both renames still ran afterward, promoting an **incomplete** `last-good-new` -
+missing whichever target failed to copy - straight to `last-good`. `-ErrorAction Stop` turns that
+into a terminating exception that aborts before either rename, leaving the existing `last-good`
+untouched. `Apply-Theme` wraps its call to `Update-LastGood` in try/catch and warns rather than
+rolling back the live apply on failure - the live theme, by the time `Update-LastGood` runs, has
+already copied and passed the post-copy check; only the bookkeeping failed, which doesn't warrant
+discarding a good live apply. The practical consequence of a rotation failure: the next apply's
+structural baseline (and any future rollback) keeps comparing against the *previous* generation
+until a future apply succeeds and `Update-LastGood` runs cleanly.
+
+## Why `state/last-good/`+`state/last-good-prev/` are tracked in git but `state/staging/`,
+## `state/last-good-new/` and `state/pre-apply/` are not (M3)
+
+`last-good`/`last-good-prev` ARE the safety net - they need to survive a fresh clone or a rebuilt
+machine, not just the current working tree, so that `Test-StagedFile`'s rule-count/size comparison
+and a manual human rollback have something to work from even before this repo has ever
+successfully applied a theme on that machine. Committing them costs very little (four small text
+files each) and buys a baseline on day one.
+
+`state/staging/`, `state/last-good-new/`, and `state/pre-apply/` are pure runtime scratch -
+completely rewritten on every apply/rotation, carrying no information that isn't trivially
+reproducible by re-running the pipeline, and would be nothing but commit noise (`staging/`
+churns on every single apply, dry-run or not).
+
+**Caveat: because `last-good`/`last-good-prev` are updated by the script via direct file writes,
+not through git commits, they can desync from what's actually been committed.** Running `git
+clean -fdx` won't touch them directly (`git clean` only removes *untracked* files, and these are
+tracked) - but any operation that resets tracked files to `HEAD` (`git checkout -- state/last-good`,
+`git reset --hard`, a fresh clone before the latest baseline was ever committed) silently reverts
+them to whatever was last committed, which may be an older baseline than what the pipeline has
+actually been comparing against locally. If `Test-StagedFile`'s rule-count/size checks start
+rejecting an apply that looks fine, checking `git status`/`git log -- state/last-good` for
+uncommitted or stale baseline drift is worth doing before reaching for `-AcceptStructuralChange`.
+
+## WezTerm's palette.lua validation ceiling (M7)
+
+`Test-StagedFile`'s `'wezterm'` case is structural only, same ceiling as yasb/tacky: it checks that
+the staged file opens with a Lua `return { ... }` table, that braces balance (after stripping
+full-line comments), and that every quoted value is a 6-digit hex color. It does **not** invoke
+WezTerm's own reliable content check (`docs/wezterm-integration.md`, "Validation note -
+`show-keys` exit code is not reliable" - grepping unpiped `show-keys` output for a known marker
+line). That check requires spawning a real `wezterm.exe`/`wezterm-gui.exe` process against a
+config that actually `dofile()`s the staged palette, which per that same doc's own testing-note
+either means writing to the LIVE `~/.config/palette.lua` path (the one thing that doc explicitly
+says never to do outside a sandboxed test - `automatically_reload_config` watches `.wezterm.lua`
+itself and would reload the human's actual session) or building and tearing down a sandboxed
+config on every single apply, which is slow and intrusive for an automated pre-copy gate. Not
+wired in for that reason. Practical consequence: a `palette.lua` that is structurally valid
+(balanced braces, all-hex values, opens with `return {`) but would still fail WezTerm's actual Lua
+execution - e.g. a typo'd table key the `window-focus-changed` handler expects - is not caught by
+`Apply-Theme`. Same gap class as yasb/tacky: structural, not semantic; visual confirmation remains
+the real gate.

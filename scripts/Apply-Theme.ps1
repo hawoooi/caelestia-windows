@@ -16,6 +16,11 @@ $script:Staging     = Join-Path $script:Root "state\staging"
 $script:LastGood    = Join-Path $script:Root "state\last-good"
 $script:LastGoodPrev= Join-Path $script:Root "state\last-good-prev"
 $script:LastGoodNew = Join-Path $script:Root "state\last-good-new"
+# state/pre-apply/ is a SEPARATE snapshot from state/last-good/ -- see
+# New-PreApplySnapshot's own comment. last-good is the last VALIDATED
+# pipeline generation; pre-apply is whatever was live a moment ago,
+# hand-edits included. Deliberately not reused/aliased with LastGood*.
+$script:PreApply    = Join-Path $script:Root "state\pre-apply"
 $script:Yasbc       = "C:\Program Files\yasb\yasbc.exe"
 
 $script:Targets = @(
@@ -152,7 +157,23 @@ function Test-StagedFile {
     param(
         [Parameter(Mandatory)][string]$Name,
         [Parameter(Mandatory)][string]$Path,
-        [string]$LastGoodDir = $script:LastGood
+        [string]$LastGoodDir = $script:LastGood,
+        # I7: bypasses the yasb rule-count/size comparison against
+        # last-good below. The +-5%/+-20% tolerances assume a palette swap
+        # never adds/removes rules -- a maintainer genuinely adding ~9 rules
+        # to a 175-block file (an intentional, legitimate structural
+        # change) is otherwise rejected FOREVER, because every future apply
+        # keeps comparing against the same stale last-good baseline that
+        # can never pass (CLAUDE.md's old remedy for this was circular: it
+        # says the baseline "re-baselines automatically... the next time
+        # Apply-Theme succeeds", but Apply-Theme can't succeed BECAUSE the
+        # baseline rejects it). Passing this switch for one apply skips
+        # only the rule-count/size comparison (brace-balance and
+        # unterminated-comment/string checks -- the ones that actually
+        # catch corruption -- still run); if that apply then succeeds,
+        # Update-LastGood re-baselines normally and subsequent applies are
+        # compared against the new, larger baseline.
+        [switch]$AcceptStructuralChange
     )
 
     $text = [System.IO.File]::ReadAllText($Path)
@@ -219,30 +240,32 @@ function Test-StagedFile {
                 # state/last-good-prev/styles.css carries a multi-line
                 # "Acrylic recipe" prose comment that could itself gain a
                 # stray brace and skew this baseline if counted naively.
-                $lastRuleCount = $lastGoodCounts.Open
-                if ($lastRuleCount -gt 0) {
-                    $ruleDelta = [math]::Abs($open - $lastRuleCount) / $lastRuleCount
-                    if ($ruleDelta -gt 0.05) {
-                        Write-Warning "styles.css rule count changed by $([math]::Round($ruleDelta * 100, 1))% ($lastRuleCount -> $open braces) -- more than the 5% tolerance"
-                        return $false
+                if (-not $AcceptStructuralChange) {
+                    $lastRuleCount = $lastGoodCounts.Open
+                    if ($lastRuleCount -gt 0) {
+                        $ruleDelta = [math]::Abs($open - $lastRuleCount) / $lastRuleCount
+                        if ($ruleDelta -gt 0.05) {
+                            Write-Warning "styles.css rule count changed by $([math]::Round($ruleDelta * 100, 1))% ($lastRuleCount -> $open braces) -- more than the 5% tolerance (pass -AcceptStructuralChange if this is an intentional template edit)"
+                            return $false
+                        }
                     }
-                }
 
-                # Size sanity: catches truncation and runaway duplication
-                # that could coincidentally preserve rule count and balance.
-                # +-20% tolerance. Deliberately stays on the RAW (comment-
-                # included) byte length -- comments are legitimate file
-                # content, and stripping them here would let comment-based
-                # padding or truncation slip past this specific check; the
-                # brace-balance and rule-count checks above already use the
-                # comment-stripped text for what they measure.
-                $size     = (Get-Item $Path).Length
-                $lastSize = $lastGoodItem.Length
-                if ($lastSize -gt 0) {
-                    $sizeDelta = [math]::Abs($size - $lastSize) / $lastSize
-                    if ($sizeDelta -gt 0.20) {
-                        Write-Warning "styles.css size changed by $([math]::Round($sizeDelta * 100, 1))% ($lastSize -> $size bytes) -- more than the 20% tolerance"
-                        return $false
+                    # Size sanity: catches truncation and runaway duplication
+                    # that could coincidentally preserve rule count and balance.
+                    # +-20% tolerance. Deliberately stays on the RAW (comment-
+                    # included) byte length -- comments are legitimate file
+                    # content, and stripping them here would let comment-based
+                    # padding or truncation slip past this specific check; the
+                    # brace-balance and rule-count checks above already use the
+                    # comment-stripped text for what they measure.
+                    $size     = (Get-Item $Path).Length
+                    $lastSize = $lastGoodItem.Length
+                    if ($lastSize -gt 0) {
+                        $sizeDelta = [math]::Abs($size - $lastSize) / $lastSize
+                        if ($sizeDelta -gt 0.20) {
+                            Write-Warning "styles.css size changed by $([math]::Round($sizeDelta * 100, 1))% ($lastSize -> $size bytes) -- more than the 20% tolerance (pass -AcceptStructuralChange if this is an intentional template edit)"
+                            return $false
+                        }
                     }
                 }
             }
@@ -282,6 +305,17 @@ function Test-StagedFile {
             return $true
         }
         'starship' {
+            # I3: without this guard, starship missing from PATH raises a
+            # non-terminating "term not recognized" error from `&`, which
+            # leaves $LASTEXITCODE at whatever it was BEFORE this call --
+            # in the real Apply-Theme flow, 0, from matugen's own preceding
+            # success check. That stale 0 reads as "starship accepted the
+            # config", silently passing validation for a target that was
+            # never actually checked at all. Fail closed instead.
+            if (-not (Get-Command starship -ErrorAction SilentlyContinue)) {
+                Write-Warning "starship is not on PATH -- cannot validate starship.toml, failing closed"
+                return $false
+            }
             $prev = $env:STARSHIP_CONFIG
             $env:STARSHIP_CONFIG = $Path
             & starship prompt | Out-Null
@@ -289,6 +323,36 @@ function Test-StagedFile {
             $env:STARSHIP_CONFIG = $prev
             if ($code -ne 0) {
                 Write-Warning "starship rejected the generated config (exit $code)"
+                return $false
+            }
+            return $true
+        }
+        'tacky' {
+            # I2: tacky-borders has no offline validator and no CLI to
+            # dry-run a config against (same ceiling as yasb -- see
+            # docs/validation-limits.md), so this is a structural sanity
+            # check, not a real YAML parse. Previously fell through to the
+            # `default` case below, i.e. zero validation at all -- verified
+            # that a completely garbage staged file ("totally: garbage`n
+            # not even: [yaml") passed unconditionally before this fix.
+            $requiredKeys = 'watch_config_changes', 'enable_logging', 'rendering_backend', 'global', 'window_rules'
+            foreach ($key in $requiredKeys) {
+                if ($text -notmatch "(?m)^$([regex]::Escape($key)):") {
+                    Write-Warning "tacky-config.yaml is missing expected top-level key '$key'"
+                    return $false
+                }
+            }
+            # Balanced quotes: an odd count of un-escaped quote characters
+            # means a value's quoting broke mid-render (e.g. a truncated
+            # matugen expression), which YAML has to reject or misparse.
+            $dq = ([regex]::Matches($text, '(?<!\\)"')).Count
+            if ($dq % 2 -ne 0) {
+                Write-Warning "tacky-config.yaml has an unbalanced double-quote count ($dq)"
+                return $false
+            }
+            $sq = ([regex]::Matches($text, "(?<!\\)'")).Count
+            if ($sq % 2 -ne 0) {
+                Write-Warning "tacky-config.yaml has an unbalanced single-quote count ($sq)"
                 return $false
             }
             return $true
@@ -306,6 +370,154 @@ function Get-LogTail {
     $tail = $sr.ReadToEnd()
     $sr.Close(); $fs.Close()
     return $tail
+}
+
+function Test-YasbLogFailure {
+    <#
+      I1: the post-copy yasb.log check used to grep the whole log tail for
+      '(?i)error|critical|invalid|could not be read' -- a pattern that
+      matches ANY widget's log output, not just CSS/stylesheet-loading
+      failures. yasb.log carries every widget's own errors on the same
+      timeline (traffic_manager JSON errors, glazewm_client websocket
+      reconnects, a KeyError from an unrelated callback -- all observed for
+      real in the live log, 7 matching lines with zero relation to
+      styles.css). Any one of those landing in the 8-second post-copy
+      window triggered a full four-target rollback for a stylesheet that
+      was never actually the problem.
+
+      Narrowed to the one signal documented (docs/validation-limits.md) as
+      actually specific to CSS loading: yasb's CSSProcessor logs
+      "CSSProcessor Error '%s': %s" specifically on a file-level read
+      failure (missing file, permission denied -- see
+      CSSProcessor._read_css_file in that doc). Matching on "CSSProcessor"
+      keeps the log check able to catch the one failure class it CAN see
+      (docs/validation-limits.md: "kept as a secondary signal... must
+      never again be the only signal") while eliminating the false-positive
+      class that made it a liability instead. Chose narrowing the pattern
+      over making the check warn-only, specifically so it can still
+      trigger a real rollback for the failure it's actually able to detect
+      -- a warn-only check that never rejects anything is not a check
+      (this project's own stated principle, docs/validation-limits.md).
+
+      tacky-borders' log check is NOT narrowed the same way: it is not
+      shared across dozens of widgets the way yasb.log is (tacky-borders
+      logs only its own activity), so the false-positive class this fixes
+      doesn't apply there.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$LogTail)
+    return $LogTail -match '(?i)CSSProcessor'
+}
+
+function New-PreApplySnapshot {
+    <#
+      C2: snapshots the CURRENT live content of every target into a
+      SEPARATE state/pre-apply/ directory, immediately before Apply-Theme's
+      copy loop overwrites them.
+
+      This is deliberately NOT state/last-good/. last-good is the last
+      VALIDATED PIPELINE generation (see Apply-Theme's own comment above
+      its Update-LastGood call) -- it is refreshed only after a full
+      successful apply, not before every apply. A live file can drift from
+      that baseline between applies with nothing wrong at all: e.g. a hand
+      edit to ~/.config/starship.toml, which is not itself a git repo and
+      has no history of its own. If a LATER apply fails post-copy and rolls
+      back from last-good, that hand edit is gone -- overwritten with the
+      pipeline's own prior output, not restored to what was actually live.
+      This snapshot exists so rollback restores exactly what was live a
+      moment ago, hand edits included.
+
+      Targets/PreApplyDir default to the real script-scope values but can
+      be overridden for isolated testing, the same pattern
+      Test-StagedFile/Update-LastGood use.
+    #>
+    [CmdletBinding()]
+    param(
+        [array]$Targets     = $script:Targets,
+        [string]$PreApplyDir = $script:PreApply
+    )
+    if (Test-Path $PreApplyDir) { Remove-Item $PreApplyDir -Recurse -Force }
+    New-Item -ItemType Directory -Force -Path $PreApplyDir | Out-Null
+    foreach ($t in $Targets) {
+        if (Test-Path $t.Live) {
+            Copy-Item $t.Live (Join-Path $PreApplyDir $t.Staged) -Force
+        }
+        # else: no live file yet for this target (first-ever apply) --
+        # nothing to snapshot. Restore-PreApplySnapshot's Test-Path guard
+        # correctly no-ops for it too; same first-run limitation
+        # state/last-good/-based rollback always had, not a regression.
+    }
+}
+
+function Restore-PreApplySnapshot {
+    <#
+      The other half of New-PreApplySnapshot -- restores every target's
+      live path from the pre-apply snapshot. See New-PreApplySnapshot's
+      comment for why this is a separate directory from state/last-good/.
+    #>
+    [CmdletBinding()]
+    param(
+        [array]$Targets     = $script:Targets,
+        [string]$PreApplyDir = $script:PreApply
+    )
+    foreach ($t in $Targets) {
+        $backup = Join-Path $PreApplyDir $t.Staged
+        if (Test-Path $backup) { Copy-Item $backup $t.Live -Force }
+    }
+}
+
+function Copy-StagedToLive {
+    <#
+      I4: copies every staged target over its live path. Wrapped with
+      -ErrorAction Stop so a mid-loop failure (disk full, permission
+      denied, a live path locked by another process) throws immediately
+      instead of the previous behaviour -- Copy-Item failures are
+      non-terminating by default, and with no try/catch and
+      $ErrorActionPreference never set, a failure partway through this
+      loop would print a red error and carry straight on to the next
+      target, and then to the post-copy checks and a possible
+      Update-LastGood promotion, all against a LIVE state that is a mix of
+      old and new content across the four targets with nothing having
+      caught it.
+
+      Targets/StagingDir default to the real script-scope values but can be
+      overridden for isolated testing (same pattern as
+      Test-StagedFile/Update-LastGood/New-PreApplySnapshot).
+    #>
+    [CmdletBinding()]
+    param(
+        [array]$Targets    = $script:Targets,
+        [string]$StagingDir = $script:Staging
+    )
+    foreach ($t in $Targets) {
+        Copy-Item (Join-Path $StagingDir $t.Staged) $t.Live -Force -ErrorAction Stop
+    }
+}
+
+function Resolve-ImageFromState {
+    <#
+      I6: state/current.json is written by Switch-Wallpaper on every
+      successful (non-DryRun) apply -- { wallpaper, preview, appliedUtc } --
+      specifically so Apply-Theme can be re-run (e.g. after a template or
+      mapping change, per CLAUDE.md's "How to add a new theme target")
+      without re-querying Wallpaper Engine. Previously nothing ever read
+      it back -- write-only state carrying information nobody could use.
+      This is the read side of that contract: falls back to its `preview`
+      field when Apply-Theme is called with no -Image.
+    #>
+    [CmdletBinding()]
+    param([string]$CurrentJsonPath = (Join-Path $script:Root "state\current.json"))
+
+    if (-not (Test-Path $CurrentJsonPath)) { return $null }
+    $text = [System.IO.File]::ReadAllText($CurrentJsonPath)
+    try {
+        $obj = $text | ConvertFrom-Json
+    } catch {
+        Write-Warning "state\current.json could not be parsed: $($_.Exception.Message)"
+        return $null
+    }
+    if (-not $obj.preview) { return $null }
+    return $obj.preview
 }
 
 function Update-LastGood {
@@ -348,6 +560,22 @@ function Update-LastGood {
       the same pattern Test-StagedFile uses for -LastGoodDir, so this can
       be exercised end-to-end against an isolated temp fixture in tests
       without ever touching the real state/last-good/.
+
+      I4: every Copy-Item/Rename-Item below now passes -ErrorAction Stop.
+      Previously none of them did, all failures were non-terminating, and
+      nothing caught them -- so e.g. a staged file missing for one target
+      (Copy-Item fails, prints a red error, loop continues to the next
+      target regardless) still went on to run BOTH renames and promote an
+      INCOMPLETE last-good-new -- missing that one target's file -- to
+      last-good, silently orphaning the previous good generation's content
+      for it. -ErrorAction Stop turns that into a terminating exception
+      that propagates out of this function before either rename runs,
+      leaving the existing last-good (if any) completely untouched. The
+      caller (Apply-Theme) wraps its call to this function in try/catch and
+      surfaces the failure as a warning rather than crashing -- the live
+      theme, if this is reached, has already been copied and validated
+      successfully; only the last-good bookkeeping failed, which does not
+      warrant rolling back a good live apply.
     #>
     [CmdletBinding()]
     param(
@@ -360,14 +588,14 @@ function Update-LastGood {
     if (Test-Path $LastGoodNewDir) { Remove-Item $LastGoodNewDir -Recurse -Force }
     New-Item -ItemType Directory -Force -Path $LastGoodNewDir | Out-Null
     foreach ($t in $script:Targets) {
-        Copy-Item (Join-Path $StagingDir $t.Staged) (Join-Path $LastGoodNewDir $t.Staged) -Force
+        Copy-Item (Join-Path $StagingDir $t.Staged) (Join-Path $LastGoodNewDir $t.Staged) -Force -ErrorAction Stop
     }
 
     if (Test-Path $LastGoodDir) {
         # last-good exists and is about to be promoted into last-good-prev:
         # safe to discard whatever last-good-prev held.
         if (Test-Path $LastGoodPrevDir) { Remove-Item $LastGoodPrevDir -Recurse -Force }
-        Rename-Item -Path $LastGoodDir -NewName (Split-Path $LastGoodPrevDir -Leaf)
+        Rename-Item -Path $LastGoodDir -NewName (Split-Path $LastGoodPrevDir -Leaf) -ErrorAction Stop
     } elseif (Test-Path $LastGoodPrevDir) {
         # last-good is missing but last-good-prev exists: nothing to
         # rotate INTO it this run, so leave it exactly as-is rather than
@@ -379,18 +607,30 @@ function Update-LastGood {
     # else: neither exists yet (genuine first-ever apply) -- nothing to do
     # here, last-good-prev correctly stays absent.
 
-    Rename-Item -Path $LastGoodNewDir -NewName (Split-Path $LastGoodDir -Leaf)
+    Rename-Item -Path $LastGoodNewDir -NewName (Split-Path $LastGoodDir -Leaf) -ErrorAction Stop
 }
 
 function Apply-Theme {
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory)][string]$Image,
+        [string]$Image,
         [string]$Scheme = 'scheme-tonal-spot',
-        [switch]$DryRun
+        [switch]$DryRun,
+        [switch]$AcceptStructuralChange
     )
 
     $failed = @()
+
+    if (-not $Image) {
+        # I6: re-render without an explicit probe image by falling back to
+        # state/current.json's `preview` -- see Resolve-ImageFromState.
+        $Image = Resolve-ImageFromState
+        if (-not $Image) {
+            Write-Warning "-Image not given and state\current.json has no usable 'preview' to fall back to"
+            return [PSCustomObject]@{ Success = $false; Failed = @('preflight') }
+        }
+        Write-Host "No -Image given; falling back to state\current.json's preview: $Image"
+    }
 
     if (-not (Test-Path $Image)) {
         Write-Warning "Image not found: $Image"
@@ -429,7 +669,7 @@ function Apply-Theme {
             continue
         }
         Remove-Bom -Path $staged
-        if (-not (Test-StagedFile -Name $t.Name -Path $staged)) { $failed += $t.Name }
+        if (-not (Test-StagedFile -Name $t.Name -Path $staged -AcceptStructuralChange:$AcceptStructuralChange)) { $failed += $t.Name }
     }
     if ($failed.Count -gt 0) { return [PSCustomObject]@{ Success = $false; Failed = $failed } }
 
@@ -447,6 +687,12 @@ function Apply-Theme {
     # further down, after THIS run has passed every check -- pre-copy
     # structural validation AND the post-copy log check.
 
+    # C2: snapshot what's ACTUALLY LIVE right now, separately from
+    # last-good, immediately before it gets overwritten -- see
+    # New-PreApplySnapshot's own comment for why this can't just be
+    # last-good/. This is the source the rollback below restores from.
+    New-PreApplySnapshot
+
     # Mark both logs BEFORE copying -- tacky-borders may react to its config
     # changing on disk, without waiting for an explicit reload.
     $yasbLog  = "$env:USERPROFILE\.config\yasb\yasb.log"
@@ -455,29 +701,42 @@ function Apply-Theme {
     if (Test-Path $yasbLog)  { $yasbMark  = (Get-Item $yasbLog).Length }
     if (Test-Path $tackyLog) { $tackyMark = (Get-Item $tackyLog).Length }
 
-    foreach ($t in $script:Targets) {
-        Copy-Item (Join-Path $script:Staging $t.Staged) $t.Live -Force
+    try {
+        Copy-StagedToLive
+    } catch {
+        # I4: a partial copy (some targets written, one failed) must not be
+        # left standing -- restore everything from the pre-apply snapshot
+        # taken a moment ago and bail out before the post-copy checks or
+        # Update-LastGood ever run.
+        Write-Warning "Copy to live config failed: $($_.Exception.Message). Rolling back all targets from the pre-apply snapshot."
+        Restore-PreApplySnapshot
+        & $script:Yasbc reload | Out-Null
+        return [PSCustomObject]@{ Success = $false; Failed = @('copy') }
     }
 
     & $script:Yasbc reload | Out-Null
     Start-Sleep -Seconds 8
 
-    $pattern = '(?i)error|critical|invalid|could not be read'
-    if ((Get-LogTail -Path $yasbLog -Offset $yasbMark) -match $pattern) { $failed += 'yasb' }
+    # I1: narrowed from a blanket error|critical|invalid|could not be read
+    # grep (which matches ANY widget's log output, not just CSS-loading
+    # failures -- see Test-YasbLogFailure's own comment) to the one signal
+    # documented as actually specific to yasb's stylesheet loader.
+    if (Test-YasbLogFailure -LogTail (Get-LogTail -Path $yasbLog -Offset $yasbMark)) { $failed += 'yasb' }
 
     # tacky-borders is not installed here (see docs/spikes.md, unknown #3).
     # Only trust its log when the process is actually running, otherwise the
-    # tail is stale output from a previous session and means nothing.
+    # tail is stale output from a previous session and means nothing. Not
+    # narrowed like yasb's check above -- tacky-borders logs only its own
+    # activity, not dozens of unrelated widgets, so the false-positive class
+    # I1 fixes for yasb doesn't apply here.
+    $pattern = '(?i)error|critical|invalid|could not be read'
     if (Get-Process -Name 'tacky-borders' -ErrorAction SilentlyContinue) {
         if ((Get-LogTail -Path $tackyLog -Offset $tackyMark) -match $pattern) { $failed += 'tacky' }
     }
 
     if ($failed.Count -gt 0) {
         Write-Warning "Rejected by: $($failed -join ', '). Rolling back all targets."
-        foreach ($t in $script:Targets) {
-            $backup = Join-Path $script:LastGood $t.Staged
-            if (Test-Path $backup) { Copy-Item $backup $t.Live -Force }
-        }
+        Restore-PreApplySnapshot
         & $script:Yasbc reload | Out-Null
         return [PSCustomObject]@{ Success = $false; Failed = $failed }
     }
@@ -488,7 +747,18 @@ function Apply-Theme {
     # single bad-but-undetected apply cannot, by itself, destroy the only
     # known-good copy, and a crash mid-rotation can't leave last-good
     # holding a mix of two theme generations across the four files.
-    Update-LastGood
+    try {
+        Update-LastGood
+    } catch {
+        # I4: the live theme above already copied and validated
+        # successfully -- that's not in question here. Only the last-good
+        # bookkeeping failed (e.g. a mid-rotation disk error), which does
+        # NOT warrant rolling back a good live apply; surface it loudly
+        # instead of leaving it silently orphaned, since it means the next
+        # apply's structural baseline (and any future rollback) is still
+        # working off the PREVIOUS generation until a future apply succeeds.
+        Write-Warning "Update-LastGood failed: $($_.Exception.Message). The live theme applied successfully, but state\last-good was NOT refreshed."
+    }
 
     # Force WezTerm to notice the new palette (see docs/spikes.md, unknown #2).
     if (Test-Path "$env:USERPROFILE\.wezterm.lua") {
