@@ -14,6 +14,17 @@
 
 html, body { margin: 0; padding: 0; height: 100%; background: transparent; overflow: hidden; }
 
+/* Task 8: the widget window is 340px wide so an expanded media panel has
+   room to paint outside the 52px strip -- see drawer.js / entries/media.js.
+   pointer-events: none while closed is essential: without it, the full
+   340px-wide transparent window would swallow every click meant for
+   whatever's tiled underneath it (see task-8-report.md for the verification
+   this task requires before considering it safe). */
+body { width: 340px; }
+#bar { width: var(--bar-w); }
+body:not(.drawer-open) { pointer-events: none; }
+body:not(.drawer-open) #bar { pointer-events: auto; }
+
 #bar {
   display: flex;
   flex-direction: column;
@@ -51,3 +62,63 @@ html, body { margin: 0; padding: 0; height: 100%; background: transparent; overf
   white-space: nowrap;
   color: var(--on-surface-variant);
 }
+
+.media { view-transition-name: media-pill; cursor: pointer; }
+
+.media-panel {
+  display: none;
+  view-transition-name: media-panel;
+  background: var(--surface);
+  color: var(--on-surface);
+  border-radius: var(--radius-lg);
+  padding: var(--pad-lg);
+  margin-left: var(--space-md);
+  width: 260px;
+  /* Anchors the panel beside the 52px strip regardless of where it lives
+     in the DOM (it's appended to <body>, not nested in the rotated
+     `.media` pill -- see entries/media.js) and keeps it out of #bar's own
+     `align-items: center` flow, which would otherwise center- (and
+     half-clip-) a 260px box inside a 52px column. Not in the brief's
+     verbatim Step 3 snippet; added because that snippet alone doesn't
+     anchor the panel anywhere. */
+  position: fixed;
+  left: var(--bar-w);
+  top: var(--pad-lg);
+  box-sizing: border-box;
+}
+.drawer-open .media-panel { display: block; }
+
+.media-panel__art {
+  display: block;
+  width: 100%;
+  border-radius: var(--radius-sm);
+  margin-bottom: var(--space-md);
+}
+.media-panel__artist { color: var(--on-surface-variant); margin-bottom: var(--space-md); }
+.media-panel__transport { display: flex; gap: var(--space-sm); margin-bottom: var(--space-md); }
+.media-panel__transport button {
+  flex: 1 1 auto;
+  background: var(--primary);
+  color: var(--on-primary);
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: var(--space-sm) 0;
+  font: inherit;
+  cursor: pointer;
+}
+.media-panel__time { color: var(--on-surface-variant); font-size: 11px; }
+
+::view-transition-old(media-pill),
+::view-transition-new(media-pill),
+::view-transition-old(media-panel),
+::view-transition-new(media-panel) {
+  animation-duration: var(--dur);
+  animation-timing-function: var(--ease);
+}
+
+/* Task 7 left the vesktop ping chip with no accent (no red token exists in
+   theme.css, which is out of this task's scope -- it's matugen-generated
+   and not in the Task 8 file list). `var(--primary)` is the only accent
+   token available without expanding scope; not literally red, but gives
+   the pinged chip a themed, non-default color as yasb's version had. */
+.vesktop--pinged { color: var(--primary); font-weight: bold; }

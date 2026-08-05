@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert';
 import { splitClock } from '../../zebar/caelestia/bar/entries/clock.js';
 import { workspaceState } from '../../zebar/caelestia/bar/entries/workspaces.js';
-import { mediaLabel } from '../../zebar/caelestia/bar/entries/media.js';
+import { mediaLabel, formatMediaTime } from '../../zebar/caelestia/bar/entries/media.js';
 import { windowTitle } from '../../zebar/caelestia/bar/entries/activeWindow.js';
 import { pingState } from '../../zebar/caelestia/bar/entries/vesktop.js';
 
@@ -121,4 +121,18 @@ test('pingState treats non-numeric output as no ping', () => {
 
 test('pingState ignores a zero count', () => {
   assert.deepStrictEqual(pingState('0'), { pinged: false, count: 0 });
+});
+
+test('formatMediaTime formats seconds as m:ss', () => {
+  assert.strictEqual(formatMediaTime(49), '0:49');
+  assert.strictEqual(formatMediaTime(180), '3:00');
+  assert.strictEqual(formatMediaTime(65), '1:05');
+  assert.strictEqual(formatMediaTime(0), '0:00');
+});
+
+test('formatMediaTime tolerates missing or invalid input', () => {
+  assert.strictEqual(formatMediaTime(undefined), '--:--');
+  assert.strictEqual(formatMediaTime(NaN), '--:--');
+  assert.strictEqual(formatMediaTime(-5), '--:--');
+  assert.strictEqual(formatMediaTime('49'), '--:--');
 });
