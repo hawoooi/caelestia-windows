@@ -2,12 +2,12 @@ format = """
 [](#ffb4ab)\
 $os\
 $username\
-[█](bg:#87d1ea fg:#ffb4ab)\
+[█](bg:#d8c770 fg:#ffb4ab)\
 $directory\
-[](bg:#c2c4eb fg:#87d1ea)\
+[](bg:#a8d0b5 fg:#d8c770)\
 $git_branch\
 $git_status\
-[](fg:#c2c4eb bg:#b3cad4)\
+[](fg:#a8d0b5 bg:#d0c7a2)\
 $c\
 $rust\
 $golang\
@@ -17,11 +17,11 @@ $java\
 $kotlin\
 $haskell\
 $python\
-[](fg:#b3cad4 bg:#b4ebff)\
+[](fg:#d0c7a2 bg:#f5e388)\
 $conda\
-[](fg:#b4ebff bg:#e0e0ff)\
+[](fg:#f5e388 bg:#c4ecd0)\
 $time\
-[ ](fg:#e0e0ff)\
+[ ](fg:#c4ecd0)\
 $cmd_duration\
 $line_break\
 $character"""
@@ -58,7 +58,7 @@ style_root = "bg:#ffb4ab fg:#690005"
 format = '[ $user]($style)'
 
 [directory]
-style = "bg:#87d1ea fg:#003542"
+style = "bg:#d8c770 fg:#383000"
 format = "[ $path ]($style)"
 truncation_length = 3
 truncation_symbol = "…/"
@@ -72,91 +72,91 @@ truncation_symbol = "…/"
 
 [git_branch]
 symbol = ""
-style = "bg:#c2c4eb"
-format = '[[ $symbol $branch ](fg:#2b2e4d bg:#c2c4eb)]($style)'
+style = "bg:#a8d0b5"
+format = '[[ $symbol $branch ](fg:#133724 bg:#a8d0b5)]($style)'
 
 [git_status]
-style = "bg:#c2c4eb"
-format = '[[($all_status$ahead_behind )](fg:#2b2e4d bg:#c2c4eb)]($style)'
+style = "bg:#a8d0b5"
+format = '[[($all_status$ahead_behind )](fg:#133724 bg:#a8d0b5)]($style)'
 
 [nodejs]
 symbol = ""
-style = "bg:#b3cad4"
-format = '[[ $symbol( $version) ](fg:#1d333b bg:#b3cad4)]($style)'
+style = "bg:#d0c7a2"
+format = '[[ $symbol( $version) ](fg:#363116 bg:#d0c7a2)]($style)'
 
 [c]
 symbol = " "
-style = "bg:#b3cad4"
-format = '[[ $symbol( $version) ](fg:#1d333b bg:#b3cad4)]($style)'
+style = "bg:#d0c7a2"
+format = '[[ $symbol( $version) ](fg:#363116 bg:#d0c7a2)]($style)'
 
 [rust]
 symbol = ""
-style = "bg:#b3cad4"
-format = '[[ $symbol( $version) ](fg:#1d333b bg:#b3cad4)]($style)'
+style = "bg:#d0c7a2"
+format = '[[ $symbol( $version) ](fg:#363116 bg:#d0c7a2)]($style)'
 
 [golang]
 symbol = ""
-style = "bg:#b3cad4"
-format = '[[ $symbol( $version) ](fg:#1d333b bg:#b3cad4)]($style)'
+style = "bg:#d0c7a2"
+format = '[[ $symbol( $version) ](fg:#363116 bg:#d0c7a2)]($style)'
 
 [php]
 symbol = ""
-style = "bg:#b3cad4"
-format = '[[ $symbol( $version) ](fg:#1d333b bg:#b3cad4)]($style)'
+style = "bg:#d0c7a2"
+format = '[[ $symbol( $version) ](fg:#363116 bg:#d0c7a2)]($style)'
 
 [java]
 symbol = " "
-style = "bg:#b3cad4"
-format = '[[ $symbol( $version) ](fg:#1d333b bg:#b3cad4)]($style)'
+style = "bg:#d0c7a2"
+format = '[[ $symbol( $version) ](fg:#363116 bg:#d0c7a2)]($style)'
 
 [kotlin]
 symbol = ""
-style = "bg:#b3cad4"
-format = '[[ $symbol( $version) ](fg:#1d333b bg:#b3cad4)]($style)'
+style = "bg:#d0c7a2"
+format = '[[ $symbol( $version) ](fg:#363116 bg:#d0c7a2)]($style)'
 
 [haskell]
 symbol = ""
-style = "bg:#b3cad4"
-format = '[[ $symbol( $version) ](fg:#1d333b bg:#b3cad4)]($style)'
+style = "bg:#d0c7a2"
+format = '[[ $symbol( $version) ](fg:#363116 bg:#d0c7a2)]($style)'
 
 [python]
 symbol = ""
-style = "bg:#b3cad4"
-format = '[[ $symbol( $version)(\(#$virtualenv\)) ](fg:#1d333b bg:#b3cad4)]($style)'
+style = "bg:#d0c7a2"
+format = '[[ $symbol( $version)(\(#$virtualenv\)) ](fg:#363116 bg:#d0c7a2)]($style)'
 
 [docker_context]
 symbol = ""
-style = "bg:#b4ebff"
-format = '[[ $symbol( $context) ](fg:#001f27 bg:#b4ebff)]($style)'
+style = "bg:#f5e388"
+format = '[[ $symbol( $context) ](fg:#211c00 bg:#f5e388)]($style)'
 
 [conda]
 symbol = "  "
-style = "fg:#001f27 bg:#b4ebff"
+style = "fg:#211c00 bg:#f5e388"
 format = '[$symbol$environment ]($style)'
 ignore_base = false
 
 [time]
 disabled = false
 time_format = "%R"
-style = "bg:#e0e0ff"
-format = '[[  $time ](fg:#161937 bg:#e0e0ff)]($style)'
+style = "bg:#c4ecd0"
+format = '[[  $time ](fg:#002111 bg:#c4ecd0)]($style)'
 
 [line_break]
 disabled = true
 
 [character]
 disabled = false
-success_symbol = '[❯](bold fg:#b3cad4)'
+success_symbol = '[❯](bold fg:#d0c7a2)'
 error_symbol = '[❯](bold fg:#ffb4ab)'
-vimcmd_symbol = '[❮](bold fg:#b3cad4)'
-vimcmd_replace_one_symbol = '[❮](bold fg:#e0e0ff)'
-vimcmd_replace_symbol = '[❮](bold fg:#e0e0ff)'
-vimcmd_visual_symbol = '[❮](bold fg:#c2c4eb)'
+vimcmd_symbol = '[❮](bold fg:#d0c7a2)'
+vimcmd_replace_one_symbol = '[❮](bold fg:#c4ecd0)'
+vimcmd_replace_symbol = '[❮](bold fg:#c4ecd0)'
+vimcmd_visual_symbol = '[❮](bold fg:#a8d0b5)'
 
 [cmd_duration]
 show_milliseconds = true
 format = " in $duration "
-style = "bg:#e0e0ff"
+style = "bg:#c4ecd0"
 disabled = false
 show_notifications = true
 min_time_to_notify = 45000
