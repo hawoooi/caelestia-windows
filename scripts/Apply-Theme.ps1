@@ -25,6 +25,94 @@ $script:Targets = @(
     @{ Name='starship'; Staged='starship.toml';    Live="$env:USERPROFILE\.config\starship.toml" }
 )
 
+function Measure-CssBraces {
+    <#
+      Single-pass, string-aware brace counter for the yasb structural
+      checks in Test-StagedFile.
+
+      A regex-based comment stripper (`[regex]::Replace($text,
+      '(?s)/\*.*?\*/', '')`, the first version of this fix) has no notion
+      of string context. Given content like
+      `.a { content: "/*"; color: red; ... .c { content: "*/"; } ... }`,
+      it sees the FIRST `/*` (inside the `.a` rule's string literal) and
+      the LAST `*/` (inside the `.c` rule's string literal) as one giant
+      comment spanning both rules, strips everything between them --
+      including genuinely live code -- and undercounts braces. `.a` is
+      really unterminated (raw count 4 open / 3 close), but the stripped
+      text looks balanced. That's a FALSE PASS on corrupt content -- the
+      exact class of bug comment-stripping was added to close in the first
+      place. Found by external review; not reachable through today's
+      template (no `content:`/`url()` values in it), but latent in a
+      general-purpose check.
+
+      This tracks two mutually exclusive boolean states while scanning
+      character by character -- InComment (entered on `/*`, exited on
+      `*/`) and InString (entered on `'`/`"`, exited on the matching quote,
+      respecting `\`-escapes) -- and only counts `{`/`}` when in neither.
+      CSS comments do not nest, so a single boolean is sufficient for
+      InComment; likewise CSS strings don't nest inside each other.
+
+      Returns @{ Open = <int>; Close = <int>; UnterminatedComment = <bool> }.
+      An unterminated `/*` (scanner still InComment at end of input) is
+      itself suspicious -- truncation mid-comment -- and is surfaced so the
+      caller can fail closed rather than silently treating the rest of a
+      truncated file as "no braces found here".
+    #>
+    param([Parameter(Mandatory)][string]$Text)
+
+    $open = 0
+    $close = 0
+    $inComment = $false
+    $inString = $false
+    $stringChar = [char]0
+    $i = 0
+    $len = $Text.Length
+
+    while ($i -lt $len) {
+        $c = $Text[$i]
+
+        if ($inComment) {
+            if ($c -eq '*' -and ($i + 1) -lt $len -and $Text[$i + 1] -eq '/') {
+                $inComment = $false
+                $i += 2
+            } else {
+                $i += 1
+            }
+            continue
+        }
+
+        if ($inString) {
+            if ($c -eq '\' -and ($i + 1) -lt $len) {
+                $i += 2  # skip the escaped character too
+            } elseif ($c -eq $stringChar) {
+                $inString = $false
+                $i += 1
+            } else {
+                $i += 1
+            }
+            continue
+        }
+
+        # Not in a comment or string.
+        if ($c -eq '/' -and ($i + 1) -lt $len -and $Text[$i + 1] -eq '*') {
+            $inComment = $true
+            $i += 2
+            continue
+        }
+        if ($c -eq "'" -or $c -eq '"') {
+            $inString = $true
+            $stringChar = $c
+            $i += 1
+            continue
+        }
+        if ($c -eq '{') { $open++ }
+        elseif ($c -eq '}') { $close++ }
+        $i += 1
+    }
+
+    return @{ Open = $open; Close = $close; UnterminatedComment = $inComment }
+}
+
 function Remove-Bom {
     param([Parameter(Mandatory)][string]$Path)
     $bytes = [System.IO.File]::ReadAllBytes($Path)
@@ -70,25 +158,31 @@ function Test-StagedFile {
             # actually fire against real corruption, not just synthetic
             # fixtures -- see tests/ApplyTheme.Tests.ps1.
 
-            # Strip CSS comments (/* ... */, multi-line included) before
-            # counting braces or rules. A brace hidden inside a comment is
-            # invisible to any real CSS parser, but was counted here --
-            # found by external review against the real template at full
-            # scale: deleted one closing brace from a real rule
-            # (`.cpu-widget .icon { ... }`, an unterminated block, precisely
-            # the failure class this check exists to catch) and added one
-            # compensating `}` inside the unrelated `/* MEMORY */` header
-            # comment. Result before this fix: 175/175 braces, rule count
-            # and size both within tolerance, Test-StagedFile returned
-            # $true. Same treatment the wezterm check already gives `--`
-            # Lua comment lines.
-            $code = [regex]::Replace($text, '(?s)/\*.*?\*/', '')
+            # Count braces with Measure-CssBraces, a string-aware scanner --
+            # NOT a regex comment-stripper. An earlier version of this
+            # stripped /* ... */ via regex, which has no notion of string
+            # context: `content: "/*"; ... content: "*/";` spanning two
+            # separate rules would be seen as one giant comment, silently
+            # deleting real code between them and producing a false PASS on
+            # genuinely corrupt content -- found by external review. See
+            # Measure-CssBraces's own doc comment for the full case.
+            #
+            # This also still catches the original Task 8 finding (a brace
+            # hidden inside a real, non-string comment: deleted one closing
+            # brace from `.cpu-widget .icon { ... }` and added a
+            # compensating `}` inside `/* MEMORY */` -- raw count 175/175,
+            # comment-aware count correctly reports 175/174).
+            $counts = Measure-CssBraces -Text $text
+            if ($counts.UnterminatedComment) {
+                Write-Warning "styles.css has an unterminated /* comment -- truncated or corrupt"
+                return $false
+            }
 
             # Balanced braces: catches truncation and unterminated blocks.
             # This alone would have caught the Task 8 unterminated-block
             # corruption that the log check missed entirely.
-            $open  = ([regex]::Matches($code, '\{')).Count
-            $close = ([regex]::Matches($code, '\}')).Count
+            $open  = $counts.Open
+            $close = $counts.Close
             if ($open -ne $close) {
                 Write-Warning "styles.css has unbalanced braces ($open open, $close close)"
                 return $false
@@ -98,17 +192,17 @@ function Test-StagedFile {
             if (Test-Path $lastGoodPath) {
                 $lastGoodItem = Get-Item $lastGoodPath
                 $lastGoodText = [System.IO.File]::ReadAllText($lastGoodPath)
-                $lastGoodCode = [regex]::Replace($lastGoodText, '(?s)/\*.*?\*/', '')
+                $lastGoodCounts = Measure-CssBraces -Text $lastGoodText
 
                 # Selector-count sanity: a palette swap only rewrites color
                 # values, never adds/removes rules, so the number of rule
                 # blocks (one `{` per selector prelude) should stay stable.
                 # +-5% tolerance for incidental future template edits.
-                # Comment-stripped on both sides -- the real
+                # Comment-and-string-aware on both sides -- the real
                 # state/last-good-prev/styles.css carries a multi-line
                 # "Acrylic recipe" prose comment that could itself gain a
-                # stray brace and skew this baseline if not stripped too.
-                $lastRuleCount = ([regex]::Matches($lastGoodCode, '\{')).Count
+                # stray brace and skew this baseline if counted naively.
+                $lastRuleCount = $lastGoodCounts.Open
                 if ($lastRuleCount -gt 0) {
                     $ruleDelta = [math]::Abs($open - $lastRuleCount) / $lastRuleCount
                     if ($ruleDelta -gt 0.05) {
@@ -219,12 +313,26 @@ function Update-LastGood {
       last-good-prev exists yet: the "rotate old last-good to prev" rename
       is skipped when there's nothing to rotate.
 
+      Also handles an INTERRUPTED PRIOR rotation: last-good absent but
+      last-good-prev present (reachable without any tampering -- a crash
+      between the two Rename-Item calls below, after last-good ->
+      last-good-prev succeeds but before last-good-new -> last-good runs,
+      leaves exactly this state). The first version of this removed
+      last-good-prev unconditionally before checking whether last-good
+      existed to replace it, so the next successful apply silently
+      discarded that fallback with no warning -- found by external review.
+      last-good-prev is only ever removed/replaced when last-good actually
+      exists to be promoted into it; if last-good is missing but
+      last-good-prev is present, last-good-prev is left alone and a
+      warning is logged instead.
+
       Directories default to the real script-scope paths but can be
       overridden (StagingDir/LastGoodDir/LastGoodPrevDir/LastGoodNewDir),
       the same pattern Test-StagedFile uses for -LastGoodDir, so this can
       be exercised end-to-end against an isolated temp fixture in tests
       without ever touching the real state/last-good/.
     #>
+    [CmdletBinding()]
     param(
         [string]$StagingDir      = $script:Staging,
         [string]$LastGoodDir     = $script:LastGood,
@@ -238,10 +346,22 @@ function Update-LastGood {
         Copy-Item (Join-Path $StagingDir $t.Staged) (Join-Path $LastGoodNewDir $t.Staged) -Force
     }
 
-    if (Test-Path $LastGoodPrevDir) { Remove-Item $LastGoodPrevDir -Recurse -Force }
     if (Test-Path $LastGoodDir) {
+        # last-good exists and is about to be promoted into last-good-prev:
+        # safe to discard whatever last-good-prev held.
+        if (Test-Path $LastGoodPrevDir) { Remove-Item $LastGoodPrevDir -Recurse -Force }
         Rename-Item -Path $LastGoodDir -NewName (Split-Path $LastGoodPrevDir -Leaf)
+    } elseif (Test-Path $LastGoodPrevDir) {
+        # last-good is missing but last-good-prev exists: nothing to
+        # rotate INTO it this run, so leave it exactly as-is rather than
+        # deleting the one fallback that survived. This state is reachable
+        # by an interrupted prior rotation (see doc comment above), not
+        # just first-run.
+        Write-Warning "last-good is missing but last-good-prev exists -- a prior rotation may have been interrupted. Leaving last-good-prev untouched."
     }
+    # else: neither exists yet (genuine first-ever apply) -- nothing to do
+    # here, last-good-prev correctly stays absent.
+
     Rename-Item -Path $LastGoodNewDir -NewName (Split-Path $LastGoodDir -Leaf)
 }
 

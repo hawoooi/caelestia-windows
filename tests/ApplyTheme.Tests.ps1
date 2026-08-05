@@ -132,6 +132,70 @@ Describe "Test-StagedFile yasb structural checks" {
         $noBaseline = "$env:TEMP\yasb-lastgood-nonexistent-$PID"
         Test-StagedFile -Name 'yasb' -Path $p -LastGoodDir $noBaseline | Should -BeFalse
     }
+
+    It "rejects the reviewer's string-context attack: a comment stripper would mistake two string literals for one giant comment" {
+        # .a is genuinely unterminated (no closing brace at all). Its `/*`
+        # sits inside a STRING value (`content: "/*"`), and a `*/`-looking
+        # string value sits inside .c two rules later (`content: "*/"`). A
+        # regex comment-stripper with no notion of string context (the
+        # first version of this fix) treats the span from the first literal
+        # `/*` to the next literal `*/` as one comment and deletes
+        # everything between -- including .b's entire rule and part of .a/
+        # .c -- which coincidentally rebalances the count and produces a
+        # FALSE PASS on content that is genuinely corrupt. This is the
+        # reviewer's exact construction.
+        #
+        # Proven against the pre-fix logic directly (not just asserted):
+        # raw (unstripped) count is 4 open / 3 close -- confirming .a really
+        # is broken. The OLD `[regex]::Replace($text, '(?s)/\*.*?\*/', '')`
+        # approach reduces that to 2 open / 2 close (balanced -- the bug).
+        # The fixed Measure-CssBraces-based check must report the true
+        # 4/3 imbalance and reject.
+        $p = "$env:TEMP\yasb-string-context-attack.css"
+        $attack = @'
+.a { content: "/*"; color: red;
+.b { color: blue; }
+.c { content: "*/"; color: green; }
+.d { color: purple; }
+'@
+        Set-Content $p $attack -Encoding ascii
+
+        # Confirm the raw text really is unbalanced and the old approach
+        # really would have masked it, so this test is proven non-vacuous
+        # against the specific pre-fix implementation it replaces.
+        $rawOpen  = ([regex]::Matches($attack, '\{')).Count
+        $rawClose = ([regex]::Matches($attack, '\}')).Count
+        $rawOpen | Should -Not -Be $rawClose
+        $oldStripped = [regex]::Replace($attack, '(?s)/\*.*?\*/', '')
+        $oldOpen  = ([regex]::Matches($oldStripped, '\{')).Count
+        $oldClose = ([regex]::Matches($oldStripped, '\}')).Count
+        $oldOpen | Should -Be $oldClose  # the old approach's false-pass condition
+
+        $noBaseline = "$env:TEMP\yasb-lastgood-nonexistent-$PID"
+        Test-StagedFile -Name 'yasb' -Path $p -LastGoodDir $noBaseline | Should -BeFalse
+    }
+
+    It "accepts a legitimate file where CSS comment-like text appears inside real string values" {
+        # `content: "/*"` and `content: "*/"` are ordinary, valid CSS string
+        # values -- not comment delimiters -- and the file is fully
+        # well-formed (every rule opened and closed). A naive stripper that
+        # doesn't understand string context could still misparse this; the
+        # string-aware scanner must not.
+        $p = "$env:TEMP\yasb-legit-comment-like-string.css"
+        Set-Content $p '.a { content: "/*"; color: red; } .b { color: blue; } .c { content: "*/"; color: green; }' -Encoding ascii
+        $noBaseline = "$env:TEMP\yasb-lastgood-nonexistent-$PID"
+        Test-StagedFile -Name 'yasb' -Path $p -LastGoodDir $noBaseline | Should -BeTrue
+    }
+
+    It "rejects a file with an unterminated /* comment" {
+        # The comment never closes -- everything after it, including a
+        # real rule, is swallowed. Treated as suspicious/truncated and
+        # rejected rather than silently ignoring the rest of the file.
+        $p = "$env:TEMP\yasb-unterminated-comment.css"
+        Set-Content $p '.a { color: red; } /* this comment never closes .b { color: blue; }' -Encoding ascii
+        $noBaseline = "$env:TEMP\yasb-lastgood-nonexistent-$PID"
+        Test-StagedFile -Name 'yasb' -Path $p -LastGoodDir $noBaseline | Should -BeFalse
+    }
 }
 
 Describe "Update-LastGood atomic rotation" {
@@ -200,5 +264,32 @@ Describe "Update-LastGood atomic rotation" {
     It "leaves no last-good-new directory behind after a successful rotation" {
         Update-LastGood -StagingDir $script:rotStaging -LastGoodDir $script:rotLastGood -LastGoodPrevDir $script:rotLastGoodPrev -LastGoodNewDir $script:rotLastGoodNew
         Test-Path $script:rotLastGoodNew | Should -BeFalse
+    }
+
+    It "leaves last-good-prev untouched when last-good is absent (interrupted prior rotation), instead of destroying it" {
+        # Reachable without any tampering: a crash between the two
+        # Rename-Item calls inside Update-LastGood -- after last-good ->
+        # last-good-prev succeeds but before last-good-new -> last-good
+        # runs -- leaves exactly this state: last-good absent,
+        # last-good-prev populated. The first version of this removed
+        # last-good-prev unconditionally before checking whether last-good
+        # existed to replace it, silently discarding the one surviving
+        # fallback on the next successful apply. Found by external review.
+        New-Item -ItemType Directory -Force -Path $script:rotLastGoodPrev | Out-Null
+        foreach ($f in 'styles.css', 'tacky-config.yaml', 'palette.lua', 'starship.toml') {
+            [System.IO.File]::WriteAllText((Join-Path $script:rotLastGoodPrev $f), "SURVIVOR-$f", (New-Object System.Text.UTF8Encoding($false)))
+        }
+        Test-Path $script:rotLastGood | Should -BeFalse  # simulating the interrupted state
+
+        $warnings = @()
+        Update-LastGood -StagingDir $script:rotStaging -LastGoodDir $script:rotLastGood -LastGoodPrevDir $script:rotLastGoodPrev -LastGoodNewDir $script:rotLastGoodNew -WarningVariable warnings -WarningAction SilentlyContinue
+        ($warnings -join ' ') | Should -Match 'last-good-prev'
+
+        # last-good-prev must survive, untouched, with its original content.
+        foreach ($f in 'styles.css', 'tacky-config.yaml', 'palette.lua', 'starship.toml') {
+            (Get-Content (Join-Path $script:rotLastGoodPrev $f) -Raw).Trim() | Should -Be "SURVIVOR-$f"
+        }
+        # This run's staged content is still promoted to last-good normally.
+        (Get-Content (Join-Path $script:rotLastGood 'styles.css') -Raw).Trim() | Should -Be 'NEW-styles.css'
     }
 }
