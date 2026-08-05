@@ -15,6 +15,7 @@ $script:Root        = Split-Path $PSScriptRoot -Parent
 $script:Staging     = Join-Path $script:Root "state\staging"
 $script:LastGood    = Join-Path $script:Root "state\last-good"
 $script:LastGoodPrev= Join-Path $script:Root "state\last-good-prev"
+$script:LastGoodNew = Join-Path $script:Root "state\last-good-new"
 $script:Yasbc       = "C:\Program Files\yasb\yasbc.exe"
 
 $script:Targets = @(
@@ -69,11 +70,25 @@ function Test-StagedFile {
             # actually fire against real corruption, not just synthetic
             # fixtures -- see tests/ApplyTheme.Tests.ps1.
 
+            # Strip CSS comments (/* ... */, multi-line included) before
+            # counting braces or rules. A brace hidden inside a comment is
+            # invisible to any real CSS parser, but was counted here --
+            # found by external review against the real template at full
+            # scale: deleted one closing brace from a real rule
+            # (`.cpu-widget .icon { ... }`, an unterminated block, precisely
+            # the failure class this check exists to catch) and added one
+            # compensating `}` inside the unrelated `/* MEMORY */` header
+            # comment. Result before this fix: 175/175 braces, rule count
+            # and size both within tolerance, Test-StagedFile returned
+            # $true. Same treatment the wezterm check already gives `--`
+            # Lua comment lines.
+            $code = [regex]::Replace($text, '(?s)/\*.*?\*/', '')
+
             # Balanced braces: catches truncation and unterminated blocks.
             # This alone would have caught the Task 8 unterminated-block
             # corruption that the log check missed entirely.
-            $open  = ([regex]::Matches($text, '\{')).Count
-            $close = ([regex]::Matches($text, '\}')).Count
+            $open  = ([regex]::Matches($code, '\{')).Count
+            $close = ([regex]::Matches($code, '\}')).Count
             if ($open -ne $close) {
                 Write-Warning "styles.css has unbalanced braces ($open open, $close close)"
                 return $false
@@ -83,12 +98,17 @@ function Test-StagedFile {
             if (Test-Path $lastGoodPath) {
                 $lastGoodItem = Get-Item $lastGoodPath
                 $lastGoodText = [System.IO.File]::ReadAllText($lastGoodPath)
+                $lastGoodCode = [regex]::Replace($lastGoodText, '(?s)/\*.*?\*/', '')
 
                 # Selector-count sanity: a palette swap only rewrites color
                 # values, never adds/removes rules, so the number of rule
                 # blocks (one `{` per selector prelude) should stay stable.
                 # +-5% tolerance for incidental future template edits.
-                $lastRuleCount = ([regex]::Matches($lastGoodText, '\{')).Count
+                # Comment-stripped on both sides -- the real
+                # state/last-good-prev/styles.css carries a multi-line
+                # "Acrylic recipe" prose comment that could itself gain a
+                # stray brace and skew this baseline if not stripped too.
+                $lastRuleCount = ([regex]::Matches($lastGoodCode, '\{')).Count
                 if ($lastRuleCount -gt 0) {
                     $ruleDelta = [math]::Abs($open - $lastRuleCount) / $lastRuleCount
                     if ($ruleDelta -gt 0.05) {
@@ -99,7 +119,12 @@ function Test-StagedFile {
 
                 # Size sanity: catches truncation and runaway duplication
                 # that could coincidentally preserve rule count and balance.
-                # +-20% tolerance.
+                # +-20% tolerance. Deliberately stays on the RAW (comment-
+                # included) byte length -- comments are legitimate file
+                # content, and stripping them here would let comment-based
+                # padding or truncation slip past this specific check; the
+                # brace-balance and rule-count checks above already use the
+                # comment-stripped text for what they measure.
                 $size     = (Get-Item $Path).Length
                 $lastSize = $lastGoodItem.Length
                 if ($lastSize -gt 0) {
@@ -172,6 +197,54 @@ function Get-LogTail {
     return $tail
 }
 
+function Update-LastGood {
+    <#
+      Atomically promotes this run's staged output to state/last-good/,
+      rotating the previous last-good into state/last-good-prev/.
+
+      The first version of this did four independent per-file Copy-Item
+      calls directly into last-good/last-good-prev. A crash or disk error
+      between targets could leave the two directories holding a MIX of two
+      theme generations across the four files -- an inconsistent baseline
+      that would restore a Frankenstein theme if ever rolled back to.
+
+      This version stages the whole new generation in state/last-good-new/
+      first, then does the promotion as two directory renames:
+      last-good -> last-good-prev, last-good-new -> last-good. A rename on
+      the same volume is a single filesystem metadata update, not a byte
+      copy, so it's effectively atomic -- the window of inconsistency
+      shrinks from spanning eight file copies to two renames.
+
+      Handles the first-run case where neither last-good nor
+      last-good-prev exists yet: the "rotate old last-good to prev" rename
+      is skipped when there's nothing to rotate.
+
+      Directories default to the real script-scope paths but can be
+      overridden (StagingDir/LastGoodDir/LastGoodPrevDir/LastGoodNewDir),
+      the same pattern Test-StagedFile uses for -LastGoodDir, so this can
+      be exercised end-to-end against an isolated temp fixture in tests
+      without ever touching the real state/last-good/.
+    #>
+    param(
+        [string]$StagingDir      = $script:Staging,
+        [string]$LastGoodDir     = $script:LastGood,
+        [string]$LastGoodPrevDir = $script:LastGoodPrev,
+        [string]$LastGoodNewDir  = $script:LastGoodNew
+    )
+
+    if (Test-Path $LastGoodNewDir) { Remove-Item $LastGoodNewDir -Recurse -Force }
+    New-Item -ItemType Directory -Force -Path $LastGoodNewDir | Out-Null
+    foreach ($t in $script:Targets) {
+        Copy-Item (Join-Path $StagingDir $t.Staged) (Join-Path $LastGoodNewDir $t.Staged) -Force
+    }
+
+    if (Test-Path $LastGoodPrevDir) { Remove-Item $LastGoodPrevDir -Recurse -Force }
+    if (Test-Path $LastGoodDir) {
+        Rename-Item -Path $LastGoodDir -NewName (Split-Path $LastGoodPrevDir -Leaf)
+    }
+    Rename-Item -Path $LastGoodNewDir -NewName (Split-Path $LastGoodDir -Leaf)
+}
+
 function Apply-Theme {
     [CmdletBinding()]
     param(
@@ -191,7 +264,15 @@ function Apply-Theme {
         return [PSCustomObject]@{ Success = $false; Failed = @('preflight') }
     }
 
-    New-Item -ItemType Directory -Force -Path $script:Staging, $script:LastGood, $script:LastGoodPrev | Out-Null
+    # last-good and last-good-prev are deliberately NOT pre-created here.
+    # Update-LastGood manages their existence entirely via directory
+    # renames (see its own comment) -- pre-creating empty directories would
+    # only complicate that dance for no benefit. Test-StagedFile's yasb
+    # check and the rollback loop below both use file-level Test-Path
+    # against paths inside them, which is false whether the file or the
+    # containing directory is missing, so neither needs the directory to
+    # pre-exist.
+    New-Item -ItemType Directory -Force -Path $script:Staging | Out-Null
 
     # --prefer is REQUIRED for scripted use. Many images yield multiple
     # candidate source colors; without a preference matugen tries to prompt,
@@ -266,17 +347,11 @@ function Apply-Theme {
 
     # Passed every check (pre-copy structural validation + post-copy log
     # check): only NOW is it safe to call this run's output "known good".
-    # Rotate two generations -- move the previous last-good to
-    # last-good-prev before overwriting last-good with this run's staged
-    # output -- so a single bad-but-undetected apply cannot, by itself,
-    # destroy the only known-good copy; last-good-prev is one apply further
-    # back as a second fallback.
-    foreach ($t in $script:Targets) {
-        $curBackup  = Join-Path $script:LastGood $t.Staged
-        $prevBackup = Join-Path $script:LastGoodPrev $t.Staged
-        if (Test-Path $curBackup) { Copy-Item $curBackup $prevBackup -Force }
-        Copy-Item (Join-Path $script:Staging $t.Staged) $curBackup -Force
-    }
+    # Rotate two generations atomically (see Update-LastGood) -- so a
+    # single bad-but-undetected apply cannot, by itself, destroy the only
+    # known-good copy, and a crash mid-rotation can't leave last-good
+    # holding a mix of two theme generations across the four files.
+    Update-LastGood
 
     # Force WezTerm to notice the new palette (see docs/spikes.md, unknown #2).
     if (Test-Path "$env:USERPROFILE\.wezterm.lua") {
