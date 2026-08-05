@@ -80,6 +80,10 @@ appear only where something is grouped or active.
 - **Scroll-to-adjust.** Caelestia scrolls the bar to change volume/brightness/
   workspace. Deferred by choice.
 - **Dashboard, launcher, sidebar, OSDs, notifications.** Separate specs.
+- **Taskbar theming and auto-hide.** Its own spec, after this one. Findings recorded
+  under "Future phases" below.
+- **Rendering application icons in the tray entry.** Confirmed unnecessary — Caelestia's
+  demo does not show them on the vertical bar.
 - **GPU, CPU, memory, disk, traffic entries.** Dropped with yasb. No gpu provider
   exists, and Caelestia's bar does not show system stats.
 - **Retiring yasb in this phase.** Coexistence only; retirement is a later step.
@@ -174,7 +178,7 @@ Uniform `--space-md` between entries; `--pad-lg` at top and bottom.
 | `media` | media provider | rotated title/artist; click morphs open |
 | `spacer` | — | `flex: 1` |
 | `vesktop` | shellCommands → existing `vesktop-unread.exe` | **reused, not rewritten** |
-| `tray` | systray provider (see spike 1) | vertical icon column |
+| `tray` | audio / network / battery providers | status-icon cluster. **Not** a general systray host — see unknown 1 |
 | `clock` | date provider | stacked, hours over minutes |
 | `statusIcons` | audio + network + battery | grouped icon cluster |
 | `power` | shellCommands | confirms before acting |
@@ -262,23 +266,62 @@ If the Zebar pack fails to load, yasb is still running — that is the rollback.
 Retirement is a later, separate step: stop yasb, remove its `startup_commands` entry,
 then drop its pipeline target. Its config repo stays untouched throughout.
 
-## Unknowns to resolve before building
+## Unknowns
 
-Front-loaded, as Task 1 was, because each could change the design.
+Front-loaded, as Task 1 was, because each could change the design. Two are already
+settled by the user.
 
-1. **The systray provider's rendering model.** It may return icons as images, handles,
-   or expect a specific container. If it cannot render vertically, that entry needs a
-   different approach.
-2. **Does the komorebi provider expose the focused window title?** If not,
-   `activeWindow` falls back to the `EnumWindows` technique the Vesktop helper already
-   uses.
-3. **Does `dockToEdge` actually reserve space that komorebi respects?** The mechanism is
-   documented in the schema but unverified here. If not, fall back to a manual
-   `work_area_offset` in `komorebi.json`.
-4. **Does Zebar hot-reload `theme.css` on change?** If not, the pipeline needs a Zebar
-   reload step.
-5. **Can a widget invoke `vesktop-unread.exe` via `privileges.shellCommands`,** and what
-   is the polling model?
+**1. Systray rendering model — RESOLVED, no longer a risk.**
+The bar does **not** need to render application icons. Caelestia's own demo does not
+show them on the vertical bar. The `tray` entry is therefore a small status-icon
+cluster, not a general systray host. This removes the only unknown that had no clean
+fallback.
+
+**2. Does the komorebi provider expose the focused window title? — OPEN, fallback confirmed.**
+The user confirms yasb displays the active window title, which proves the data is
+obtainable on this machine. Note this does **not** confirm the komorebi provider
+supplies it — yasb uses its own Win32-based `active_window` widget, a different source.
+So the spike still runs, but the fallback (`EnumWindows`, the same technique the
+Vesktop helper uses) is known to work.
+
+**3. Does `dockToEdge` reserve space that komorebi respects? — OPEN.**
+Documented in the pack schema, unverified here. Fallback: a manual `work_area_offset`
+in `komorebi.json`.
+
+**4. Does Zebar hot-reload `theme.css` on change? — OPEN.**
+Determines whether `Apply-Theme` needs a reload step for this target.
+
+**5. Vesktop indicator — APPROACH SETTLED.**
+Use the same mechanism yasb uses: poll the existing `vesktop-unread.exe` helper, here
+via `privileges.shellCommands`. The helper is proven; only the polling wiring is new.
+
+## Future phases (recorded, not in scope)
+
+### Taskbar theming and auto-hide
+
+Researched 2026-08-05; kept here so the findings are not lost. **Its own spec, after
+this one.**
+
+Both Windhawk stylers are **already installed** (`windows-11-taskbar-styler_1.8`,
+`windows-11-start-menu-styler_1.6`). The taskbar styler's settings are scriptable
+registry values under
+`HKLM\SOFTWARE\Windhawk\Engine\Mods\windows-11-taskbar-styler\Settings`:
+`theme` (currently empty), `styleConstants[N]`, `controlStyles[N].target`,
+`controlStyles[N].styles[M]`, `themeResourceVariables[N]`. Indexed strings a script can
+write palette colours into.
+
+**The unsolved constraint: `HKLM` requires admin**, and this pipeline runs unelevated.
+A wallpaper switch cannot update the taskbar without a UAC prompt each time. Three
+candidate routes: loosen the ACL on that one key once (cleanest); a scheduled task
+registered with highest privileges; or apply the taskbar theme once, manually, giving
+up on it following the wallpaper.
+
+Slide in/out is nearly free — Windows' native auto-hide already slides the taskbar; it
+is a settings toggle, with Windhawk able to tune reveal behaviour on top.
+
+This is deliberately kept out of the present spec: it is a different subsystem
+(registry rather than files), shares no code with the bar, and carries an unsolved
+elevation problem that would otherwise sit on the critical path of work that has none.
 
 ## Out of scope, recorded
 
