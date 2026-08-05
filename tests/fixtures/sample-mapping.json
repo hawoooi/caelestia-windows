@@ -1,0 +1,7 @@
+{
+  "#cba6f7":                { "expression": "{{colors.primary.default.hex}}" },
+  "#313244":                { "expression": "{{colors.outline_variant.default.hex}}" },
+  "#f38ba8":                { "expression": "{{colors.error.default.hex}}" },
+  "#abcdef":                { "expression": "{{colors.secondary.default.hex}}" },
+  "rgba(17,17,27,0.8)":     { "expression": "{{colors.surface_container.default.rgba | set_alpha: 0.8}}" }
+}

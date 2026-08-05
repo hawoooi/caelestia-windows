@@ -99,16 +99,29 @@ if ($bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) { "BOM P
 
 Record the result in `docs/matugen-reference.md`. **If a BOM is present, Task 8 must strip it before the yasb file is moved into place.**
 
-- [ ] **Step 6: Answer Unknown #4 — how does `getWallpaper` return its value?**
+- [ ] **Step 6: Record Unknown #4 — RESOLVED IN PRE-FLIGHT, do not re-investigate**
 
-```powershell
-$WE = "C:\Program Files (x86)\Steam\steamapps\common\wallpaper_engine\wallpaper64.exe"
-$out = & $WE -control getWallpaper 2>&1
-"Captured: [$out]"
-"Type: $($out.GetType().FullName)"
+`getWallpaper` **does not work.** Verified 2026-08-04 against both `wallpaper32.exe` and `wallpaper64.exe`, with and without `-monitor 0`, and with stdout redirected to a file via `Start-Process`. It returns empty every time.
+
+**The replacement, verified working:** Wallpaper Engine's own `config.json` at
+`C:\Program Files (x86)\Steam\steamapps\common\wallpaper_engine\config.json`
+is updated live and contains:
+
+```
+"wallpaperconfig" : {
+    "selectedwallpapers" : {
+        "<monitor-id>" : { "file" : "C:/Program Files (x86)/Steam/steamapps/workshop/content/431960/3441873795/scene.pkg" }
+    }
+}
 ```
 
-Wallpaper Engine must be running. Record whether the path arrives on stdout, and in what form.
+The value is a wallpaper *asset* path (`scene.pkg`, or `project.json` for some types), and `preview.jpg` sits in the same folder — so `Resolve-PreviewImage` works on it unchanged.
+
+**Critical caveat:** PowerShell 5.1's `ConvertFrom-Json` **throws** on this file (`Cannot process argument because the value of argument "name" is not valid` — the file contains an empty or duplicate key). Do not use it. Extract with a regex instead; Task 9 specifies one.
+
+Also record: the running process here is **`wallpaper32.exe`**, not `wallpaper64.exe`. Both exist on disk. Task 9 detects which is live at runtime rather than hardcoding.
+
+Copy this finding into `docs/spikes.md` verbatim. No investigation needed.
 
 - [ ] **Step 7: Answer Unknown #5 — preview image coverage**
 
@@ -123,16 +136,17 @@ $dirs | Where-Object { -not (Test-Path (Join-Path $_.FullName "preview.jpg")) } 
 
 Record the counts and list any wallpapers with no `preview.jpg`.
 
-- [ ] **Step 8: Answer Unknown #3 — how does tacky-borders reload?**
+- [ ] **Step 8: Record Unknown #3 — CLOSED AS N/A, do not investigate**
 
-Check for a CLI, then test config watching:
+tacky-borders **is not installed on this machine.** Verified 2026-08-04: its config and a 450KB log exist at `~/.config/tacky-borders/`, but no executable is present in scoop, `Program Files`, `Program Files (x86)`, or `LocalAppData`, and no process is running.
 
-```powershell
-Get-Process | Where-Object { $_.ProcessName -like "*tacky*" } | Select-Object ProcessName, Path
-Get-ChildItem (Split-Path (Get-Process | Where-Object { $_.ProcessName -like "*tacky*" } | Select-Object -First 1 -ExpandProperty Path)) -Filter *.exe
-```
+Consequences, already reflected in later tasks:
 
-Then edit `~/.config/tacky-borders/config.yaml` (change `active_color` first stop to `#ff0000`), save, and observe whether borders change without restarting. Record the answer and revert the edit.
+- Task 5 still builds the template — it only needs the existing `config.yaml` as a base, which is present. The template is ready if tacky-borders is reinstalled.
+- Unknown #3 (reload mechanism) stays **unresolved**. Record it as such.
+- Task 8's tacky-borders log check is **conditional** on the process running.
+
+Write this into `docs/spikes.md` and move on.
 
 - [ ] **Step 9: Answer Unknown #2 — does WezTerm reload on an included file?**
 
@@ -374,7 +388,13 @@ function New-Template {
 
         if ($literal.StartsWith('#')) {
             # Case-insensitive: the stylesheet mixes #cba6f7 and #CBA6F7.
-            $pattern = [regex]::Escape($literal)
+            # The lookahead stops a 6-digit literal from matching INSIDE a longer
+            # hex run. Without it, #ABCDEF12 with a mapped #abcdef becomes
+            # "{{expr}}12" -- the alpha suffix is orphaned onto the expression,
+            # and because Test-Roundtrip's normalization shared the same flaw,
+            # both sides corrupted symmetrically and the gate returned true.
+            # Get-ColorLiterals guards the same case with \b.
+            $pattern = [regex]::Escape($literal) + '(?![0-9a-fA-F])'
             $text = [regex]::Replace($text, $pattern, $expression, 'IgnoreCase')
         }
         else {
@@ -413,7 +433,11 @@ function Test-Roundtrip {
     foreach ($prop in $map.PSObject.Properties) {
         $literal = $prop.Name
         if ($literal.StartsWith('#')) {
-            $source = [regex]::Replace($source, [regex]::Escape($literal), $literal, 'IgnoreCase')
+            # Same lookahead as New-Template, for the same reason. These two
+            # patterns MUST stay identical: if they diverge, or if both share a
+            # flaw, corruption cancels out symmetrically and the gate passes
+            # code it should reject.
+            $source = [regex]::Replace($source, ([regex]::Escape($literal) + '(?![0-9a-fA-F])'), $literal, 'IgnoreCase')
         }
         else {
             $loose = [regex]::Escape($literal) -replace ',', '\s*,\s*' -replace '\\\(', '\(\s*' -replace '\\\)', '\s*\)'
@@ -676,38 +700,71 @@ Substitute any role absent from `docs/matugen-reference.md` and note it in a com
 
 - [ ] **Step 2: Add the guarded read to `.wezterm.lua`**
 
-Insert immediately before the config is returned. `pcall` means a missing or malformed palette leaves WezTerm on its built-in colors rather than failing to start:
+**Read the existing file before editing.** It does not use `config.colors`. It defines named schemes in `config.color_schemes` (line ~11) and selects one with `config.color_scheme = THEME` (line ~99). Register a generated scheme the same way rather than introducing `config.colors`, which would sit in an awkward precedence relationship with the named scheme already set.
+
+Insert **after** line ~99 (`config.color_scheme = THEME`), so the generated scheme wins when present:
 
 ```lua
+---------------------------------------------------------------------------------
+-- Generated palette (matugen). Falls through to THEME when absent.
+---------------------------------------------------------------------------------
+
 local ok, p = pcall(dofile, os.getenv("USERPROFILE") .. "/.config/palette.lua")
 if ok and p then
-  config.colors = {
+  config.color_schemes["Matugen"] = {
     background = p.surface,
     foreground = p.on_surface,
     cursor_bg  = p.primary,
     ansi       = p.ansi,
     brights    = p.brights,
   }
+  config.color_scheme = "Matugen"
 end
 ```
+
+`pcall` means a missing or malformed palette leaves WezTerm on `THEME` rather than failing to start.
+
+**Do not touch the focus handler** (`window:set_config_overrides`, line ~234). It overrides only opacity and window decorations, and `set_config_overrides` affects solely the keys present in its table — colors are unaffected by it.
+
+**Reload requires touching `.wezterm.lua` itself** — confirmed in Task 1: editing only the `dofile`'d include produced no reload after 20+ seconds, while touching the main file picked up the pending change in ~5 seconds. `Apply-Theme` already does this.
 
 - [ ] **Step 3: Test the failure path first**
 
 With no `~/.config/palette.lua` present, launch WezTerm. Expected: it starts normally on its built-in colors, no error dialog.
 
-- [ ] **Step 4: Test the success path**
+- [ ] **Step 4: Test the success path — IN ISOLATION**
+
+⚠️ **Do not write a test palette to `~/.config/palette.lua`.** That is the live path the running config reads, and `automatically_reload_config` defaults to `true`, so the user's active terminal picks it up within seconds. This happened once already: a red test palette hijacked the live session mid-task.
+
+Test against a throwaway config instead, so nothing touches the live one:
 
 ```powershell
+$sandbox = "$env:TEMP\wezterm-t6"
+New-Item -ItemType Directory -Force -Path $sandbox | Out-Null
+
+# A copy of the real config, pointed at a sandboxed palette path.
+$cfg = (Get-Content "$env:USERPROFILE\.wezterm.lua" -Raw).Replace(
+  'os.getenv("USERPROFILE") .. "/.config/palette.lua"',
+  '"' + ($sandbox -replace '\\','/') + '/palette.lua"')
+[System.IO.File]::WriteAllText("$sandbox\wezterm.lua", $cfg, (New-Object System.Text.UTF8Encoding($false)))
+
 @'
 return {
   surface = "#ff0000", on_surface = "#00ff00", primary = "#0000ff",
-  ansi = {"#111","#222","#333","#444","#555","#666","#777","#888"},
-  brights = {"#999","#aaa","#bbb","#ccc","#ddd","#eee","#fff","#000"},
+  ansi = {"#111111","#222222","#333333","#444444","#555555","#666666","#777777","#888888"},
+  brights = {"#999999","#aaaaaa","#bbbbbb","#cccccc","#dddddd","#eeeeee","#ffffff","#000000"},
 }
-'@ | Set-Content "$env:USERPROFILE\.config\palette.lua" -Encoding ascii
+'@ | Set-Content "$sandbox\palette.lua" -Encoding ascii
+
+# Spawn a window using ONLY the sandbox config. Screenshot it, then close it.
+& "C:\Program Files\WezTerm\wezterm.exe" --config-file "$sandbox\wezterm.lua" start
 ```
 
-Launch WezTerm. Expected: a red background. Then apply the reload finding from Task 1 Step 9 — if WezTerm does not pick up a change to `palette.lua` alone, confirm that touching `.wezterm.lua` triggers it.
+Verify by screenshotting that spawned window. **Close the window you spawned and delete `$sandbox` when done.** The live `~/.config/palette.lua` is written for the first time by `Apply-Theme` in Task 8, not here.
+
+Launch WezTerm. Expected: a red background. Verify by screenshotting the window (PowerShell `System.Drawing` `CopyFromScreen` to a PNG under `$env:TEMP`, then read the PNG) — do not automate clicks or SendKeys, a human is at this machine.
+
+Task 1 established that WezTerm will **not** notice a change to `palette.lua` alone; touching `.wezterm.lua` is what triggers the reload. Confirm that here.
 
 - [ ] **Step 5: Clean up and commit**
 
@@ -769,11 +826,13 @@ Render manually with a probe palette and check starship accepts it:
 ```powershell
 $probe = Get-ChildItem "C:\Program Files (x86)\Steam\steamapps\workshop\content\431960" -Recurse -Filter "preview.jpg" | Select-Object -First 1 -ExpandProperty FullName
 @"
+[config]
+
 [templates.starship]
 input_path = '$PWD\matugen\templates\starship.toml'
 output_path = '$env:TEMP\starship-probe.toml'
 "@ | Set-Content "$env:TEMP\probe.toml" -Encoding ascii
-matugen image $probe --mode dark --config "$env:TEMP\probe.toml"
+matugen image $probe --mode dark --prefer saturation --config "$env:TEMP\probe.toml"
 $env:STARSHIP_CONFIG = "$env:TEMP\starship-probe.toml"
 starship prompt
 $env:STARSHIP_CONFIG = $null
@@ -805,7 +864,11 @@ git commit -m "feat: templatize starship prompt colors"
 
 Output paths point at a temp staging directory, **not** at live configs. `Apply-Theme` moves files into place only after validation.
 
+**A top-level `[config]` table is mandatory**, even when empty. Without it matugen fails with a cryptic `missing field \`config\`` error (found in Task 1).
+
 ```toml
+[config]
+
 [templates.yasb]
 input_path = 'C:\Users\PC\Documents\git\setup\matugen\templates\yasb.styles.css'
 output_path = 'C:\Users\PC\Documents\git\setup\state\staging\styles.css'
@@ -1007,7 +1070,11 @@ function Apply-Theme {
 
     New-Item -ItemType Directory -Force -Path $script:Staging, $script:LastGood | Out-Null
 
-    matugen image $Image --mode dark --type $Scheme --config (Join-Path $script:Root "matugen\config.toml")
+    # --prefer is REQUIRED for scripted use. Many images yield multiple
+    # candidate source colors; without a preference matugen tries to prompt,
+    # detects no terminal, and fails. Verified in Task 1: gif previews (70% of
+    # this library) fail without it and succeed with it.
+    matugen image $Image --mode dark --type $Scheme --prefer saturation --config (Join-Path $script:Root "matugen\config.toml")
     if ($LASTEXITCODE -ne 0) {
         Write-Warning "matugen failed with exit code $LASTEXITCODE"
         return [PSCustomObject]@{ Success = $false; Failed = @('matugen') }
@@ -1051,8 +1118,14 @@ function Apply-Theme {
     Start-Sleep -Seconds 8
 
     $pattern = '(?i)error|critical|invalid|could not be read'
-    if ((Get-LogTail -Path $yasbLog  -Offset $yasbMark)  -match $pattern) { $failed += 'yasb' }
-    if ((Get-LogTail -Path $tackyLog -Offset $tackyMark) -match $pattern) { $failed += 'tacky' }
+    if ((Get-LogTail -Path $yasbLog -Offset $yasbMark) -match $pattern) { $failed += 'yasb' }
+
+    # tacky-borders is not installed here (see docs/spikes.md, unknown #3).
+    # Only trust its log when the process is actually running, otherwise the
+    # tail is stale output from a previous session and means nothing.
+    if (Get-Process -Name 'tacky-borders' -ErrorAction SilentlyContinue) {
+        if ((Get-LogTail -Path $tackyLog -Offset $tackyMark) -match $pattern) { $failed += 'tacky' }
+    }
 
     if ($failed.Count -gt 0) {
         Write-Warning "Rejected by: $($failed -join ', '). Rolling back all targets."
@@ -1109,8 +1182,12 @@ git commit -m "feat: add matugen config and Apply-Theme with validation and roll
 - Create: `tests/SwitchWallpaper.Tests.ps1`
 
 **Interfaces:**
-- Consumes: `Apply-Theme` (Task 8); the `getWallpaper` finding from Task 1 Step 6; the preview-coverage finding from Task 1 Step 7.
-- Produces: `Switch-Wallpaper -Wallpaper <string> -Scheme <string> -DryRun`, and `state/current.json` with `{ wallpaper, preview, appliedUtc }`.
+- Consumes: `Apply-Theme` (Task 8); the resolved `getWallpaper` finding from Task 1 Step 6; the preview-coverage finding from Task 1 Step 7.
+- Produces:
+  - `Get-WallpaperEngineExe` — path of the running WE binary, or `$null`.
+  - `Get-CurrentWallpaper [-ConfigPath <string>]` — current wallpaper asset path with backslashes, or `$null`.
+  - `Resolve-PreviewImage -ProjectJson <string>` — sibling preview image path, or `$null`.
+  - `Switch-Wallpaper -Wallpaper <string> -Scheme <string> -DryRun`, plus `state/current.json` with `{ wallpaper, preview, appliedUtc }`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1143,6 +1220,39 @@ Describe "Resolve-PreviewImage" {
         Resolve-PreviewImage -ProjectJson (Join-Path $d "project.json") | Should -BeNullOrEmpty
     }
 }
+
+Describe "Get-CurrentWallpaper" {
+    It "extracts the file path from a selectedwallpapers block" {
+        $p = "$env:TEMP\we-config-1.json"
+        @'
+{
+  "general" : { "file" : "C:/decoy/should-not-match.pkg" },
+  "wallpaperconfig" : {
+    "selectedwallpapers" : {
+      "MON1" : { "file" : "C:/Steam/workshop/content/431960/123/scene.pkg" }
+    }
+  }
+}
+'@ | Set-Content $p -Encoding ascii
+        Get-CurrentWallpaper -ConfigPath $p | Should -Be "C:\Steam\workshop\content\431960\123\scene.pkg"
+    }
+
+    It "returns null when there is no selectedwallpapers block" {
+        $p = "$env:TEMP\we-config-2.json"
+        '{ "general" : { "file" : "C:/x.pkg" } }' | Set-Content $p -Encoding ascii
+        Get-CurrentWallpaper -ConfigPath $p | Should -BeNullOrEmpty
+    }
+
+    It "returns null when the config file is missing" {
+        Get-CurrentWallpaper -ConfigPath "C:\does\not\exist.json" | Should -BeNullOrEmpty
+    }
+
+    It "reads the real Wallpaper Engine config" {
+        $real = Get-CurrentWallpaper
+        $real | Should -Not -BeNullOrEmpty
+        Test-Path $real | Should -BeTrue
+    }
+}
 ```
 
 - [ ] **Step 2: Run the test to verify it fails**
@@ -1158,7 +1268,61 @@ Expected: FAIL — the script does not exist.
 ```powershell
 . (Join-Path $PSScriptRoot "Apply-Theme.ps1")
 
-$script:WE = "C:\Program Files (x86)\Steam\steamapps\common\wallpaper_engine\wallpaper64.exe"
+$script:WeDir     = "C:\Program Files (x86)\Steam\steamapps\common\wallpaper_engine"
+$script:WeConfig  = Join-Path $script:WeDir "config.json"
+
+function Get-WallpaperEngineExe {
+    <#
+      Returns the path of whichever Wallpaper Engine binary is actually
+      running. This machine runs wallpaper32; both exist on disk, and the
+      CLI talks to the live process, so hardcoding either one is wrong.
+    #>
+    [CmdletBinding()]
+    param()
+
+    $proc = Get-Process -Name 'wallpaper32', 'wallpaper64' -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $proc) { return $null }
+    return (Join-Path $script:WeDir "$($proc.ProcessName).exe")
+}
+
+function Get-CurrentWallpaper {
+    <#
+      Reads the live wallpaper path from Wallpaper Engine's own config.json.
+
+      The `-control getWallpaper` CLI command returns nothing on this system
+      (verified against both binaries, with -monitor, and with stdout
+      redirected). config.json is updated live and is the reliable source.
+
+      ConvertFrom-Json CANNOT be used: PowerShell 5.1 throws
+      'the value of argument "name" is not valid' on this file. Hence regex.
+    #>
+    [CmdletBinding()]
+    param([string]$ConfigPath = $script:WeConfig)
+
+    if (-not (Test-Path $ConfigPath)) { return $null }
+    $text = [System.IO.File]::ReadAllText($ConfigPath)
+
+    # Narrow to the selectedwallpapers block so we do not match "file" keys
+    # belonging to unrelated settings elsewhere in the config.
+    $blockMatch = [regex]::Match($text, '"selectedwallpapers"\s*:\s*\{')
+    if (-not $blockMatch.Success) { return $null }
+
+    # Walk braces from the block open to find its matching close.
+    $start = $blockMatch.Index + $blockMatch.Length - 1
+    $depth = 0; $end = -1
+    for ($i = $start; $i -lt $text.Length; $i++) {
+        if ($text[$i] -eq '{') { $depth++ }
+        elseif ($text[$i] -eq '}') { $depth--; if ($depth -eq 0) { $end = $i; break } }
+    }
+    if ($end -lt 0) { return $null }
+
+    $block = $text.Substring($start, $end - $start + 1)
+    $fileMatch = [regex]::Match($block, '"file"\s*:\s*"([^"]+)"')
+    if (-not $fileMatch.Success) { return $null }
+
+    # Values use forward slashes; normalize for Split-Path and Test-Path.
+    return $fileMatch.Groups[1].Value -replace '/', '\'
+}
 
 function Resolve-PreviewImage {
     [CmdletBinding()]
@@ -1171,6 +1335,11 @@ function Resolve-PreviewImage {
     }
     return $null
 }
+```
+
+Task 1 measured the real coverage across 57 installed wallpapers: **~70% are gif-only** (no `preview.jpg`) and **2 have no preview asset at all**. So the gif branch is the common path, not an edge case — and matugen handles gifs fine given `--prefer` (verified). The `$null` return for the 2 uncovered wallpapers is handled by the caller, which warns and leaves the theme unchanged.
+
+```powershell
 
 function Switch-Wallpaper {
     [CmdletBinding()]
@@ -1180,26 +1349,35 @@ function Switch-Wallpaper {
         [switch]$DryRun
     )
 
-    if (-not (Test-Path $script:WE)) {
-        Write-Warning "Wallpaper Engine not found at $script:WE"
-        return
-    }
-    if (-not (Get-Process -Name 'wallpaper64' -ErrorAction SilentlyContinue)) {
+    $we = Get-WallpaperEngineExe
+    if (-not $we) {
         Write-Warning "Wallpaper Engine is not running. Start it first."
         return
     }
 
-    if ($Wallpaper) {
-        & $script:WE -control openWallpaper -file $Wallpaper
-    } else {
-        & $script:WE -control nextWallpaper
-    }
-    Start-Sleep -Seconds 2
+    $before = Get-CurrentWallpaper
 
-    $current = (& $script:WE -control getWallpaper | Out-String).Trim()
+    if ($Wallpaper) {
+        & $we -control openWallpaper -file $Wallpaper
+    } else {
+        & $we -control nextWallpaper
+    }
+
+    # config.json is written asynchronously after the wallpaper changes.
+    # Poll for the value to change rather than guessing a fixed sleep.
+    $current = $before
+    for ($i = 0; $i -lt 20; $i++) {
+        Start-Sleep -Milliseconds 500
+        $current = Get-CurrentWallpaper
+        if ($current -and $current -ne $before) { break }
+    }
+
     if (-not $current) {
-        Write-Warning "getWallpaper returned nothing. See docs/spikes.md unknown #4."
+        Write-Warning "Could not read the current wallpaper from $script:WeConfig"
         return
+    }
+    if ($current -eq $before -and -not $Wallpaper) {
+        Write-Warning "Wallpaper did not change (playlist may hold a single item). Re-theming anyway."
     }
 
     $preview = Resolve-PreviewImage -ProjectJson $current
@@ -1233,7 +1411,7 @@ Adjust the `getWallpaper` capture to match the Task 1 Step 6 finding if it diffe
 Invoke-Pester tests/SwitchWallpaper.Tests.ps1 -Output Detailed
 ```
 
-Expected: 3 passed.
+Expected: 7 passed. The last one ("reads the real Wallpaper Engine config") requires Wallpaper Engine to be running.
 
 - [ ] **Step 5: Test end to end**
 
@@ -1282,7 +1460,38 @@ Cover: the stack table, the pipeline flow, the BOM constraint, PowerShell 5.1 co
 
 Short: what this does, prerequisites (Rust toolchain, matugen, Wallpaper Engine running), the two commands, and a note that keybinds are unassigned — with the free keys from `~/.config/whkdrc` listed (`alt + w` and `ctrl + alt + w` are both free; `alt + shift + w` is retile).
 
-- [ ] **Step 3: Fix the stale yasb CLAUDE.md**
+- [ ] **Step 3: Repoint the bar's left section from GlazeWM to komorebi**
+
+GlazeWM was stopped and komorebi started during pre-flight, but `~/.config/yasb/config.yaml` still lists GlazeWM widgets in the bar layout, so the left section renders nothing.
+
+Line ~35-37 currently reads:
+
+```yaml
+        - "glazewm_workspaces"
+        - "glazewm_tiling_direction"
+        - "glazewm_binding_mode"
+```
+
+The file **already defines** `komorebi_workspaces` (line ~173) and `komorebi_active_layout` (line ~132). Replace the layout entries with:
+
+```yaml
+        - "komorebi_workspaces"
+        - "komorebi_active_layout"
+```
+
+There is no komorebi equivalent of `glazewm_binding_mode`; drop it rather than substituting something.
+
+Then reload and verify — per that repo's `CLAUDE.md`, a clean log is not proof:
+
+```powershell
+& "C:\Program Files\yasb\yasbc.exe" reload
+Start-Sleep -Seconds 8
+Select-String -Path "$env:USERPROFILE\.config\yasb\yasb.log" -Pattern "error|critical|invalid" | Select-Object -Last 5
+```
+
+Screenshot the top 36px and confirm workspace numbers render. **Do not write `config.yaml` with `Set-Content -Encoding UTF8`** — the BOM makes yasb refuse it.
+
+- [ ] **Step 4: Fix the stale yasb CLAUDE.md**
 
 `~/.config/yasb/CLAUDE.md` currently states "Komorebi is **not installed**" and that GlazeWM drives the bar. Both are wrong since the komorebi migration. Correct:
 
@@ -1291,7 +1500,21 @@ Short: what this does, prerequisites (Rust toolchain, matugen, Wallpaper Engine 
 - The claim that the `komorebic.exe is not recognized` warning is expected — it is not.
 - Add a section stating `styles.css` is **generated** from `setup/matugen/templates/yasb.styles.css`, that hand-edits are overwritten on the next wallpaper switch, and that color changes belong in `setup/matugen/mapping.json`.
 
-- [ ] **Step 4: Commit both repos**
+- [ ] **Step 4b: Record the `.wezterm.lua` edits in a tracked file**
+
+`~/.wezterm.lua` is **not under version control** (the home directory is not a git repo), yet Task 6 made two changes there that the pipeline depends on. If that file is ever restored from a backup or rebuilt, the WezTerm integration breaks with no trace of why.
+
+Create `docs/wezterm-integration.md` recording, precisely enough to reapply from scratch:
+
+1. **The generated-scheme block**, inserted after `config.color_scheme = THEME` (~line 99) — the `pcall(dofile, ...)` guard, registration into `config.color_schemes["Matugen"]`, and the reassignment of `config.color_scheme`. Include the actual code.
+2. **The focus-handler fix** — that `local scheme = config.color_schemes[THEME]` must become
+   `local scheme = config.color_schemes[config.color_scheme] or config.color_schemes[THEME]`,
+   **and why**: the `window-focus-changed` handler assigns `overrides.colors` from `scheme`, so reading `THEME` directly makes the generated palette revert to the static theme on the first focus change. This presents as "theming randomly stopped working" and is hard to diagnose after the fact.
+3. **Ordering constraint** — the generated-scheme block must run *before* the `local scheme = ...` line.
+4. **Testing note** — never write a test palette to `~/.config/palette.lua`; `automatically_reload_config` defaults to `true` and it will hijack the live session. Use a sandboxed config via `--config-file` (see Task 6 Step 4).
+5. **Validation note** — `wezterm ... show-keys` returns **exit 0 even on a broken config**, silently falling back to defaults. Check for a known marker string in the output instead of trusting the exit code.
+
+- [ ] **Step 5: Commit both repos**
 
 ```powershell
 cd C:\Users\PC\Documents\git\setup
@@ -1299,11 +1522,212 @@ git add CLAUDE.md README.md
 git commit -m "docs: add repo guide and readme"
 
 cd $env:USERPROFILE\.config\yasb
-git add CLAUDE.md
-git commit -m "docs: correct stale GlazeWM references, note styles.css is generated"
+git add CLAUDE.md config.yaml
+git commit -m "fix: repoint bar to komorebi widgets, correct stale GlazeWM docs"
 ```
 
 ---
+
+---
+
+### Task 11: foobar2000 Default UI theme
+
+Adds a fifth theme target. Unlike every other target, this one is **binary** — matugen cannot template it, so a small byte-splicing script generates it instead.
+
+**Files:**
+- Create: `scripts/New-FoobarTheme.ps1`
+- Create: `tests/FoobarTheme.Tests.ps1`
+- Create: `state/foobar-backup/` (full profile backup)
+- Modify: `scripts/Apply-Theme.ps1` — add foobar as a target
+
+**Interfaces:**
+- Consumes: the palette JSON from a matugen run.
+- Produces: `New-FoobarTheme -TemplateFth <string> -OutputPath <string> -Text <hex> -Background <hex> -Accent <hex> -Secondary <hex>` — writes a 140-byte `.fth`.
+
+**Install layout on this machine (portable):** `C:\Users\PC\Music\foobar2000\`
+- `profile\theme.fth` — 76KB, the **active** theme: panel layout *and* colors
+- `themes\*.fth` — 19 selectable color presets, 140 bytes each
+
+- [ ] **Step 1: Back up the foobar profile — DO THIS FIRST, NOTHING ELSE UNTIL IT PASSES**
+
+This install is portable, so its entire configuration lives under `profile\`. A corrupt `theme.fth` means rebuilding the panel layout by hand, which is not recoverable from git — none of it is version controlled.
+
+```powershell
+$fb   = "C:\Users\PC\Music\foobar2000"
+$dest = "C:\Users\PC\Documents\git\setup\state\foobar-backup"
+New-Item -ItemType Directory -Force -Path $dest | Out-Null
+Copy-Item "$fb\profile" $dest -Recurse -Force
+Copy-Item "$fb\themes"  $dest -Recurse -Force
+
+# Verify the backup is complete and faithful before continuing.
+$srcCount = (Get-ChildItem "$fb\profile","$fb\themes" -Recurse -File).Count
+$dstCount = (Get-ChildItem "$dest\profile","$dest\themes" -Recurse -File).Count
+"source files: $srcCount   backup files: $dstCount"
+$a = (Get-FileHash "$fb\profile\theme.fth").Hash
+$b = (Get-FileHash "$dest\profile\theme.fth").Hash
+if ($srcCount -ne $dstCount -or $a -ne $b) { throw "BACKUP INCOMPLETE - stop here" } else { "backup verified" }
+```
+
+Add `state/foobar-backup/` to `.gitignore` — it is a recovery artifact, not source.
+
+- [ ] **Step 2: Independently verify the format before relying on it**
+
+The format below was derived by diffing stock themes. **Confirm it yourself rather than trusting it** — every prior task in this plan found that the thing which was checked was not the thing that mattered.
+
+A 140-byte color `.fth` holds four RGB colors at fixed offsets, stored **BGR**:
+
+| Offset | Role |
+|---|---|
+| 76 | text |
+| 96 | background |
+| 116 | accent / highlight |
+| 136 | secondary text |
+
+```powershell
+$dir = "C:\Users\PC\Music\foobar2000\themes"
+foreach ($n in 'Black','Blue','Dark Blue','Dark Grey Magenta') {
+  $b = [System.IO.File]::ReadAllBytes((Join-Path $dir "$n.fth"))
+  $c = foreach ($off in 76,96,116,136) { "#{0:X2}{1:X2}{2:X2}" -f $b[$off+2], $b[$off+1], $b[$off] }
+  "{0,-20} {1}" -f $n, ($c -join ' ')
+}
+```
+
+Expected: `Black` → `#FFFFFF #000000 #FF8000 #555555`; `Dark Grey Magenta` → `#EBEBEB #313131 #A74FFF #6E6E6E`.
+
+Also confirm all 19 presets are exactly 140 bytes and that bytes **outside** those four triples are identical across every preset. If any preset deviates, the format is more complex than assumed — **stop and report** rather than guessing.
+
+- [ ] **Step 3: Write the failing test**
+
+`tests/FoobarTheme.Tests.ps1`:
+
+```powershell
+BeforeAll {
+    . "$PSScriptRoot\..\scripts\New-FoobarTheme.ps1"
+    $script:tmpl = "C:\Users\PC\Music\foobar2000\themes\Black.fth"
+    $script:out  = "$env:TEMP\test-theme.fth"
+}
+
+Describe "New-FoobarTheme" {
+    It "writes a 140-byte file" {
+        New-FoobarTheme -TemplateFth $script:tmpl -OutputPath $script:out `
+            -Text '#e8e2d4' -Background '#15130c' -Accent '#d8c770' -Secondary '#ccc6b5'
+        (Get-Item $script:out).Length | Should -Be 140
+    }
+
+    It "stores colours BGR at the four known offsets" {
+        New-FoobarTheme -TemplateFth $script:tmpl -OutputPath $script:out `
+            -Text '#e8e2d4' -Background '#15130c' -Accent '#d8c770' -Secondary '#ccc6b5'
+        $b = [System.IO.File]::ReadAllBytes($script:out)
+        "{0:X2}{1:X2}{2:X2}" -f $b[78], $b[77], $b[76] | Should -Be 'E8E2D4'
+        "{0:X2}{1:X2}{2:X2}" -f $b[98], $b[97], $b[96] | Should -Be '15130C'
+    }
+
+    It "changes ONLY the twelve colour bytes" {
+        $orig = [System.IO.File]::ReadAllBytes($script:tmpl)
+        New-FoobarTheme -TemplateFth $script:tmpl -OutputPath $script:out `
+            -Text '#e8e2d4' -Background '#15130c' -Accent '#d8c770' -Secondary '#ccc6b5'
+        $new = [System.IO.File]::ReadAllBytes($script:out)
+        $differing = 0..139 | Where-Object { $orig[$_] -ne $new[$_] }
+        $expected = @(76,77,78,96,97,98,116,117,118,136,137,138)
+        ($differing | Where-Object { $expected -notcontains $_ }).Count | Should -Be 0
+    }
+
+    It "rejects a malformed hex colour" {
+        { New-FoobarTheme -TemplateFth $script:tmpl -OutputPath $script:out `
+            -Text 'not-a-colour' -Background '#15130c' -Accent '#d8c770' -Secondary '#ccc6b5' } | Should -Throw
+    }
+
+    It "rejects a template that is not 140 bytes" {
+        $bad = "$env:TEMP\bad.fth"
+        [System.IO.File]::WriteAllBytes($bad, (New-Object byte[] 100))
+        { New-FoobarTheme -TemplateFth $bad -OutputPath $script:out `
+            -Text '#e8e2d4' -Background '#15130c' -Accent '#d8c770' -Secondary '#ccc6b5' } | Should -Throw
+    }
+}
+```
+
+The third test is the important one — it proves the header is preserved and only colors move.
+
+- [ ] **Step 4: Run the tests to verify they fail**
+
+```powershell
+Import-Module Pester -MinimumVersion 5.0.0
+Invoke-Pester tests/FoobarTheme.Tests.ps1 -Output Detailed
+```
+
+Expected: FAIL — the script does not exist.
+
+- [ ] **Step 5: Implement `New-FoobarTheme.ps1`**
+
+```powershell
+function New-FoobarTheme {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$TemplateFth,
+        [Parameter(Mandatory)][string]$OutputPath,
+        [Parameter(Mandatory)][string]$Text,
+        [Parameter(Mandatory)][string]$Background,
+        [Parameter(Mandatory)][string]$Accent,
+        [Parameter(Mandatory)][string]$Secondary
+    )
+
+    $bytes = [System.IO.File]::ReadAllBytes($TemplateFth)
+    if ($bytes.Length -ne 140) {
+        throw "Template must be a 140-byte colour theme, got $($bytes.Length) bytes: $TemplateFth"
+    }
+
+    # Offsets verified against the 19 stock presets; colours are stored BGR.
+    $slots = @{ 76 = $Text; 96 = $Background; 116 = $Accent; 136 = $Secondary }
+
+    foreach ($off in $slots.Keys) {
+        $hex = $slots[$off]
+        if ($hex -notmatch '^#?[0-9a-fA-F]{6}$') { throw "Not a 6-digit hex colour: $hex" }
+        $h = $hex.TrimStart('#')
+        $r = [Convert]::ToByte($h.Substring(0,2), 16)
+        $g = [Convert]::ToByte($h.Substring(2,2), 16)
+        $b = [Convert]::ToByte($h.Substring(4,2), 16)
+        $bytes[$off]     = $b   # BGR order
+        $bytes[$off + 1] = $g
+        $bytes[$off + 2] = $r
+    }
+
+    [System.IO.File]::WriteAllBytes($OutputPath, $bytes)
+}
+```
+
+- [ ] **Step 6: Run the tests to verify they pass**
+
+Expected: 5 passed.
+
+- [ ] **Step 7: Wire into `Apply-Theme`, preset route only**
+
+Add a foobar step that reads the rendered palette and writes `C:\Users\PC\Music\foobar2000\themes\Matugen.fth`:
+
+```
+text       <- on_surface
+background <- surface
+accent     <- primary
+secondary  <- on_surface_variant
+```
+
+Writing into `themes\` is safe while foobar is running — presets are read on demand.
+
+**Explicitly out of scope:** patching `profile\theme.fth` in place. Two reasons, both disqualifying for this task:
+1. It is 76KB and encodes the panel layout, not just colors. The four offsets are almost certainly at different positions and must be located and proven on a copy first.
+2. **foobar2000 rewrites its profile on exit**, so a patch applied while it is running is silently discarded. Any in-place approach must handle the process lifecycle.
+
+If in-place is wanted later, it is its own task with its own proof.
+
+- [ ] **Step 8: Verify against a real palette, then commit**
+
+Generate a theme from a real matugen run, confirm it is 140 bytes, confirm the four colors decode back to the palette values, and confirm the other 128 bytes match the template. Then open foobar's preferences and confirm `Matugen` appears in the theme list.
+
+Note in the report that selecting the preset is a **manual step** — the pipeline generates it, the user applies it.
+
+```powershell
+git add scripts/New-FoobarTheme.ps1 tests/FoobarTheme.Tests.ps1 scripts/Apply-Theme.ps1 .gitignore
+git commit -m "feat: generate foobar2000 Default UI colour theme from palette"
+```
 
 ## Verification
 

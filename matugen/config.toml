@@ -1,0 +1,17 @@
+[config]
+
+[templates.yasb]
+input_path = 'C:\Users\PC\Documents\git\setup\matugen\templates\yasb.styles.css'
+output_path = 'C:\Users\PC\Documents\git\setup\state\staging\styles.css'
+
+[templates.tacky]
+input_path = 'C:\Users\PC\Documents\git\setup\matugen\templates\tacky-borders.yaml'
+output_path = 'C:\Users\PC\Documents\git\setup\state\staging\tacky-config.yaml'
+
+[templates.wezterm]
+input_path = 'C:\Users\PC\Documents\git\setup\matugen\templates\palette.lua'
+output_path = 'C:\Users\PC\Documents\git\setup\state\staging\palette.lua'
+
+[templates.starship]
+input_path = 'C:\Users\PC\Documents\git\setup\matugen\templates\starship.toml'
+output_path = 'C:\Users\PC\Documents\git\setup\state\staging\starship.toml'

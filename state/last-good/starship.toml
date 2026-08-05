@@ -1,0 +1,162 @@
+format = """
+[](#ffb4ab)\
+$os\
+$username\
+[█](bg:#83d2e5 fg:#ffb4ab)\
+$directory\
+[](bg:#bdc5eb fg:#83d2e5)\
+$git_branch\
+$git_status\
+[](fg:#bdc5eb bg:#b2cbd2)\
+$c\
+$rust\
+$golang\
+$nodejs\
+$php\
+$java\
+$kotlin\
+$haskell\
+$python\
+[](fg:#b2cbd2 bg:#a6eeff)\
+$conda\
+[](fg:#a6eeff bg:#dce1ff)\
+$time\
+[ ](fg:#dce1ff)\
+$cmd_duration\
+$line_break\
+$character"""
+
+[os]
+disabled = false
+style = "bg:#ffb4ab fg:#690005"
+
+[os.symbols]
+Windows = ""
+Ubuntu = "󰕈"
+SUSE = ""
+Raspbian = "󰐿"
+Mint = "󰣭"
+Macos = "󰀵"
+Manjaro = ""
+Linux = "󰌽"
+Gentoo = "󰣨"
+Fedora = "󰣛"
+Alpine = ""
+Amazon = ""
+Android = ""
+Arch = "󰣇"
+Artix = "󰣇"
+CentOS = ""
+Debian = "󰣚"
+Redhat = "󱄛"
+RedHatEnterprise = "󱄛"
+
+[username]
+show_always = true
+style_user = "bg:#ffb4ab fg:#690005"
+style_root = "bg:#ffb4ab fg:#690005"
+format = '[ $user]($style)'
+
+[directory]
+style = "bg:#83d2e5 fg:#00363f"
+format = "[ $path ]($style)"
+truncation_length = 3
+truncation_symbol = "…/"
+
+[directory.substitutions]
+"Documents" = " "
+"Downloads" = " "
+"Music" = "󰝚 "
+"Pictures" = " "
+"Developer" = "󰲋 "
+
+[git_branch]
+symbol = ""
+style = "bg:#bdc5eb"
+format = '[[ $symbol $branch ](fg:#272f4d bg:#bdc5eb)]($style)'
+
+[git_status]
+style = "bg:#bdc5eb"
+format = '[[($all_status$ahead_behind )](fg:#272f4d bg:#bdc5eb)]($style)'
+
+[nodejs]
+symbol = ""
+style = "bg:#b2cbd2"
+format = '[[ $symbol( $version) ](fg:#1c3439 bg:#b2cbd2)]($style)'
+
+[c]
+symbol = " "
+style = "bg:#b2cbd2"
+format = '[[ $symbol( $version) ](fg:#1c3439 bg:#b2cbd2)]($style)'
+
+[rust]
+symbol = ""
+style = "bg:#b2cbd2"
+format = '[[ $symbol( $version) ](fg:#1c3439 bg:#b2cbd2)]($style)'
+
+[golang]
+symbol = ""
+style = "bg:#b2cbd2"
+format = '[[ $symbol( $version) ](fg:#1c3439 bg:#b2cbd2)]($style)'
+
+[php]
+symbol = ""
+style = "bg:#b2cbd2"
+format = '[[ $symbol( $version) ](fg:#1c3439 bg:#b2cbd2)]($style)'
+
+[java]
+symbol = " "
+style = "bg:#b2cbd2"
+format = '[[ $symbol( $version) ](fg:#1c3439 bg:#b2cbd2)]($style)'
+
+[kotlin]
+symbol = ""
+style = "bg:#b2cbd2"
+format = '[[ $symbol( $version) ](fg:#1c3439 bg:#b2cbd2)]($style)'
+
+[haskell]
+symbol = ""
+style = "bg:#b2cbd2"
+format = '[[ $symbol( $version) ](fg:#1c3439 bg:#b2cbd2)]($style)'
+
+[python]
+symbol = ""
+style = "bg:#b2cbd2"
+format = '[[ $symbol( $version)(\(#$virtualenv\)) ](fg:#1c3439 bg:#b2cbd2)]($style)'
+
+[docker_context]
+symbol = ""
+style = "bg:#a6eeff"
+format = '[[ $symbol( $context) ](fg:#001f25 bg:#a6eeff)]($style)'
+
+[conda]
+symbol = "  "
+style = "fg:#001f25 bg:#a6eeff"
+format = '[$symbol$environment ]($style)'
+ignore_base = false
+
+[time]
+disabled = false
+time_format = "%R"
+style = "bg:#dce1ff"
+format = '[[  $time ](fg:#111a37 bg:#dce1ff)]($style)'
+
+[line_break]
+disabled = true
+
+[character]
+disabled = false
+success_symbol = '[❯](bold fg:#b2cbd2)'
+error_symbol = '[❯](bold fg:#ffb4ab)'
+vimcmd_symbol = '[❮](bold fg:#b2cbd2)'
+vimcmd_replace_one_symbol = '[❮](bold fg:#dce1ff)'
+vimcmd_replace_symbol = '[❮](bold fg:#dce1ff)'
+vimcmd_visual_symbol = '[❮](bold fg:#bdc5eb)'
+
+[cmd_duration]
+show_milliseconds = true
+format = " in $duration "
+style = "bg:#dce1ff"
+disabled = false
+show_notifications = true
+min_time_to_notify = 45000
