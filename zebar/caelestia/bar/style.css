@@ -1,0 +1,27 @@
+:root {
+  --space-sm: 4px;  --space-md: 8px;  --space-lg: 14px;
+  --pad-lg: 12px;
+  --radius-sm: 8px; --radius-lg: 18px; --radius-full: 999px;
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --dur: 300ms;
+  --bar-w: 52px;
+}
+
+html, body { margin: 0; padding: 0; height: 100%; background: transparent; overflow: hidden; }
+
+#bar {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-md);
+  height: 100%;
+  padding: var(--pad-lg) 0;
+  box-sizing: border-box;
+  background: var(--surface);
+  color: var(--on-surface);
+  font-family: "0xProto Nerd Font", monospace;
+  font-size: 12px;
+}
+
+.entry { display: flex; flex-direction: column; align-items: center; }
+.entry--spacer { flex: 1 1 auto; }
