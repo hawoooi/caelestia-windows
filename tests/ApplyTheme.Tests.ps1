@@ -276,7 +276,7 @@ Describe "Update-LastGood atomic rotation" {
         $script:rotLastGoodPrev = Join-Path $script:rotRoot 'last-good-prev'
         $script:rotLastGoodNew  = Join-Path $script:rotRoot 'last-good-new'
         New-Item -ItemType Directory -Force -Path $script:rotStaging | Out-Null
-        foreach ($f in 'styles.css', 'tacky-config.yaml', 'palette.lua', 'starship.toml') {
+        foreach ($f in 'styles.css', 'tacky-config.yaml', 'palette.lua', 'starship.toml', 'theme.css') {
             [System.IO.File]::WriteAllText((Join-Path $script:rotStaging $f), "NEW-$f", (New-Object System.Text.UTF8Encoding($false)))
         }
     }
@@ -677,5 +677,28 @@ Describe "Test-StagedFile -AcceptStructuralChange bypasses only the rule-count/s
         $p = "$env:TEMP\yasb-i7-stillcorrupt.css"
         Set-Content $p '.a { color: red;' -Encoding ascii
         Test-StagedFile -Name 'yasb' -Path $p -LastGoodDir $script:lastGoodDir -AcceptStructuralChange | Should -BeFalse
+    }
+}
+
+Describe "Test-StagedFile zebar branch" {
+    It "accepts a well-formed custom-property block" {
+        $p = "$env:TEMP\zt-good.css"
+        Set-Content $p ":root {`n  --surface: #0e1416;`n  --primary: #83d2e5;`n}" -Encoding ascii
+        Test-StagedFile -Name 'zebar' -Path $p | Should -BeTrue
+    }
+    It "rejects an unrendered expression" {
+        $p = "$env:TEMP\zt-unrendered.css"
+        Set-Content $p ":root { --surface: {{colors.surface.default.hex}}; }" -Encoding ascii
+        Test-StagedFile -Name 'zebar' -Path $p | Should -BeFalse
+    }
+    It "rejects unbalanced braces" {
+        $p = "$env:TEMP\zt-brace.css"
+        Set-Content $p ":root { --surface: #0e1416;" -Encoding ascii
+        Test-StagedFile -Name 'zebar' -Path $p | Should -BeFalse
+    }
+    It "rejects a non-custom-property declaration" {
+        $p = "$env:TEMP\zt-decl.css"
+        Set-Content $p ":root {`n  color: red;`n}" -Encoding ascii
+        Test-StagedFile -Name 'zebar' -Path $p | Should -BeFalse
     }
 }

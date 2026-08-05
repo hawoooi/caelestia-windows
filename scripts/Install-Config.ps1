@@ -87,3 +87,50 @@ function Remove-PatchedBlock {
 
     [System.IO.File]::WriteAllText($Path, $new, (New-Object System.Text.UTF8Encoding($false)))
 }
+
+function Install-Config {
+    <#
+      Task 9: the top-level installer this whole helper file existed for but
+      never gained a caller of its own. Patches marker-delimited blocks into
+      user-owned dotfiles (currently just whkdrc, for the two theming
+      hotkeys) via Set-PatchedBlock/Remove-PatchedBlock above, and manages
+      the ~/.glzr/zebar/caelestia junction via Set-ManagedJunction so the
+      tracked zebar/caelestia pack in this repo is what Zebar actually loads.
+
+      .wezterm.lua is deliberately NOT in $targets -- its edits are already
+      applied and live (see docs/spikes.md), and re-patching a working
+      354-line config to prove this mechanism risks breaking a terminal this
+      session itself runs in. See docs/wezterm-integration.md for that
+      manual step, recorded rather than automated here.
+    #>
+    [CmdletBinding()]
+    param([switch]$DryRun, [switch]$Uninstall)
+
+    $marker = 'caelestia-shell'
+    $stamp  = Get-Date -Format 'yyyyMMdd-HHmmss'
+    $backup = Join-Path $script:Root "state\config-backup\$stamp"
+
+    $targets = @(
+        @{ Path = "$env:USERPROFILE\.config\whkdrc"; Prefix = '#';  Content = @'
+alt + w                       : Start-Process powershell -WindowStyle Hidden -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','C:\Users\PC\Documents\git\setup\scripts\hotkey-next-wallpaper.ps1'
+ctrl + alt + w                : Start-Process powershell -WindowStyle Hidden -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','C:\Users\PC\Documents\git\setup\scripts\hotkey-retheme.ps1'
+'@ }
+    )
+
+    if (-not $DryRun) { New-Item -ItemType Directory -Force -Path $backup | Out-Null }
+
+    foreach ($t in $targets) {
+        if ($DryRun) { "would patch $($t.Path)"; continue }
+        if (Test-Path $t.Path) { Copy-Item $t.Path $backup -Force }
+        if ($Uninstall) { Remove-PatchedBlock -Path $t.Path -Marker $marker -CommentPrefix $t.Prefix }
+        else            { Set-PatchedBlock  -Path $t.Path -Marker $marker -CommentPrefix $t.Prefix -Content $t.Content }
+    }
+
+    if ($Uninstall) {
+        $link = "$env:USERPROFILE\.glzr\zebar\caelestia"
+        if ((Test-Path $link) -and (Get-Item $link -Force).LinkType -eq 'Junction') { Remove-Item $link -Force }
+    } elseif (-not $DryRun) {
+        Set-ManagedJunction -LinkPath "$env:USERPROFILE\.glzr\zebar\caelestia" `
+                            -TargetPath (Join-Path $script:Root "zebar\caelestia") | Out-Null
+    }
+}

@@ -22,12 +22,17 @@ $script:LastGoodNew = Join-Path $script:Root "state\last-good-new"
 # hand-edits included. Deliberately not reused/aliased with LastGood*.
 $script:PreApply    = Join-Path $script:Root "state\pre-apply"
 $script:Yasbc       = "C:\Program Files\yasb\yasbc.exe"
+$script:ZebarExe    = "C:\Program Files\glzr.io\Zebar\zebar.exe"
 
 $script:Targets = @(
     @{ Name='yasb';     Staged='styles.css';       Live="$env:USERPROFILE\.config\yasb\styles.css" }
     @{ Name='tacky';    Staged='tacky-config.yaml';Live="$env:USERPROFILE\.config\tacky-borders\config.yaml" }
     @{ Name='wezterm';  Staged='palette.lua';      Live="$env:USERPROFILE\.config\palette.lua" }
     @{ Name='starship'; Staged='starship.toml';    Live="$env:USERPROFILE\.config\starship.toml" }
+    # Unlike the four targets above, this one lives INSIDE the repo -- the
+    # zebar pack is tracked, and theme.css is a committed generated
+    # artifact, same as styles.css is for yasb (see Task 9 brief).
+    @{ Name='zebar';    Staged='theme.css';        Live="$script:Root\zebar\caelestia\bar\theme.css" }
 )
 
 function Measure-CssBraces {
@@ -354,6 +359,56 @@ function Test-StagedFile {
             if ($sq % 2 -ne 0) {
                 Write-Warning "tacky-config.yaml has an unbalanced single-quote count ($sq)"
                 return $false
+            }
+            return $true
+        }
+        'zebar' {
+            # theme.css is loaded directly by zebar/caelestia/bar/style.css,
+            # which is held to a global invariant: ZERO colour literals,
+            # only var(--...) references. That invariant only holds if the
+            # generated file it depends on can NEVER carry anything but
+            # custom-property declarations -- no selectors, no layout, no
+            # literal rules that could quietly start being relied on. This
+            # branch is what enforces that on the generated side.
+
+            # Brace balance, reusing the same string-aware scanner the yasb
+            # branch uses (see Measure-CssBraces's own comment) -- a naive
+            # regex comment-stripper has the same false-pass exposure here
+            # it does for styles.css.
+            $counts = Measure-CssBraces -Text $text
+            if ($counts.UnterminatedComment) {
+                Write-Warning "theme.css has an unterminated /* comment -- truncated or corrupt"
+                return $false
+            }
+            if ($counts.UnterminatedString) {
+                Write-Warning "theme.css has an unterminated string literal -- truncated or corrupt"
+                return $false
+            }
+            if ($counts.Open -ne $counts.Close) {
+                Write-Warning "theme.css has unbalanced braces ($($counts.Open) open, $($counts.Close) close)"
+                return $false
+            }
+
+            # The invariant: every non-blank line inside :root { } must be a
+            # custom-property declaration (`--name: value;`). This is what
+            # keeps layout out of the generated file -- a `color: red;` (or
+            # any other literal CSS declaration) rendered into theme.css
+            # would still be syntactically valid CSS and would still pass
+            # every check above, but would violate the zero-colour-literal
+            # contract style.css depends on. Reject it here, before it ever
+            # reaches the live pack.
+            $rootMatch = [regex]::Match($text, '(?s):root\s*\{(.*?)\}')
+            if (-not $rootMatch.Success) {
+                Write-Warning "theme.css has no :root { } block"
+                return $false
+            }
+            foreach ($line in ($rootMatch.Groups[1].Value -split "`r?`n")) {
+                $trimmed = $line.Trim()
+                if ($trimmed.Length -eq 0) { continue }
+                if ($trimmed -notmatch '^--[\w-]+\s*:') {
+                    Write-Warning "theme.css has a non-custom-property declaration inside :root: '$trimmed'"
+                    return $false
+                }
             }
             return $true
         }
@@ -758,6 +813,54 @@ function Apply-Theme {
         # apply's structural baseline (and any future rollback) is still
         # working off the PREVIOUS generation until a future apply succeeds.
         Write-Warning "Update-LastGood failed: $($_.Exception.Message). The live theme applied successfully, but state\last-good was NOT refreshed."
+    }
+
+    # Reload the zebar bar widget so it picks up the new theme.css.
+    #
+    # docs/zebar-reference.md (Step 4) found Zebar does NOT hot-reload CSS --
+    # a running widget still showed the old colour 14+ seconds after the
+    # stylesheet changed on disk. A later investigation found
+    # start-widget-preset against an ALREADY-RUNNING widget of the same
+    # pack/widget/preset is a no-op -- it neither reloads nor duplicates.
+    # `zebar.exe --help` (re-checked for this task) confirms the CLI has no
+    # lighter-weight verb either: only start-widget, start-widget-preset,
+    # startup, query, publish exist -- no stop/reload/restart-in-place. The
+    # only way to make a running widget notice a new stylesheet is to kill
+    # the zebar.exe process and start it again.
+    #
+    # Deliberately placed HERE -- after the post-copy log check and
+    # Update-LastGood -- not immediately after Copy-StagedToLive above.
+    # Restarting hands the widget whatever is CURRENTLY on disk. If this
+    # apply were instead rejected by the yasb/tacky log check and rolled
+    # back, restarting before that rollback would have shown the rejected
+    # theme.css for the length of a restart, and the rollback's
+    # Restore-PreApplySnapshot alone would not be enough to make the
+    # already-restarted widget's displayed colour match the restored file --
+    # it would need a SECOND restart just to undo the first. Restarting only
+    # once every check has passed avoids that, and keeps the bar's downtime
+    # to the one restart a successful apply actually needs (yasb already
+    # adds 8 seconds of settle time; this should not add more than the
+    # ~500ms below).
+    #
+    # `zebar.exe start-widget-preset` blocks the calling process (verified
+    # directly against this build) -- it must go through Start-Process, never
+    # be invoked inline with `&`, or this function (and every caller of
+    # Apply-Theme) would hang waiting for a process that only exits when the
+    # widget itself closes.
+    #
+    # Killing zebar.exe kills EVERY Zebar widget on the machine, not just
+    # this bar -- Stop-Process only this one process is currently running,
+    # confirmed via `Get-Process zebar` before this task's changes, so this
+    # is safe today; it would not be if a second, unrelated Zebar widget
+    # were ever added.
+    if (Test-Path $script:ZebarExe) {
+        Get-Process zebar -ErrorAction SilentlyContinue | Stop-Process -Force
+        Start-Sleep -Milliseconds 500
+        Start-Process -FilePath $script:ZebarExe -ArgumentList @(
+            'start-widget-preset', '--pack', 'caelestia', '--widget-name', 'bar', '--preset', 'default'
+        ) -WindowStyle Hidden
+    } else {
+        Write-Warning "zebar.exe not found at $script:ZebarExe -- theme.css was updated on disk but the running widget was not reloaded"
     }
 
     # Force WezTerm to notice the new palette (see docs/spikes.md, unknown #2).

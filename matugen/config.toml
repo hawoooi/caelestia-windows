@@ -15,3 +15,7 @@ output_path = 'C:\Users\PC\Documents\git\setup\state\staging\palette.lua'
 [templates.starship]
 input_path = 'C:\Users\PC\Documents\git\setup\matugen\templates\starship.toml'
 output_path = 'C:\Users\PC\Documents\git\setup\state\staging\starship.toml'
+
+[templates.zebar]
+input_path = 'C:\Users\PC\Documents\git\setup\matugen\templates\zebar.theme.css'
+output_path = 'C:\Users\PC\Documents\git\setup\state\staging\theme.css'
