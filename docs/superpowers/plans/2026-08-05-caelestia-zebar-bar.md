@@ -1024,21 +1024,28 @@ register('media', () => {
 ```js
 import { register } from './registry.js';
 
-// Task 1 confirmed the komorebi provider DOES expose the title, but there is no
-// `focusedWindow` shortcut. The verified path (live, and cross-checked against the
-// vendored package's index.d.ts) is:
-//   komorebi.focusedWorkspace.tilingContainers[].windows[].title
-// Read index.d.ts for how focus is flagged rather than guessing at `isFocused`,
-// and test the "no tiling containers yet" case -- that is the normal first frame
-// before komorebi has reported anything.
+// Focus is flagged at the CONTAINER level, not per window. Verified against
+// zebar's index.d.ts at both 3.0.3 and 3.3.1: `KomorebiWindow` is
+// {id, class, exe, hwnd, title, role, subrole, icon_path} -- there is no
+// `isFocused` field at any version. Use `focusedWorkspace.focusedContainerIndex`
+// to pick the container, then the window within it.
+//
+// `focusedWindowIndex` below is NOT verified -- check index.d.ts for the real
+// name of the within-container index and correct it. Falling back to windows[0]
+// is right for the common single-window container.
 export function windowTitle(komorebi) {
-  const containers = komorebi?.focusedWorkspace?.tilingContainers;
+  const ws = komorebi?.focusedWorkspace;
+  const containers = ws?.tilingContainers;
   if (!Array.isArray(containers)) return '';
-  for (const c of containers) {
-    const win = (c.windows ?? []).find(w => w.isFocused);
-    if (win) return win.title ?? '';
-  }
-  return '';
+
+  const ci = ws.focusedContainerIndex;
+  const container = typeof ci === 'number' ? containers[ci] : undefined;
+  if (!container) return '';
+
+  const windows = container.windows ?? [];
+  const wi = container.focusedWindowIndex;
+  const win = typeof wi === 'number' ? windows[wi] : windows[0];
+  return win?.title ?? '';
 }
 
 register('activeWindow', () => {
