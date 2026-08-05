@@ -1528,6 +1528,207 @@ git commit -m "fix: repoint bar to komorebi widgets, correct stale GlazeWM docs"
 
 ---
 
+---
+
+### Task 11: foobar2000 Default UI theme
+
+Adds a fifth theme target. Unlike every other target, this one is **binary** — matugen cannot template it, so a small byte-splicing script generates it instead.
+
+**Files:**
+- Create: `scripts/New-FoobarTheme.ps1`
+- Create: `tests/FoobarTheme.Tests.ps1`
+- Create: `state/foobar-backup/` (full profile backup)
+- Modify: `scripts/Apply-Theme.ps1` — add foobar as a target
+
+**Interfaces:**
+- Consumes: the palette JSON from a matugen run.
+- Produces: `New-FoobarTheme -TemplateFth <string> -OutputPath <string> -Text <hex> -Background <hex> -Accent <hex> -Secondary <hex>` — writes a 140-byte `.fth`.
+
+**Install layout on this machine (portable):** `C:\Users\PC\Music\foobar2000\`
+- `profile\theme.fth` — 76KB, the **active** theme: panel layout *and* colors
+- `themes\*.fth` — 19 selectable color presets, 140 bytes each
+
+- [ ] **Step 1: Back up the foobar profile — DO THIS FIRST, NOTHING ELSE UNTIL IT PASSES**
+
+This install is portable, so its entire configuration lives under `profile\`. A corrupt `theme.fth` means rebuilding the panel layout by hand, which is not recoverable from git — none of it is version controlled.
+
+```powershell
+$fb   = "C:\Users\PC\Music\foobar2000"
+$dest = "C:\Users\PC\Documents\git\setup\state\foobar-backup"
+New-Item -ItemType Directory -Force -Path $dest | Out-Null
+Copy-Item "$fb\profile" $dest -Recurse -Force
+Copy-Item "$fb\themes"  $dest -Recurse -Force
+
+# Verify the backup is complete and faithful before continuing.
+$srcCount = (Get-ChildItem "$fb\profile","$fb\themes" -Recurse -File).Count
+$dstCount = (Get-ChildItem "$dest\profile","$dest\themes" -Recurse -File).Count
+"source files: $srcCount   backup files: $dstCount"
+$a = (Get-FileHash "$fb\profile\theme.fth").Hash
+$b = (Get-FileHash "$dest\profile\theme.fth").Hash
+if ($srcCount -ne $dstCount -or $a -ne $b) { throw "BACKUP INCOMPLETE - stop here" } else { "backup verified" }
+```
+
+Add `state/foobar-backup/` to `.gitignore` — it is a recovery artifact, not source.
+
+- [ ] **Step 2: Independently verify the format before relying on it**
+
+The format below was derived by diffing stock themes. **Confirm it yourself rather than trusting it** — every prior task in this plan found that the thing which was checked was not the thing that mattered.
+
+A 140-byte color `.fth` holds four RGB colors at fixed offsets, stored **BGR**:
+
+| Offset | Role |
+|---|---|
+| 76 | text |
+| 96 | background |
+| 116 | accent / highlight |
+| 136 | secondary text |
+
+```powershell
+$dir = "C:\Users\PC\Music\foobar2000\themes"
+foreach ($n in 'Black','Blue','Dark Blue','Dark Grey Magenta') {
+  $b = [System.IO.File]::ReadAllBytes((Join-Path $dir "$n.fth"))
+  $c = foreach ($off in 76,96,116,136) { "#{0:X2}{1:X2}{2:X2}" -f $b[$off+2], $b[$off+1], $b[$off] }
+  "{0,-20} {1}" -f $n, ($c -join ' ')
+}
+```
+
+Expected: `Black` → `#FFFFFF #000000 #FF8000 #555555`; `Dark Grey Magenta` → `#EBEBEB #313131 #A74FFF #6E6E6E`.
+
+Also confirm all 19 presets are exactly 140 bytes and that bytes **outside** those four triples are identical across every preset. If any preset deviates, the format is more complex than assumed — **stop and report** rather than guessing.
+
+- [ ] **Step 3: Write the failing test**
+
+`tests/FoobarTheme.Tests.ps1`:
+
+```powershell
+BeforeAll {
+    . "$PSScriptRoot\..\scripts\New-FoobarTheme.ps1"
+    $script:tmpl = "C:\Users\PC\Music\foobar2000\themes\Black.fth"
+    $script:out  = "$env:TEMP\test-theme.fth"
+}
+
+Describe "New-FoobarTheme" {
+    It "writes a 140-byte file" {
+        New-FoobarTheme -TemplateFth $script:tmpl -OutputPath $script:out `
+            -Text '#e8e2d4' -Background '#15130c' -Accent '#d8c770' -Secondary '#ccc6b5'
+        (Get-Item $script:out).Length | Should -Be 140
+    }
+
+    It "stores colours BGR at the four known offsets" {
+        New-FoobarTheme -TemplateFth $script:tmpl -OutputPath $script:out `
+            -Text '#e8e2d4' -Background '#15130c' -Accent '#d8c770' -Secondary '#ccc6b5'
+        $b = [System.IO.File]::ReadAllBytes($script:out)
+        "{0:X2}{1:X2}{2:X2}" -f $b[78], $b[77], $b[76] | Should -Be 'E8E2D4'
+        "{0:X2}{1:X2}{2:X2}" -f $b[98], $b[97], $b[96] | Should -Be '15130C'
+    }
+
+    It "changes ONLY the twelve colour bytes" {
+        $orig = [System.IO.File]::ReadAllBytes($script:tmpl)
+        New-FoobarTheme -TemplateFth $script:tmpl -OutputPath $script:out `
+            -Text '#e8e2d4' -Background '#15130c' -Accent '#d8c770' -Secondary '#ccc6b5'
+        $new = [System.IO.File]::ReadAllBytes($script:out)
+        $differing = 0..139 | Where-Object { $orig[$_] -ne $new[$_] }
+        $expected = @(76,77,78,96,97,98,116,117,118,136,137,138)
+        ($differing | Where-Object { $expected -notcontains $_ }).Count | Should -Be 0
+    }
+
+    It "rejects a malformed hex colour" {
+        { New-FoobarTheme -TemplateFth $script:tmpl -OutputPath $script:out `
+            -Text 'not-a-colour' -Background '#15130c' -Accent '#d8c770' -Secondary '#ccc6b5' } | Should -Throw
+    }
+
+    It "rejects a template that is not 140 bytes" {
+        $bad = "$env:TEMP\bad.fth"
+        [System.IO.File]::WriteAllBytes($bad, (New-Object byte[] 100))
+        { New-FoobarTheme -TemplateFth $bad -OutputPath $script:out `
+            -Text '#e8e2d4' -Background '#15130c' -Accent '#d8c770' -Secondary '#ccc6b5' } | Should -Throw
+    }
+}
+```
+
+The third test is the important one — it proves the header is preserved and only colors move.
+
+- [ ] **Step 4: Run the tests to verify they fail**
+
+```powershell
+Import-Module Pester -MinimumVersion 5.0.0
+Invoke-Pester tests/FoobarTheme.Tests.ps1 -Output Detailed
+```
+
+Expected: FAIL — the script does not exist.
+
+- [ ] **Step 5: Implement `New-FoobarTheme.ps1`**
+
+```powershell
+function New-FoobarTheme {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$TemplateFth,
+        [Parameter(Mandatory)][string]$OutputPath,
+        [Parameter(Mandatory)][string]$Text,
+        [Parameter(Mandatory)][string]$Background,
+        [Parameter(Mandatory)][string]$Accent,
+        [Parameter(Mandatory)][string]$Secondary
+    )
+
+    $bytes = [System.IO.File]::ReadAllBytes($TemplateFth)
+    if ($bytes.Length -ne 140) {
+        throw "Template must be a 140-byte colour theme, got $($bytes.Length) bytes: $TemplateFth"
+    }
+
+    # Offsets verified against the 19 stock presets; colours are stored BGR.
+    $slots = @{ 76 = $Text; 96 = $Background; 116 = $Accent; 136 = $Secondary }
+
+    foreach ($off in $slots.Keys) {
+        $hex = $slots[$off]
+        if ($hex -notmatch '^#?[0-9a-fA-F]{6}$') { throw "Not a 6-digit hex colour: $hex" }
+        $h = $hex.TrimStart('#')
+        $r = [Convert]::ToByte($h.Substring(0,2), 16)
+        $g = [Convert]::ToByte($h.Substring(2,2), 16)
+        $b = [Convert]::ToByte($h.Substring(4,2), 16)
+        $bytes[$off]     = $b   # BGR order
+        $bytes[$off + 1] = $g
+        $bytes[$off + 2] = $r
+    }
+
+    [System.IO.File]::WriteAllBytes($OutputPath, $bytes)
+}
+```
+
+- [ ] **Step 6: Run the tests to verify they pass**
+
+Expected: 5 passed.
+
+- [ ] **Step 7: Wire into `Apply-Theme`, preset route only**
+
+Add a foobar step that reads the rendered palette and writes `C:\Users\PC\Music\foobar2000\themes\Matugen.fth`:
+
+```
+text       <- on_surface
+background <- surface
+accent     <- primary
+secondary  <- on_surface_variant
+```
+
+Writing into `themes\` is safe while foobar is running — presets are read on demand.
+
+**Explicitly out of scope:** patching `profile\theme.fth` in place. Two reasons, both disqualifying for this task:
+1. It is 76KB and encodes the panel layout, not just colors. The four offsets are almost certainly at different positions and must be located and proven on a copy first.
+2. **foobar2000 rewrites its profile on exit**, so a patch applied while it is running is silently discarded. Any in-place approach must handle the process lifecycle.
+
+If in-place is wanted later, it is its own task with its own proof.
+
+- [ ] **Step 8: Verify against a real palette, then commit**
+
+Generate a theme from a real matugen run, confirm it is 140 bytes, confirm the four colors decode back to the palette values, and confirm the other 128 bytes match the template. Then open foobar's preferences and confirm `Matugen` appears in the theme list.
+
+Note in the report that selecting the preset is a **manual step** — the pipeline generates it, the user applies it.
+
+```powershell
+git add scripts/New-FoobarTheme.ps1 tests/FoobarTheme.Tests.ps1 scripts/Apply-Theme.ps1 .gitignore
+git commit -m "feat: generate foobar2000 Default UI colour theme from palette"
+```
+
 ## Verification
 
 After Task 10, confirm:
