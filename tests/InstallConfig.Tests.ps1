@@ -90,11 +90,20 @@ Describe "Install-Config primitives" {
             (Get-Item $link).LinkType | Should -Be 'Junction'
         }
 
-        It "is idempotent" {
+        It "is idempotent -- the second call is a true no-op, not a delete-and-recreate that happens to return `$true (M1)" {
+            # The old test only asserted the return value, which is `$true`
+            # on BOTH the early-return (real no-op) path AND the
+            # delete-and-recreate path -- it would pass even if idempotence
+            # were silently broken. CreationTime survives an early return
+            # but changes when the reparse point is deleted and remade, so
+            # comparing it before/after actually distinguishes the two.
             $target = Join-Path $script:tmp "target2"; New-Item -ItemType Directory -Force -Path $target | Out-Null
             $link   = Join-Path $script:tmp "link2"
             Set-ManagedJunction -LinkPath $link -TargetPath $target | Out-Null
+            $before = (Get-Item $link -Force).CreationTime
+            Start-Sleep -Milliseconds 50
             Set-ManagedJunction -LinkPath $link -TargetPath $target | Should -BeTrue
+            (Get-Item $link -Force).CreationTime | Should -Be $before
         }
 
         It "repoints a junction aimed at the wrong target" {
@@ -112,6 +121,171 @@ Describe "Install-Config primitives" {
             $target = Join-Path $script:tmp "t3"; New-Item -ItemType Directory -Force -Path $target | Out-Null
             { Set-ManagedJunction -LinkPath $real -TargetPath $target } | Should -Throw
             Test-Path (Join-Path $real "keep.txt") | Should -BeTrue
+        }
+    }
+
+    Describe "Install-Config (I1: -Uninstall -DryRun must touch nothing)" {
+        <#
+          Install-Config previously hardcoded every real target path
+          ($env:USERPROFILE\.config\whkdrc, ~/.glzr/zebar/caelestia, ...)
+          with no override parameters, which is exactly why this bug shipped
+          undetected -- there was no way to exercise the function at all
+          without writing to the real machine. Paths are now parameters
+          (defaulting to the real locations for production use), which is
+          what makes the fixture-based tests below possible.
+        #>
+        It "does NOT delete an existing junction when -Uninstall -DryRun is passed" {
+            $target = Join-Path $script:tmp "ic-target"; New-Item -ItemType Directory -Force -Path $target | Out-Null
+            $link   = Join-Path $script:tmp "ic-link"
+            Set-ManagedJunction -LinkPath $link -TargetPath $target | Out-Null
+            Test-Path $link | Should -BeTrue
+
+            Install-Config -Uninstall -DryRun `
+                -WhkdrcPath (Join-Path $script:tmp "ic-whkdrc.conf") `
+                -JunctionLink $link -JunctionTarget $target `
+                -BackupRoot (Join-Path $script:tmp "ic-backup") `
+                -ZebarSettingsPath (Join-Path $script:tmp "ic-settings.json")
+
+            Test-Path $link | Should -BeTrue
+            (Get-Item $link -Force).LinkType | Should -Be 'Junction'
+        }
+
+        It "a real (non-DryRun) -Uninstall DOES remove the junction, proving the -DryRun test above is not vacuous" {
+            $target = Join-Path $script:tmp "ic-target2"; New-Item -ItemType Directory -Force -Path $target | Out-Null
+            $link   = Join-Path $script:tmp "ic-link2"
+            Set-ManagedJunction -LinkPath $link -TargetPath $target | Out-Null
+
+            Install-Config -Uninstall `
+                -WhkdrcPath (Join-Path $script:tmp "ic-whkdrc2.conf") `
+                -JunctionLink $link -JunctionTarget $target `
+                -BackupRoot (Join-Path $script:tmp "ic-backup2") `
+                -ZebarSettingsPath (Join-Path $script:tmp "ic-settings2.json")
+
+            Test-Path $link | Should -BeFalse
+        }
+
+        It "-DryRun (install direction) still writes nothing -- whkdrc untouched and no junction created" {
+            $whkdrc = Join-Path $script:tmp "ic-whkdrc3.conf"
+            [System.IO.File]::WriteAllText($whkdrc, "original`n", (New-Object System.Text.UTF8Encoding($false)))
+            $target = Join-Path $script:tmp "ic-target3"; New-Item -ItemType Directory -Force -Path $target | Out-Null
+            $link   = Join-Path $script:tmp "ic-link3"
+
+            Install-Config -DryRun `
+                -WhkdrcPath $whkdrc -JunctionLink $link -JunctionTarget $target `
+                -BackupRoot (Join-Path $script:tmp "ic-backup3") `
+                -ZebarSettingsPath (Join-Path $script:tmp "ic-settings3.json")
+
+            (Get-Content $whkdrc -Raw) | Should -Be "original`n"
+            Test-Path $link | Should -BeFalse
+        }
+
+        It "a real (non-DryRun) install DOES patch whkdrc and create the junction" {
+            $whkdrc = Join-Path $script:tmp "ic-whkdrc4.conf"
+            [System.IO.File]::WriteAllText($whkdrc, "original`n", (New-Object System.Text.UTF8Encoding($false)))
+            $target = Join-Path $script:tmp "ic-target4"; New-Item -ItemType Directory -Force -Path $target | Out-Null
+            $link   = Join-Path $script:tmp "ic-link4"
+
+            Install-Config `
+                -WhkdrcPath $whkdrc -JunctionLink $link -JunctionTarget $target `
+                -BackupRoot (Join-Path $script:tmp "ic-backup4") `
+                -ZebarSettingsPath (Join-Path $script:tmp "ic-settings4.json")
+
+            (Get-Content $whkdrc -Raw) | Should -Match 'caelestia-shell'
+            Test-Path $link | Should -BeTrue
+        }
+    }
+
+    Describe "Get-ZebarStartupConfigs / Set-ZebarStartupConfig / Remove-ZebarStartupConfig (I4)" {
+        It "Get-ZebarStartupConfigs returns `$null when the file does not exist" {
+            Get-ZebarStartupConfigs -Path (Join-Path $script:tmp "does-not-exist.json") | Should -BeNullOrEmpty
+        }
+
+        It "Get-ZebarStartupConfigs returns `$null (not throw) on unparseable JSON" {
+            $p = Join-Path $script:tmp "zs-bad.json"
+            [System.IO.File]::WriteAllText($p, "not json {{{", (New-Object System.Text.UTF8Encoding($false)))
+            { Get-ZebarStartupConfigs -Path $p } | Should -Not -Throw
+            Get-ZebarStartupConfigs -Path $p | Should -BeNullOrEmpty
+        }
+
+        It "Set-ZebarStartupConfig adds an entry while preserving an existing one (e.g. the real gunturdwiap.good-enough autostart)" {
+            $p = Join-Path $script:tmp "zs-existing.json"
+            [System.IO.File]::WriteAllText($p, (@'
+{
+  "$schema": "https://example/settings-schema.json",
+  "startupConfigs": [
+    { "pack": "gunturdwiap.good-enough", "widget": "main", "preset": "default" }
+  ]
+}
+'@), (New-Object System.Text.UTF8Encoding($false)))
+
+            Set-ZebarStartupConfig -Path $p -Pack 'caelestia' -Widget 'bar' -Preset 'default'
+
+            $configs = Get-ZebarStartupConfigs -Path $p
+            $configs.Count | Should -Be 2
+            @($configs | Where-Object { $_.pack -eq 'gunturdwiap.good-enough' }).Count | Should -Be 1
+            @($configs | Where-Object { $_.pack -eq 'caelestia' -and $_.widget -eq 'bar' }).Count | Should -Be 1
+        }
+
+        It "Set-ZebarStartupConfig is idempotent -- calling it twice does not duplicate the entry" {
+            $p = Join-Path $script:tmp "zs-idempotent.json"
+            Set-ZebarStartupConfig -Path $p -Pack 'caelestia' -Widget 'bar' -Preset 'default'
+            Set-ZebarStartupConfig -Path $p -Pack 'caelestia' -Widget 'bar' -Preset 'default'
+            (Get-ZebarStartupConfigs -Path $p).Count | Should -Be 1
+        }
+
+        It "Set-ZebarStartupConfig creates the file (and parent directory) when neither exists yet" {
+            $p = Join-Path $script:tmp "zs-fresh\nested\settings.json"
+            Test-Path $p | Should -BeFalse
+            Set-ZebarStartupConfig -Path $p -Pack 'caelestia' -Widget 'bar' -Preset 'default'
+            $configs = Get-ZebarStartupConfigs -Path $p
+            $configs.Count | Should -Be 1
+            $configs[0].pack | Should -Be 'caelestia'
+        }
+
+        It "Remove-ZebarStartupConfig removes only the matching entry, leaving others untouched" {
+            $p = Join-Path $script:tmp "zs-remove.json"
+            Set-ZebarStartupConfig -Path $p -Pack 'gunturdwiap.good-enough' -Widget 'main' -Preset 'default'
+            Set-ZebarStartupConfig -Path $p -Pack 'caelestia' -Widget 'bar' -Preset 'default'
+
+            Remove-ZebarStartupConfig -Path $p -Pack 'caelestia' -Widget 'bar'
+
+            $configs = Get-ZebarStartupConfigs -Path $p
+            $configs.Count | Should -Be 1
+            $configs[0].pack | Should -Be 'gunturdwiap.good-enough'
+        }
+
+        It "Remove-ZebarStartupConfig is a no-op when the file does not exist" {
+            { Remove-ZebarStartupConfig -Path (Join-Path $script:tmp "zs-noexist.json") -Pack 'caelestia' -Widget 'bar' } | Should -Not -Throw
+        }
+
+        It "Install-Config (non-Uninstall) registers caelestia/bar in ZebarSettingsPath's startupConfigs" {
+            $settings = Join-Path $script:tmp "ic-zs-settings.json"
+            Install-Config `
+                -WhkdrcPath (Join-Path $script:tmp "ic-zs-whkdrc.conf") `
+                -JunctionLink (Join-Path $script:tmp "ic-zs-link") `
+                -JunctionTarget (New-Item -ItemType Directory -Force -Path (Join-Path $script:tmp "ic-zs-target")).FullName `
+                -BackupRoot (Join-Path $script:tmp "ic-zs-backup") `
+                -ZebarSettingsPath $settings
+
+            $configs = Get-ZebarStartupConfigs -Path $settings
+            @($configs | Where-Object { $_.pack -eq 'caelestia' -and $_.widget -eq 'bar' }).Count | Should -Be 1
+        }
+
+        It "Install-Config -Uninstall removes caelestia/bar from ZebarSettingsPath's startupConfigs" {
+            $settings = Join-Path $script:tmp "ic-zs-settings2.json"
+            Set-ZebarStartupConfig -Path $settings -Pack 'gunturdwiap.good-enough' -Widget 'main' -Preset 'default'
+            Set-ZebarStartupConfig -Path $settings -Pack 'caelestia' -Widget 'bar' -Preset 'default'
+
+            Install-Config -Uninstall `
+                -WhkdrcPath (Join-Path $script:tmp "ic-zs-whkdrc2.conf") `
+                -JunctionLink (Join-Path $script:tmp "ic-zs-link2") `
+                -JunctionTarget (New-Item -ItemType Directory -Force -Path (Join-Path $script:tmp "ic-zs-target2")).FullName `
+                -BackupRoot (Join-Path $script:tmp "ic-zs-backup2") `
+                -ZebarSettingsPath $settings
+
+            $configs = Get-ZebarStartupConfigs -Path $settings
+            @($configs | Where-Object { $_.pack -eq 'caelestia' }).Count | Should -Be 0
+            @($configs | Where-Object { $_.pack -eq 'gunturdwiap.good-enough' }).Count | Should -Be 1
         }
     }
 }
