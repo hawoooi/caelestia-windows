@@ -5,6 +5,11 @@
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
   --dur: 300ms;
   --bar-w: 52px;
+  /* Native taskbar (Shell_TrayWnd) sits at y=1392-1440 on this machine, full
+     width, above zOrder: "normal" windows -- it occludes and intercepts
+     clicks on anything docked below it. Nudge the bottom of the strip up by
+     roughly the taskbar height so the last entry (power) stays clickable. */
+  --taskbar-h: 48px;
 }
 
 html, body { margin: 0; padding: 0; height: 100%; background: transparent; overflow: hidden; }
@@ -15,7 +20,7 @@ html, body { margin: 0; padding: 0; height: 100%; background: transparent; overf
   align-items: center;
   gap: var(--space-md);
   height: 100%;
-  padding: var(--pad-lg) 0;
+  padding: var(--pad-lg) 0 calc(var(--pad-lg) + var(--taskbar-h));
   box-sizing: border-box;
   background: var(--surface);
   color: var(--on-surface);
@@ -25,3 +30,14 @@ html, body { margin: 0; padding: 0; height: 100%; background: transparent; overf
 
 .entry { display: flex; flex-direction: column; align-items: center; }
 .entry--spacer { flex: 1 1 auto; }
+
+.workspace {
+  width: 26px; height: 26px;
+  border: none; border-radius: var(--radius-sm);
+  background: transparent; color: var(--on-surface-variant);
+  font: inherit; cursor: pointer;
+}
+.workspace--focused { background: var(--primary); color: var(--on-primary); }
+.clock { line-height: 1.1; text-align: center; }
+.status-icons { display: flex; flex-direction: column; gap: var(--space-sm); }
+.power { background: transparent; border: none; color: var(--on-surface-variant); cursor: pointer; }
