@@ -167,7 +167,7 @@ Uniform `--space-md` between entries; `--pad-lg` at top and bottom.
 
 ```json
 { "entries": ["logo", "workspaces", "activeWindow", "media",
-              "spacer", "vesktop", "tray", "clock", "statusIcons", "power"] }
+              "spacer", "vesktop", "clock", "statusIcons", "power"] }
 ```
 
 | Entry | Source | Notes |
@@ -178,9 +178,8 @@ Uniform `--space-md` between entries; `--pad-lg` at top and bottom.
 | `media` | media provider | rotated title/artist; click morphs open |
 | `spacer` | — | `flex: 1` |
 | `vesktop` | shellCommands → existing `vesktop-unread.exe` | **reused, not rewritten** |
-| `tray` | audio / network / battery providers | status-icon cluster. **Not** a general systray host — see unknown 1 |
 | `clock` | date provider | stacked, hours over minutes |
-| `statusIcons` | audio + network + battery | grouped icon cluster |
+| `statusIcons` | audio + network + battery | status-icon cluster. **Not** a general systray host — see unknown 1. Absorbs what was originally a separate `tray` entry |
 | `power` | shellCommands | confirms before acting |
 
 The Vesktop helper is reused as-is. Its hard part — reading Vesktop's window title via
