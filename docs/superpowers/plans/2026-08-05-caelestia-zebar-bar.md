@@ -908,6 +908,16 @@ register('power', () => {
 
 The power action is deliberately unwired until Task 1 Step 5's `shellCommands` finding is applied — a half-understood shutdown call is worse than none.
 
+**The bottom of the strip is occluded, and probably not clickable.** Task 3 measured the native taskbar (`Shell_TrayWnd`) at `y=1392–1440`, full width, sitting above `zOrder: "normal"` windows. So the power button will be both hidden and, more importantly, likely unable to receive clicks — the taskbar intercepts them.
+
+Decide this explicitly rather than discovering it after wiring the action:
+
+- **Nudge the interactive elements up** from the true bottom edge with a `padding-bottom` on `#bar` roughly equal to the taskbar height. Simplest, costs a little vertical space, works regardless of taskbar settings.
+- **`zOrder: "always_on_top"`** on the widget. Fixes clickability but puts the bar above *everything*, including fullscreen apps — likely worse.
+- **Rely on taskbar auto-hide.** The user has asked for that separately (see the spec's "Future phases"), but it is not implemented yet, so do not depend on it now.
+
+Take the first option unless something argues against it, and **verify the power button actually receives a click** — screenshot alone will not tell you, since a visible button can still be input-dead.
+
 - [ ] **Step 4: Run to verify tests pass**
 
 Expected: 6 passing (plus Task 4's 5).
