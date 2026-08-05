@@ -169,6 +169,33 @@ one.
 
 ## Re-running the round-trip gate after `styles.css` changes upstream
 
+**Do not follow the live-file procedure below against the CURRENT `~/.config/yasb/styles.css`
+blindly — it is matugen-GENERATED output now, not hand-authored Catppuccin content.** Step 1 below
+will find zero matches against `matugen/mapping.json`'s Catppuccin-literal keys, `New-Template`
+will emit `template == source` (nothing to substitute), and `Test-Roundtrip` will trivially return
+`$true` on a file with ~40 hardcoded literals and zero matugen expressions — a vacuous pass that
+looks like the gate ran for real (I5 in the final fix report: this was discovered when the gate
+could no longer be re-run at all, because the pre-migration source no longer exists anywhere in
+this repo — live, `state/last-good/`, and `state/last-good-prev/` are all generated output).
+
+To sanity-check that the gate mechanism itself (mapping.json + `New-Template` + `Test-Roundtrip`)
+still works correctly **without** needing a live file that has genuinely drifted, use the recovered
+pre-migration fixture instead — recovered byte-for-byte from `~/.config/yasb`'s own git history at
+commit `f1e7db6` (the last commit before that repo's styles.css/tacky-borders/wezterm/starship
+migration to matugen-templated output), checked in at `tests/fixtures/styles.css.catppuccin`, and
+exercised by `tests/Roundtrip.Tests.ps1`'s `Describe "Real round-trip gate against the recovered
+pre-migration Catppuccin fixture (I5)"` — run that Describe block any time the gate mechanism
+itself is suspect:
+
+```powershell
+Import-Module Pester -MinimumVersion 5.0.0
+Invoke-Pester tests\Roundtrip.Tests.ps1 -Output Detailed
+```
+
+**Only follow the procedure below when `~/.config/yasb/styles.css` has genuinely been hand-edited,
+or a fresh yasb install has regenerated its own (non-matugen) default stylesheet** — i.e. step 1's
+`$inv`/`$missing` diff is expected to find real new literals, not an empty set:
+
 If `~/.config/yasb/styles.css` is ever hand-edited directly (it shouldn't be — see
 `~/.config/yasb/CLAUDE.md`, "generated files" section — but if it happens, e.g. a fresh yasb
 install regenerates a different default), the mapping/template pair in this repo goes stale and
