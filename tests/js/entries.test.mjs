@@ -4,6 +4,7 @@ import { splitClock } from '../../zebar/caelestia/bar/entries/clock.js';
 import { workspaceState } from '../../zebar/caelestia/bar/entries/workspaces.js';
 import { mediaLabel } from '../../zebar/caelestia/bar/entries/media.js';
 import { windowTitle } from '../../zebar/caelestia/bar/entries/activeWindow.js';
+import { pingState } from '../../zebar/caelestia/bar/entries/vesktop.js';
 
 test('splitClock splits HH:mm into stacked parts', () => {
   assert.deepStrictEqual(splitClock('21:40'), { top: '21', bottom: '40' });
@@ -103,4 +104,21 @@ test('windowTitle returns empty string when focusedContainerIndex is out of rang
     },
   };
   assert.strictEqual(windowTitle(komorebi), '');
+});
+
+test('pingState reads a ping count', () => {
+  assert.deepStrictEqual(pingState('3'), { pinged: true, count: 3 });
+});
+
+test('pingState treats empty output as no ping', () => {
+  assert.deepStrictEqual(pingState(''), { pinged: false, count: 0 });
+  assert.deepStrictEqual(pingState('   \n'), { pinged: false, count: 0 });
+});
+
+test('pingState treats non-numeric output as no ping', () => {
+  assert.deepStrictEqual(pingState('idle'), { pinged: false, count: 0 });
+});
+
+test('pingState ignores a zero count', () => {
+  assert.deepStrictEqual(pingState('0'), { pinged: false, count: 0 });
 });
