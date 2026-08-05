@@ -1350,13 +1350,28 @@ Add a `'zebar'` case to `Test-StagedFile` reusing `Measure-CssBraces`, plus a ch
 
 Note this target is **inside the repo**, unlike the other four. That is intentional — the pack is tracked, and `theme.css` is a committed generated artifact, same as `styles.css` was for yasb.
 
-**Reload is REQUIRED.** Task 1 established Zebar does **not** hot-reload CSS — a running widget still showed the old colour 14+ seconds after the stylesheet changed; only a full restart picked it up. So `Apply-Theme` must restart the widget after copying `theme.css`, alongside the existing `yasbc reload`:
+**Reload is REQUIRED, and the obvious command does not do it.**
+
+Task 1 established Zebar does **not** hot-reload CSS — a running widget still showed the old colour 14+ seconds after the stylesheet changed. Task 4 then established that `start-widget-preset` against an **already-running** widget of the same pack/widget/preset is a **no-op**: it neither reloads nor duplicates. So this alone does nothing:
 
 ```powershell
 & "C:\Program Files\glzr.io\Zebar\zebar.exe" start-widget-preset --pack caelestia --widget-name bar --preset default
 ```
 
-Determine from Task 1's report whether that call replaces a running instance or spawns a duplicate. If it duplicates, stop the existing widget first. **A duplicated bar on every wallpaper change would be worse than no theming at all** — verify this specifically rather than assuming.
+The widget only picks up a new `theme.css` after the **`zebar.exe` process is stopped and restarted**. So `Apply-Theme` needs, after the copy:
+
+```powershell
+Get-Process zebar -ErrorAction SilentlyContinue | Stop-Process -Force
+Start-Sleep -Milliseconds 500
+& "C:\Program Files\glzr.io\Zebar\zebar.exe" start-widget-preset --pack caelestia --widget-name bar --preset default
+```
+
+Two consequences to handle rather than discover:
+
+- **Killing `zebar.exe` kills every Zebar widget**, not just this bar. Harmless today (only this one runs), but note it — and check whether any other widget was running before assuming it is safe.
+- **The bar disappears for the restart interval.** Combined with yasb's 8-second settle, a wallpaper switch already has visible downtime; do not add more than needed.
+
+If a gentler reload exists (a Zebar CLI verb, a settings toggle, an IPC call), prefer it and say what you found — but do not assume one exists because it would be convenient.
 
 - [ ] **Step 5: Add `Install-Config` proper**
 
