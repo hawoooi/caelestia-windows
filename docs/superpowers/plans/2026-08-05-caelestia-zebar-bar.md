@@ -392,7 +392,7 @@ Schema and field names taken from the on-disk starter pack.
       "focused": false,
       "resizable": false,
       "transparent": true,
-      "includeFiles": ["bar/**"],
+      "includeFiles": ["*"],
       "caching": { "defaultDuration": 0, "rules": [] },
       "privileges": { "shellCommands": [] },
       "presets": [
@@ -412,7 +412,12 @@ Schema and field names taken from the on-disk starter pack.
 }
 ```
 
-`caching.defaultDuration` is **0**, not the starter's 604800 — a cached bar would not pick up regenerated `theme.css`.
+Two things here are load-bearing and were established the hard way in Task 1:
+
+- **`caching.defaultDuration` is 0**, not the starter's 604800 — a cached bar would not pick up a regenerated `theme.css`.
+- **`includeFiles` must be `["*"]`.** With a narrower glob the pack is found but the widget's `htmlPath` silently **404s**. This is documented nowhere in the schema or the starter template and cost Task 1 most of its investigation time. Do not "tidy" it to `["bar/**"]`.
+
+Also note: `--pack` takes a pack **ID**, never a filesystem path, and the pack must live directly under `~/.glzr/zebar`. That is why the junction exists.
 
 - [ ] **Step 2: Write `bar/style.css` — tokens and layout, ZERO colours**
 
@@ -1019,8 +1024,21 @@ register('media', () => {
 ```js
 import { register } from './registry.js';
 
+// Task 1 confirmed the komorebi provider DOES expose the title, but there is no
+// `focusedWindow` shortcut. The verified path (live, and cross-checked against the
+// vendored package's index.d.ts) is:
+//   komorebi.focusedWorkspace.tilingContainers[].windows[].title
+// Read index.d.ts for how focus is flagged rather than guessing at `isFocused`,
+// and test the "no tiling containers yet" case -- that is the normal first frame
+// before komorebi has reported anything.
 export function windowTitle(komorebi) {
-  return komorebi?.focusedWindow?.title ?? '';
+  const containers = komorebi?.focusedWorkspace?.tilingContainers;
+  if (!Array.isArray(containers)) return '';
+  for (const c of containers) {
+    const win = (c.windows ?? []).find(w => w.isFocused);
+    if (win) return win.title ?? '';
+  }
+  return '';
 }
 
 register('activeWindow', () => {
@@ -1315,7 +1333,13 @@ Add a `'zebar'` case to `Test-StagedFile` reusing `Measure-CssBraces`, plus a ch
 
 Note this target is **inside the repo**, unlike the other four. That is intentional — the pack is tracked, and `theme.css` is a committed generated artifact, same as `styles.css` was for yasb.
 
-**Reload:** apply Task 1 Step 4's finding. If Zebar hot-reloads CSS, no reload step. If not, add one alongside the `yasbc reload` call.
+**Reload is REQUIRED.** Task 1 established Zebar does **not** hot-reload CSS — a running widget still showed the old colour 14+ seconds after the stylesheet changed; only a full restart picked it up. So `Apply-Theme` must restart the widget after copying `theme.css`, alongside the existing `yasbc reload`:
+
+```powershell
+& "C:\Program Files\glzr.io\Zebar\zebar.exe" start-widget-preset --pack caelestia --widget-name bar --preset default
+```
+
+Determine from Task 1's report whether that call replaces a running instance or spawns a duplicate. If it duplicates, stop the existing widget first. **A duplicated bar on every wallpaper change would be worse than no theming at all** — verify this specifically rather than assuming.
 
 - [ ] **Step 5: Add `Install-Config` proper**
 
