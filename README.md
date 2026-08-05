@@ -44,16 +44,37 @@ and themes from whichever wallpaper is already current.
 
 ## Keybinds
 
-**No keybinding is wired up yet.** `~/.config/whkdrc` (the komorebi hotkey daemon config on this
-machine) has these keys free, confirmed by inspection of the current bindings:
+**Wired up and tested:**
 
-- `alt + w` — free
-- `ctrl + alt + w` — free
+- `alt + w` — next wallpaper in the Wallpaper Engine playlist, then re-theme
+- `ctrl + alt + w` — re-theme from the current wallpaper (use after editing `mapping.json`)
 
-`alt + shift + w` is **already bound** to `komorebic retile` — do not reuse it for theming.
+`alt + shift + w` remains bound to `komorebic retile` — not reused.
 
-To wire one up, add a line to `~/.config/whkdrc` invoking a PowerShell command that dot-sources
-and calls `Switch-Wallpaper`, then reload komorebi/whkd's config.
+**`~/.config/whkdrc` is NOT under version control**, so the bindings below are recorded here to
+be reapplied if that file is lost. Same situation as `~/.wezterm.lua` (see
+`docs/wezterm-integration.md`).
+
+```
+alt + w                       : Start-Process powershell -WindowStyle Hidden -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','C:\Users\PC\Documents\git\setup\scripts\hotkey-next-wallpaper.ps1'
+ctrl + alt + w                : Start-Process powershell -WindowStyle Hidden -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','C:\Users\PC\Documents\git\setup\scripts\hotkey-retheme.ps1'
+```
+
+Two deliberate choices:
+
+- **They call wrapper scripts** (`scripts/hotkey-*.ps1`) rather than inlining a `-Command` string,
+  because nesting quotes inside a whkdrc line is fragile.
+- **They run detached and hidden.** A full apply takes **~9 seconds** (measured) — yasb needs an
+  8-second settle before its log can be read — and whkd would otherwise block for the duration.
+
+Reload after editing: `Get-Process whkd | Stop-Process -Force; Start-Process whkd -WindowStyle Hidden`.
+
+### `alt + w` needs an active Wallpaper Engine playlist
+
+`-control nextWallpaper` advances *within a playlist*. With no playlist active (WE's `config.json`
+shows `"playlist" : false`), the command succeeds but changes nothing — verified live. In that
+case `Switch-Wallpaper` warns and re-themes from the current wallpaper, so the hotkey is harmless
+but pointless. Create a playlist in Wallpaper Engine for `alt + w` to cycle.
 
 ## Portability (M4)
 

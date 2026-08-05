@@ -7,8 +7,8 @@
 
 /* CPU */
 .cpu-widget {
-  background-color: rgba(255, 179, 173, 0.8);
-  border: 1px solid #571e1b;
+  background-color: rgba(131, 210, 229, 0.8);
+  border: 1px solid #00363f;
   border-radius: 4px;
   margin-left: 1px;
   outline: none;
@@ -20,7 +20,7 @@
   font-family: "0xProto Nerd Font";
   font-size: 12px;
   font-weight: bold;
-  color: #571e1b;
+  color: #00363f;
   padding: 2px 0 0 0;
   width: 50px;
   min-width: 50px;
@@ -31,13 +31,13 @@
   font-weight: bold;
   font-size: 16px;
   padding: 0 4px 0 0;
-  color: #571e1b;
+  color: #00363f;
 }
 
 /* MEMORY */
 .memory-widget {
-  background-color: rgba(255, 179, 173, 0.8);
-  border: 1px solid #571e1b;
+  background-color: rgba(131, 210, 229, 0.8);
+  border: 1px solid #00363f;
   border-radius: 4px;
   margin-left: 1px;
   outline: none;
@@ -46,12 +46,12 @@
   font-family: "0xProto Nerd Font";
   font-size: 12px;
   font-weight: bold;
-  color: #571e1b;
+  color: #00363f;
   padding: 2px 12px 0 2px;
 }
 .memory-widget .icon {
   font-family: "0xProto Nerd Font";
-  color: #571e1b;
+  color: #00363f;
   font-size: 16px;
   font-weight: bold;
   padding-right: 12px;
@@ -60,8 +60,8 @@
 
 /* GPU */
 .gpu-widget {
-  background-color: rgba(255, 179, 173, 0.8);
-  border: 1px solid #571e1b;
+  background-color: rgba(131, 210, 229, 0.8);
+  border: 1px solid #00363f;
   border-radius: 4px;
   margin-left: 1px;
   outline: none;
@@ -71,22 +71,22 @@
   font-family: "0xProto Nerd Font";
   font-size: 12px;
   font-weight: bold;
-  color: #571e1b;
+  color: #00363f;
   padding: 2px 12px 0 2px;
 }
 .gpu-widget .widget-container .icon {
   font-family: "0xProto Nerd Font";
   font-size: 16px;
   font-weight: bold;
-  color: #571e1b;
+  color: #00363f;
   padding-right: 12px;
   padding-left: 12px;
 }
 
 /* DISK */
 .disk-widget {
-  background-color: rgba(255, 179, 173, 0.8);
-  border: 1px solid #571e1b;
+  background-color: rgba(131, 210, 229, 0.8);
+  border: 1px solid #00363f;
   border-radius: 4px;
   margin-left: 1px;
   outline: none;
@@ -96,14 +96,14 @@
   font-family: "0xProto Nerd Font";
   font-size: 12px;
   font-weight: bold;
-  color: #571e1b;
+  color: #00363f;
   padding: 2px 12px 0 2px;
 }
 .disk-widget .widget-container .icon {
   font-family: "0xProto Nerd Font";
   font-size: 16px;
   font-weight: bold;
-  color: #571e1b;
+  color: #00363f;
   padding-right: 12px;
   padding-left: 12px;
 }
@@ -111,13 +111,13 @@
 .disk-widget .widget-container .label.status-medium,
 .disk-widget .widget-container .label.status-high,
 .disk-widget .widget-container .label.status-critical {
-  color: #571e1b;
+  color: #00363f;
 }
 
 /* GLAZEWM TILING DIRECTION */
 .glazewm-tiling-direction {
-  background-color: rgba(39, 29, 28, 0.8);
-  border: 1px solid #a08c8a;
+  background-color: rgba(27, 33, 34, 0.8);
+  border: 1px solid #899295;
   border-radius: 4px;
   margin-left: 1px;
   outline: none;
@@ -126,20 +126,20 @@
   font-family: "0xProto Nerd Font";
   font-size: 14px;
   font-weight: bold;
-  color: #f1dedd;
+  color: #dee3e5;
   background: transparent;
   border: none;
   padding: 0 8px 0 8px;
   outline: none;
 }
 .glazewm-tiling-direction .btn:hover {
-  color: #ffb3ad;
+  color: #83d2e5;
 }
 
 /* GLAZEWM BINDING MODE */
 .glazewm-binding-mode {
-  background-color: rgba(255, 179, 173, 0.8);
-  border: 1px solid #571e1b;
+  background-color: rgba(131, 210, 229, 0.8);
+  border: 1px solid #00363f;
   border-radius: 4px;
   margin-left: 1px;
   outline: none;
@@ -148,14 +148,14 @@
   font-family: "0xProto Nerd Font";
   font-size: 12px;
   font-weight: bold;
-  color: #571e1b;
+  color: #00363f;
   padding: 2px 10px 0 4px;
 }
 .glazewm-binding-mode .icon {
   font-family: "0xProto Nerd Font";
   font-size: 12px;
   font-weight: bold;
-  color: #571e1b;
+  color: #00363f;
   padding-left: 10px;
 }
 
@@ -167,10 +167,10 @@
   outline: none;
 }
 .traffic-widget .download {
-  background-color: rgba(255, 179, 173, 0.8);
-  border: 1px solid #571e1b;
+  background-color: rgba(131, 210, 229, 0.8);
+  border: 1px solid #00363f;
   border-radius: 4px;
-  color: #571e1b;
+  color: #00363f;
   padding-top: 2px;
   margin-left: 1px;
   font-family: "0xProto Nerd Font";
@@ -178,10 +178,10 @@
   font-size: 12px;
 }
 .traffic-widget .upload {
-  background-color: rgba(255, 179, 173, 0.8);
-  border: 1px solid #571e1b;
+  background-color: rgba(131, 210, 229, 0.8);
+  border: 1px solid #00363f;
   border-radius: 4px;
-  color: #571e1b;
+  color: #00363f;
   padding-top: 2px;
   margin-left: 1px;
   font-family: "0xProto Nerd Font";
@@ -191,23 +191,23 @@
 
 /* TRAFFIC MENU */
 .traffic-menu {
-  background-color: rgba(39, 29, 28, 0.8);
-  border: 1px solid #a08c8a;
+  background-color: rgba(27, 33, 34, 0.8);
+  border: 1px solid #899295;
   border-radius: 4px;
-  color: #f1dedd;
+  color: #dee3e5;
   font-family: "0xProto Nerd Font";
   font-size: 12px;
   min-width: 220px;
 }
 .traffic-menu .header {
-  border-bottom: 1px solid rgba(241, 222, 221, 0.2);
-  background-color: rgba(35, 25, 25, 0.4);
+  border-bottom: 1px solid rgba(222, 227, 229, 0.2);
+  background-color: rgba(23, 29, 30, 0.4);
 }
 .traffic-menu .header .title {
   padding-left: 6px;
   font-size: 12px;
   font-weight: bold;
-  color: #f1dedd;
+  color: #dee3e5;
   font-family: "0xProto Nerd Font";
 }
 .traffic-menu .header .reset-button {
@@ -218,7 +218,7 @@
   font-weight: bold;
   background-color: transparent;
   font-family: "0xProto Nerd Font";
-  color: #f1dedd;
+  color: #dee3e5;
   outline: none;
 }
 .traffic-menu .download-speed,
@@ -229,12 +229,12 @@
 }
 .traffic-menu .speed-separator {
   max-width: 1px;
-  background-color: #534342;
+  background-color: #3f484b;
   margin: 32px 0 16px 0;
 }
 .traffic-menu .upload-speed-value,
 .traffic-menu .download-speed-value {
-  color: #f1dedd;
+  color: #dee3e5;
   font-size: 24px;
   font-weight: bold;
   font-family: "0xProto Nerd Font";
@@ -242,7 +242,7 @@
 .traffic-menu .upload-speed-unit,
 .traffic-menu .download-speed-unit {
   font-family: "0xProto Nerd Font";
-  color: #f1dedd;
+  color: #dee3e5;
   font-size: 12px;
   font-weight: bold;
   padding-top: 4px;
@@ -260,7 +260,7 @@
   background-color: transparent;
   padding-top: 3px;
   padding-bottom: 3px;
-  color: rgba(216, 194, 191, 1);
+  color: rgba(191, 200, 203, 1);
   margin-bottom: 4px;
 }
 .traffic-menu .session-section,
@@ -274,23 +274,23 @@
   font-family: "0xProto Nerd Font";
   font-weight: bold;
   font-size: 12px;
-  color: #f1dedd;
+  color: #dee3e5;
   padding: 2px 0;
 }
 .traffic-menu .interface-info,
 .traffic-menu .internet-info {
-  background-color: rgba(35, 25, 25, 0.4);
-  border-top: 1px solid rgba(241, 222, 221, 0.2);
+  background-color: rgba(23, 29, 30, 0.4);
+  border-top: 1px solid rgba(222, 227, 229, 0.2);
   font-size: 12px;
   font-weight: bold;
   font-family: "0xProto Nerd Font";
-  color: #e7bdb9;
+  color: #b2cbd2;
   padding: 8px 0;
   margin-top: 16px;
 }
 .traffic-menu .internet-info.connected {
   font-family: "0xProto Nerd Font";
-  color: rgba(255, 179, 173, 1);
+  color: rgba(131, 210, 229, 1);
   margin-top: 0;
 }
 .traffic-menu .internet-info.disconnected {
@@ -301,8 +301,8 @@
 
 /* KOMOREBI LAYOUT */
 .komorebi-active-layout {
-  background-color: rgba(39, 29, 28, 0.8);
-  border: 1px solid #a08c8a;
+  background-color: rgba(27, 33, 34, 0.8);
+  border: 1px solid #899295;
   border-radius: 4px;
   margin-left: 1px;
   width: 30px;
@@ -310,7 +310,7 @@
   max-width: 30px;
 }
 .komorebi-active-layout .label {
-  color: #f1dedd;
+  color: #dee3e5;
   font-family: "0xProto Nerd Font";
   font-size: 16px;
   font-weight: bold;
@@ -318,8 +318,8 @@
   outline: none;
 }
 .komorebi-layout-menu {
-  background-color: rgba(39, 29, 28, 0.8);
-  border: 1px solid #a08c8a;
+  background-color: rgba(27, 33, 34, 0.8);
+  border: 1px solid #899295;
   border-radius: 4px;
   font-family: "0xProto Nerd Font";
   font-size: 12px;
@@ -331,27 +331,27 @@
 .komorebi-layout-menu .menu-item-icon {
   font-size: 16px;
   font-weight: bold;
-  color: #f1dedd;
+  color: #dee3e5;
 }
 .komorebi-layout-menu .menu-item-text {
   font-family: "0xProto Nerd Font";
   padding-left: 4px;
-  color: #f1dedd;
+  color: #dee3e5;
   font-size: 12px;
   font-weight: bold;
 }
 .komorebi-layout-menu .menu-item:hover {
-  background-color: rgba(241, 222, 221, 0.2);
+  background-color: rgba(222, 227, 229, 0.2);
 }
 .komorebi-layout-menu .separator {
   max-height: 1px;
-  background-color: #534342;
+  background-color: #3f484b;
 }
 
 /* KOMOREBI WORKSPACES */
 .komorebi-workspaces .ws-btn {
-  background-color: rgba(39, 29, 28, 0.8);
-  border: 1px solid #a08c8a;
+  background-color: rgba(27, 33, 34, 0.8);
+  border: 1px solid #899295;
   border-radius: 4px;
   margin-left: 1px;
   font-family: "0xProto Nerd Font";
@@ -361,25 +361,25 @@
   outline: none;
 }
 .komorebi-workspaces .ws-btn.populated {
-  border: 1px solid #a08c8a;
-  color: #f1dedd;
+  border: 1px solid #899295;
+  color: #dee3e5;
 }
 .komorebi-workspaces .ws-btn.active {
-  background-color: rgba(241, 222, 221, 0.8);
-  border: 1px solid #571e1b;
-  color: #571e1b;
+  background-color: rgba(222, 227, 229, 0.8);
+  border: 1px solid #00363f;
+  color: #00363f;
 }
 
 /* MEDIA */
 .media-widget {
-  background-color: rgba(255, 179, 173, 0.8);
-  border: 1px solid #571e1b;
+  background-color: rgba(131, 210, 229, 0.8);
+  border: 1px solid #00363f;
   border-radius: 4px;
   padding: 0 12px 0 12px;
   outline: none;
 }
 .media-widget .label {
-  color: #571e1b;
+  color: #00363f;
   background: transparent;
   font-family: "0xProto Nerd Font";
   font-size: 12px;
@@ -390,7 +390,7 @@
 .media-widget .btn {
   background: transparent;
   font-family: "Segoe Fluent Icons";
-  color: #571e1b;
+  color: #00363f;
   font-weight: bold;
   font-size: 12px;
   padding: 3px 6px 2px 3px;
@@ -403,13 +403,13 @@
 .media-menu {
   min-width: 340px;
   max-width: 340px;
-  background-color: rgba(39, 29, 28, 0.98);
-  border: 1px solid #a08c8a;
+  background-color: rgba(27, 33, 34, 0.98);
+  border: 1px solid #899295;
   border-radius: 8px;
   outline: none;
 }
 .media-menu .thumbnail {
-  border: 1px solid rgba(160, 140, 138, 1);
+  border: 1px solid rgba(137, 146, 149, 1);
   border-radius: 6px;
 }
 .media-menu .title,
@@ -423,7 +423,7 @@
   font-family: "0xProto Nerd Font";
   padding-left: 2px;
   font-size: 13px;
-  color: #f1dedd;
+  color: #dee3e5;
 }
 .media-menu .artist {
   font-family: "0xProto Nerd Font";
@@ -431,35 +431,35 @@
   margin-top: 2px;
   margin-bottom: 4px;
   padding-left: 2px;
-  color: rgba(216, 194, 191, 1);
+  color: rgba(191, 200, 203, 1);
 }
 .media-menu .source {
   font-family: "0xProto Nerd Font";
   font-size: 10px;
   font-weight: bold;
-  color: #571e1b;
-  background-color: rgba(255, 179, 173, 1);
+  color: #00363f;
+  background-color: rgba(131, 210, 229, 1);
   border-radius: 4px;
   padding: 1px 5px;
 }
 .media-menu .source.brave,
 .media-menu .source.firefox {
-  background-color: rgba(255, 179, 173, 1);
-  color: #571e1b;
+  background-color: rgba(131, 210, 229, 1);
+  color: #00363f;
 }
 .media-menu .source.opera,
 .media-menu .source.vivaldi {
-  background-color: rgba(255, 179, 173, 1);
-  color: #571e1b;
+  background-color: rgba(131, 210, 229, 1);
+  color: #00363f;
 }
 .media-menu .source.spotify {
-  background-color: rgba(255, 179, 173, 1);
-  color: #571e1b;
+  background-color: rgba(131, 210, 229, 1);
+  color: #00363f;
 }
 .media-menu .source.edge,
 .media-menu .source.windows-media {
-  background-color: rgba(255, 179, 173, 1);
-  color: #571e1b;
+  background-color: rgba(131, 210, 229, 1);
+  color: #00363f;
 }
 .media-menu .btn {
   font-family: "Segoe Fluent Icons";
@@ -470,11 +470,11 @@
   min-height: 30px;
   max-height: 30px;
   border-radius: 4px;
-  color: #f1dedd;
+  color: #dee3e5;
 }
 .media-menu .btn:hover {
-  background-color: rgba(241, 222, 221, 0.15);
-  color: rgba(255, 179, 173, 1);
+  background-color: rgba(222, 227, 229, 0.15);
+  color: rgba(131, 210, 229, 1);
 }
 .media-menu .btn.prev {
   margin-left: 2px;
@@ -482,16 +482,16 @@
 .media-menu .btn.play {
   background-color: transparent;
   font-size: 18px;
-  color: rgba(255, 179, 173, 1);
+  color: rgba(131, 210, 229, 1);
 }
 .media-menu .btn.disabled {
-  color: rgba(241, 222, 221, 0.3);
+  color: rgba(222, 227, 229, 0.3);
 }
 .media-menu .playback-time {
   font-size: 11px;
   font-family: "0xProto Nerd Font";
   font-weight: bold;
-  color: rgba(216, 194, 191, 1);
+  color: rgba(191, 200, 203, 1);
   margin-top: 4px;
   min-width: 80px;
 }
@@ -503,20 +503,20 @@
   height: 4px;
 }
 .media-menu .progress-slider::groove:hover {
-  background: rgba(241, 222, 221, 0.2);
+  background: rgba(222, 227, 229, 0.2);
   height: 6px;
 }
 .media-menu .progress-slider::sub-page {
-  background: rgba(255, 179, 173, 1);
+  background: rgba(131, 210, 229, 1);
   height: 4px;
 }
 
 /* TOOLTIP */
 .tooltip {
-  background-color: #271d1c;
-  border: 1px solid #a08c8a;
+  background-color: #1b2122;
+  border: 1px solid #899295;
   border-radius: 4px;
-  color: #f1dedd;
+  color: #dee3e5;
   font-family: "0xProto Nerd Font";
   font-size: 12px;
   font-weight: bold;
@@ -524,15 +524,15 @@
   margin-top: 4px;
 }
 .dark.tooltip {
-  background-color: #271d1c;
-  border: 1px solid #a08c8a;
-  color: #f1dedd;
+  background-color: #1b2122;
+  border: 1px solid #899295;
+  color: #dee3e5;
 }
 
 /* SYSTRAY */
 .systray {
-  background-color: rgba(39, 29, 28, 0.8);
-  border: 1px solid #a08c8a;
+  background-color: rgba(27, 33, 34, 0.8);
+  border: 1px solid #899295;
   border-radius: 4px;
   margin-left: 1px;
   padding: 0 4px 0 4px;
@@ -554,18 +554,18 @@
   outline: none;
 }
 .systray .button:hover {
-  background-color: rgba(241, 222, 221, 0.2);
+  background-color: rgba(222, 227, 229, 0.2);
 }
 .systray .button.dragging {
-  background-color: rgba(255, 179, 173, 0.4);
+  background-color: rgba(131, 210, 229, 0.4);
 }
 .systray .button.drag-over,
 .systray .pinned-container.drop-target {
-  background-color: rgba(255, 179, 173, 0.25);
+  background-color: rgba(131, 210, 229, 0.25);
   border-radius: 4px;
 }
 .systray .unpinned-visibility-btn {
-  color: #f1dedd;
+  color: #dee3e5;
   font-family: "Segoe Fluent Icons";
   font-weight: bold;
   font-size: 12px;
@@ -575,16 +575,16 @@
   outline: none;
 }
 .systray .unpinned-visibility-btn:hover {
-  background-color: rgba(241, 222, 221, 0.2);
+  background-color: rgba(222, 227, 229, 0.2);
 }
 .systray .unpinned-visibility-btn:checked {
-  color: #ffb3ad;
+  color: #83d2e5;
 }
 
 /* SYSTRAY POPUP */
 .systray-popup {
-  background-color: rgba(39, 29, 28, 0.8);
-  border: 1px solid #a08c8a;
+  background-color: rgba(27, 33, 34, 0.8);
+  border: 1px solid #899295;
   border-radius: 8px;
 }
 .systray-popup-container {
@@ -598,19 +598,19 @@
   outline: none;
 }
 .systray-popup .button:hover {
-  background-color: rgba(241, 222, 221, 0.2);
+  background-color: rgba(222, 227, 229, 0.2);
 }
 .systray-popup .button.dragging {
-  background-color: rgba(255, 179, 173, 0.4);
+  background-color: rgba(131, 210, 229, 0.4);
 }
 .systray-popup .button.drag-over {
-  background-color: rgba(255, 179, 173, 0.25);
+  background-color: rgba(131, 210, 229, 0.25);
 }
 
 /* WEATHER */
 .weather-widget {
-  background-color: rgba(39, 29, 28, 0.8);
-  border: 1px solid #a08c8a;
+  background-color: rgba(27, 33, 34, 0.8);
+  border: 1px solid #899295;
   border-radius: 4px;
   margin-left: 1px;
   outline: none;
@@ -620,26 +620,26 @@
   font-family: "0xProto Nerd Font";
   font-size: 12px;
   font-weight: bold;
-  color: #f1dedd;
+  color: #dee3e5;
   padding: 2px 14px 0 12px;
 }
 .weather-widget .icon {
   font-family: "Segoe Fluent Icons";
   font-size: 18px;
-  color: #f1dedd;
+  color: #dee3e5;
   padding-left: 14px;
 }
 
 /* WEATHER CARD */
 .weather-card {
-  background-color: rgba(39, 29, 28, 0.8);
-  border: 1px solid #a08c8a;
+  background-color: rgba(27, 33, 34, 0.8);
+  border: 1px solid #899295;
   border-radius: 4px;
   padding: 10px;
   outline: none;
 }
 .weather-card-today {
-  background-color: rgba(39, 29, 28, 0.8);
+  background-color: rgba(27, 33, 34, 0.8);
   font-family: "0xProto Nerd Font";
   font-weight: bold;
   padding: 10px;
@@ -648,7 +648,7 @@
   font-family: "0xProto Nerd Font";
   font-size: 12px;
   font-weight: bold;
-  color: #f1dedd;
+  color: #dee3e5;
 }
 .weather-card-today .label.location {
   font-family: "0xProto Nerd Font";
@@ -659,7 +659,7 @@
   padding: 5px 0;
 }
 .weather-card-day {
-  background-color: rgba(39, 29, 28, 0.8);
+  background-color: rgba(27, 33, 34, 0.8);
   font-family: "0xProto Nerd Font";
   font-weight: bold;
 }
@@ -667,7 +667,7 @@
   font-family: "0xProto Nerd Font";
   font-weight: bold;
   font-size: 12px;
-  color: #f1dedd;
+  color: #dee3e5;
 }
 
 /* CLOCK + DATE (one widget, two pills, one calendar) */
@@ -678,10 +678,10 @@
 }
 .clock-widget .label,
 .clock-widget .label.alt {
-  background-color: rgba(39, 29, 28, 0.8);
-  border: 1px solid #a08c8a;
+  background-color: rgba(27, 33, 34, 0.8);
+  border: 1px solid #899295;
   border-radius: 4px;
-  color: #f1dedd;
+  color: #dee3e5;
   font-family: "0xProto Nerd Font";
   font-size: 12px;
   font-weight: bold;
@@ -702,10 +702,10 @@
   margin-left: 1px;
 }
 .glazewm-workspaces .ws-btn {
-  background-color: rgba(39, 29, 28, 0.8);
-  border: 1px solid #a08c8a;
+  background-color: rgba(27, 33, 34, 0.8);
+  border: 1px solid #899295;
   border-radius: 4px;
-  color: #d8c2bf;
+  color: #bfc8cb;
   font-family: "0xProto Nerd Font";
   font-size: 12px;
   font-weight: bold;
@@ -714,29 +714,29 @@
   outline: none;
 }
 .glazewm-workspaces .ws-btn:hover {
-  background-color: rgba(50, 40, 39, 0.9);
-  color: #f1dedd;
+  background-color: rgba(37, 43, 45, 0.9);
+  color: #dee3e5;
 }
 .glazewm-workspaces .ws-btn.empty {
-  color: #d8c2bf;
+  color: #bfc8cb;
 }
 .glazewm-workspaces .ws-btn.populated {
-  color: #f1dedd;
-  border: 1px solid #a08c8a;
+  color: #dee3e5;
+  border: 1px solid #899295;
 }
 .glazewm-workspaces .ws-btn.active_populated,
 .glazewm-workspaces .ws-btn.active_empty {
-  color: #ffb3ad;
-  border: 1px solid rgba(160, 140, 138, 1);
+  color: #83d2e5;
+  border: 1px solid rgba(137, 146, 149, 1);
 }
 .glazewm-workspaces .ws-btn.focused_populated,
 .glazewm-workspaces .ws-btn.focused_empty {
-  background-color: rgba(241, 222, 221, 0.8);
-  border: 1px solid #571e1b;
-  color: #571e1b;
+  background-color: rgba(222, 227, 229, 0.8);
+  border: 1px solid #00363f;
+  color: #00363f;
 }
 .glazewm-workspaces .offline-status {
-  color: #d8c2bf;
+  color: #bfc8cb;
   font-family: "0xProto Nerd Font";
   font-size: 12px;
   font-weight: bold;
@@ -745,8 +745,8 @@
 
 /* ACTIVE WINDOW */
 .active-window-widget {
-  background-color: rgba(39, 29, 28, 0.8);
-  border: 1px solid #a08c8a;
+  background-color: rgba(27, 33, 34, 0.8);
+  border: 1px solid #899295;
   border-radius: 4px;
   margin-left: 1px;
   padding: 0 10px 0 8px;
@@ -757,7 +757,7 @@
   font-family: "0xProto Nerd Font";
   font-size: 12px;
   font-weight: bold;
-  color: rgba(255, 179, 173, 1);
+  color: rgba(131, 210, 229, 1);
   padding: 2px 2px 0 2px;
 }
 .active-window-widget .widget-container .icon {
@@ -766,14 +766,14 @@
 
 /* CALENDAR */
 .calendar {
-  background-color: rgba(39, 29, 28, 0.8);
-  border: 1px solid #a08c8a;
+  background-color: rgba(27, 33, 34, 0.8);
+  border: 1px solid #899295;
   border-radius: 4px;
 }
 .calendar .calendar-table,
 .calendar .calendar-table::item {
-  background-color: rgba(35, 25, 25, 0);
-  color: #f1dedd;
+  background-color: rgba(23, 29, 30, 0);
+  color: #dee3e5;
   font-family: "0xProto Nerd Font";
   font-weight: bold;
   font-size: 12px;
@@ -782,9 +782,9 @@
   outline: none;
 }
 .calendar .calendar-table::item:selected {
-  background-color: #f1dedd;
+  background-color: #dee3e5;
   border-radius: 4px;
-  color: #571e1b;
+  color: #00363f;
   outline: none;
 }
 .calendar .day-label,
@@ -792,7 +792,7 @@
 .calendar .date-label {
   font-family: "0xProto Nerd Font";
   font-weight: bold;
-  color: #f1dedd;
+  color: #dee3e5;
   min-width: 140px;
   max-width: 140px;
 }
@@ -810,8 +810,8 @@
 
 /* VOLUME */
 .volume-widget {
-  background-color: rgba(39, 29, 28, 0.8);
-  border: 1px solid #a08c8a;
+  background-color: rgba(27, 33, 34, 0.8);
+  border: 1px solid #899295;
   border-radius: 4px;
   padding: 0 8px 0 8px;
   margin-left: 1px;
@@ -819,7 +819,7 @@
 }
 .volume-widget .icon {
   font-family: "Segoe Fluent Icons";
-  color: #f1dedd;
+  color: #dee3e5;
   font-size: 16px;
   font-weight: bold;
   padding: 0x 8px 0 4px;
@@ -828,48 +828,48 @@
   font-family: "0xProto Nerd Font";
   font-size: 12px;
   font-weight: bold;
-  color: #f1dedd;
+  color: #dee3e5;
   padding: 1px 4px 0 4px;
 }
 
 /* VOLUME POPUP */
 .audio-menu {
-  background-color: rgba(39, 29, 28, 0.8);
-  border: 1px solid #a08c8a;
+  background-color: rgba(27, 33, 34, 0.8);
+  border: 1px solid #899295;
   border-radius: 4px;
   outline: none;
 }
 .audio-container .device {
   font-family: "0xProto Nerd Font";
-  color: #f1dedd;
+  color: #dee3e5;
   font-weight: bold;
   padding: 6px 8px 6px 4px;
   font-size: 12px;
   outline: none;
 }
 .audio-container .device.selected {
-  background-color: rgba(241, 222, 221, 0.8);
+  background-color: rgba(222, 227, 229, 0.8);
   border-radius: 4px;
-  color: #571e1b;
+  color: #00363f;
 }
 
 /* QUICK LAUNCH */
 .quick-launch-widget {
-  background-color: rgba(39, 29, 28, 0.8);
-  border: 1px solid #a08c8a;
+  background-color: rgba(27, 33, 34, 0.8);
+  border: 1px solid #899295;
   border-radius: 4px;
   margin-left: 1px;
   padding: 0 10px 0 10px;
   outline: none;
 }
 .quick-launch-widget:hover {
-  background-color: rgba(50, 40, 39, 0.9);
+  background-color: rgba(37, 43, 45, 0.9);
 }
 .quick-launch-widget .icon {
   font-family: "0xProto Nerd Font";
   font-size: 14px;
   font-weight: bold;
-  color: rgba(255, 179, 173, 1);
+  color: rgba(131, 210, 229, 1);
   padding: 1px 0 0 0;
 }
 
@@ -881,46 +881,46 @@
    Raise the alpha below if you still lose contrast on very bright wallpapers. */
 .quick-launch-popup {
   background: transparent;
-  border: 1px solid #ffb3ad;
+  border: 1px solid #83d2e5;
   border-radius: 8px;
   outline: none;
 }
 .quick-launch-popup .container {
-  background-color: rgba(39, 29, 28, 0.88);
+  background-color: rgba(27, 33, 34, 0.88);
   border-radius: 8px;
 }
 
 /* QUICK LAUNCH SEARCH BAR */
 .quick-launch-popup .search {
-  background-color: rgba(26, 17, 17, 0.95);
-  border-bottom: 1px solid rgba(241, 222, 221, 0.2);
+  background-color: rgba(14, 20, 22, 0.95);
+  border-bottom: 1px solid rgba(222, 227, 229, 0.2);
   padding: 4px 12px;
 }
 .quick-launch-popup .search .search-icon {
   font-family: "0xProto Nerd Font";
   font-size: 18px;
   font-weight: bold;
-  color: rgba(255, 179, 173, 1);
+  color: rgba(131, 210, 229, 1);
   padding: 0 12px 0 2px;
 }
 .quick-launch-popup .search .search-input {
   font-family: "0xProto Nerd Font";
   font-size: 18px;
   font-weight: bold;
-  color: #f1dedd;
+  color: #dee3e5;
   background: transparent;
   border: none;
   padding: 10px 0 10px 0;
-  selection-background-color: #ffb3ad;
-  selection-color: #571e1b;
+  selection-background-color: #83d2e5;
+  selection-color: #00363f;
 }
 .quick-launch-popup .search .prefix {
   font-family: "0xProto Nerd Font";
   font-size: 12px;
   font-weight: bold;
-  color: #571e1b;
-  background-color: rgba(255, 179, 173, 0.8);
-  border: 1px solid #571e1b;
+  color: #00363f;
+  background-color: rgba(131, 210, 229, 0.8);
+  border: 1px solid #00363f;
   border-radius: 4px;
   padding: 2px 8px 0 8px;
   margin-right: 10px;
@@ -929,11 +929,11 @@
   font-family: "0xProto Nerd Font";
   font-size: 14px;
   font-weight: bold;
-  color: #d8c2bf;
+  color: #bfc8cb;
   padding-left: 8px;
 }
 .quick-launch-popup .search .loader-line {
-  background-color: #ffb3ad;
+  background-color: #83d2e5;
 }
 
 /* QUICK LAUNCH RESULTS */
@@ -945,29 +945,29 @@
   font-family: "0xProto Nerd Font";
   font-size: 13px;
   font-weight: bold;
-  color: #f1dedd;
+  color: #dee3e5;
   padding: 6px;
   outline: none;
 }
 .quick-launch-popup .results-list-view::item {
-  color: #f1dedd;
+  color: #dee3e5;
   border-radius: 4px;
   padding: 6px 8px;
 }
 .quick-launch-popup .results-list-view::item:hover {
-  background-color: rgba(241, 222, 221, 0.1);
+  background-color: rgba(222, 227, 229, 0.1);
 }
 .quick-launch-popup .results-list-view::item:selected {
-  background-color: rgba(255, 179, 173, 0.35);
-  color: rgba(241, 222, 221, 1);
+  background-color: rgba(131, 210, 229, 0.35);
+  color: rgba(222, 227, 229, 1);
 }
 .quick-launch-popup .results-list-view .description {
   font-family: "0xProto Nerd Font";
   font-size: 12px;
-  color: rgba(241, 222, 221, 1);
+  color: rgba(222, 227, 229, 1);
 }
 .quick-launch-popup .results-list-view .separator {
-  background-color: #a08c8a;
+  background-color: #899295;
 }
 .quick-launch-popup .results-empty {
   background: transparent;
@@ -975,65 +975,65 @@
 .quick-launch-popup .results-empty-icon {
   font-family: "0xProto Nerd Font";
   font-size: 32px;
-  color: rgba(160, 140, 138, 1);
+  color: rgba(137, 146, 149, 1);
 }
 .quick-launch-popup .results-empty-text {
   font-family: "0xProto Nerd Font";
   font-size: 12px;
   font-weight: bold;
-  color: #d8c2bf;
+  color: #bfc8cb;
   padding-top: 8px;
 }
 
 /* QUICK LAUNCH PREVIEW */
 .quick-launch-popup .preview {
-  background-color: rgba(35, 25, 25, 0.4);
-  border-left: 1px solid #a08c8a;
+  background-color: rgba(23, 29, 30, 0.4);
+  border-left: 1px solid #899295;
   padding: 12px;
 }
 .quick-launch-popup .preview .preview-title {
   font-family: "0xProto Nerd Font";
   font-size: 14px;
   font-weight: bold;
-  color: #f1dedd;
+  color: #dee3e5;
 }
 .quick-launch-popup .preview .preview-subtitle {
   font-family: "0xProto Nerd Font";
   font-size: 11px;
   font-weight: bold;
-  color: rgba(216, 194, 191, 1);
+  color: rgba(191, 200, 203, 1);
   padding-top: 2px;
 }
 .quick-launch-popup .preview .preview-text {
   font-family: "0xProto Nerd Font";
   font-size: 12px;
-  color: #f1dedd;
+  color: #dee3e5;
 }
 .quick-launch-popup .preview .preview-meta {
   font-family: "0xProto Nerd Font";
   font-size: 11px;
   font-weight: bold;
-  color: #e7bdb9;
+  color: #b2cbd2;
 }
 .quick-launch-popup .preview .preview-image {
-  border: 1px solid #a08c8a;
+  border: 1px solid #899295;
   border-radius: 4px;
 }
 .quick-launch-popup .preview.edit .preview-line-edit,
 .quick-launch-popup .preview.edit .preview-text-edit {
-  background-color: rgba(39, 29, 28, 0.8);
-  border: 1px solid #a08c8a;
+  background-color: rgba(27, 33, 34, 0.8);
+  border: 1px solid #899295;
   border-radius: 4px;
   font-family: "0xProto Nerd Font";
   font-size: 12px;
-  color: #f1dedd;
+  color: #dee3e5;
   padding: 6px;
-  selection-background-color: #ffb3ad;
-  selection-color: #571e1b;
+  selection-background-color: #83d2e5;
+  selection-color: #00363f;
 }
 .quick-launch-popup .preview.edit .preview-line-edit:focus,
 .quick-launch-popup .preview.edit .preview-text-edit:focus {
-  border: 1px solid #ffb3ad;
+  border: 1px solid #83d2e5;
 }
 .quick-launch-popup .preview.edit .preview-actions {
   background: transparent;
@@ -1043,34 +1043,34 @@
   font-family: "0xProto Nerd Font";
   font-size: 12px;
   font-weight: bold;
-  color: #f1dedd;
-  background-color: rgba(39, 29, 28, 0.8);
-  border: 1px solid #a08c8a;
+  color: #dee3e5;
+  background-color: rgba(27, 33, 34, 0.8);
+  border: 1px solid #899295;
   border-radius: 4px;
   padding: 4px 12px 2px 12px;
   outline: none;
 }
 .quick-launch-popup .preview.edit .preview-btn:hover {
-  background-color: rgba(241, 222, 221, 0.2);
+  background-color: rgba(222, 227, 229, 0.2);
 }
 .quick-launch-popup .preview.edit .preview-btn.save {
-  color: #571e1b;
-  background-color: rgba(255, 179, 173, 0.8);
-  border: 1px solid #571e1b;
+  color: #00363f;
+  background-color: rgba(131, 210, 229, 0.8);
+  border: 1px solid #00363f;
 }
 .quick-launch-popup .preview.edit .preview-btn.save:hover {
-  background-color: rgba(255, 179, 173, 1);
+  background-color: rgba(131, 210, 229, 1);
 }
 
 /* QUICK LAUNCH CONTEXT MENU */
 .quick-launch-popup .context-menu {
-  background-color: rgba(39, 29, 28, 0.8);
-  border: 1px solid #a08c8a;
+  background-color: rgba(27, 33, 34, 0.8);
+  border: 1px solid #899295;
   border-radius: 4px;
   font-family: "0xProto Nerd Font";
   font-size: 12px;
   font-weight: bold;
-  color: #f1dedd;
+  color: #dee3e5;
   padding: 4px;
 }
 .quick-launch-popup .context-menu::item {
@@ -1078,15 +1078,15 @@
   border-radius: 4px;
 }
 .quick-launch-popup .context-menu::item:selected {
-  background-color: rgba(241, 222, 221, 0.2);
+  background-color: rgba(222, 227, 229, 0.2);
 }
 
 /* VESKTOP (DISCORD)
    The active (pinged) and idle chips are two separate widgets that swap places.
    Both are locked to the same width so nothing on the bar shifts when they flip. */
 .vesktop-widget {
-  background-color: rgba(255, 179, 173, 0.8);
-  border: 1px solid #571e1b;
+  background-color: rgba(131, 210, 229, 0.8);
+  border: 1px solid #00363f;
   border-radius: 4px;
   margin-left: 1px;
   outline: none;
@@ -1099,7 +1099,7 @@
   font-family: "0xProto Nerd Font";
   font-size: 12px;
   font-weight: bold;
-  color: #571e1b;
+  color: #00363f;
   padding: 2px 0 0 0;
   width: 26px;
   min-width: 26px;
@@ -1109,7 +1109,7 @@
   font-family: "0xProto Nerd Font";
   font-size: 16px;
   font-weight: bold;
-  color: #571e1b;
+  color: #00363f;
   padding-left: 12px;
   padding-right: 8px;
 }
@@ -1117,8 +1117,8 @@
 /* VESKTOP IDLE - shown only when you have no pings. Same 68px as the active
    chip above, with the lone icon centred, so the swap causes no layout shift. */
 .vesktop-idle-widget {
-  background-color: rgba(39, 29, 28, 0.8);
-  border: 1px solid #a08c8a;
+  background-color: rgba(27, 33, 34, 0.8);
+  border: 1px solid #899295;
   border-radius: 4px;
   margin-left: 1px;
   outline: none;
@@ -1130,22 +1130,22 @@
   font-family: "0xProto Nerd Font";
   font-size: 16px;
   font-weight: bold;
-  color: #d8c2bf;
+  color: #bfc8cb;
   padding-left: 25px;
   padding-right: 25px;
 }
 
 /* NOTIFICATIONS */
 .notification-widget {
-  background-color: rgba(39, 29, 28, 0.8);
-  border: 1px solid #a08c8a;
+  background-color: rgba(27, 33, 34, 0.8);
+  border: 1px solid #899295;
   border-radius: 4px;
   margin-left: 1px;
   outline: none;
 }
 .notification-widget .icon {
   font-family: "0xProto Nerd Font";
-  color: #e7bdb9;
+  color: #b2cbd2;
   font-size: 14px;
   font-weight: bold;
   padding-left: 10px;
@@ -1154,7 +1154,7 @@
 }
 .notification-widget .label {
   font-family: "0xProto Nerd Font";
-  color: #e7bdb9;
+  color: #b2cbd2;
   font-size: 12px;
   font-weight: bold;
   padding-right: 10px;

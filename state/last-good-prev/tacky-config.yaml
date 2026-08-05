@@ -97,14 +97,14 @@ global:
   # so it renders as a mid-dark saturated tone, never the brightest stop.
   active_color:
     colors:
-      - "#15130c"
-      - "#514700"
-      - "#6b5e10"
-      - "#d8c770"
+      - "#0e1416"
+      - "#004e5b"
+      - "#006878"
+      - "#83d2e5"
     direction: 45deg
 
   inactive_color:
-    colors: ["#222017", "#4a4739"]
+    colors: ["#1b2122", "#3f484b"]
     direction:
       start: [0.0, 1.0]
       end: [1.0, 0.0]
@@ -113,8 +113,8 @@ global:
   #   - active_color is used for komorebi's "Single" window kind
   #   - inactive_color is used for komorebi's "Unfocused" window kind
   komorebi_colors:
-    stack_color: "#a8d0b5"
-    monocle_color: "#d0c7a2"
+    stack_color: "#bdc5eb"
+    monocle_color: "#b2cbd2"
     floating_color: "#93000a"
     enabled: False
 
