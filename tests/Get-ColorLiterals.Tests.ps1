@@ -30,3 +30,33 @@ Describe "Get-ColorLiterals" {
         $r[0].Count | Should -BeGreaterOrEqual $r[-1].Count
     }
 }
+
+Describe "The zebar bar's zero-color-literal invariant (I5)" {
+    <#
+      This is the branch's central invariant -- style.css (structure/layout
+      only) must never regress into hardcoding a colour that belongs in
+      theme.css (the matugen-generated palette). Before this test, only a
+      hand-grep enforced it, and the erosion path is already live: see
+      style.css's comment on `.vesktop--pinged` settling for var(--primary)
+      because no red token exists yet. Machinery already existed
+      (Get-ColorLiterals); it just had no caller pointed at the real file.
+    #>
+    BeforeAll {
+        $script:styleCss = "$PSScriptRoot\..\zebar\caelestia\bar\style.css"
+        $script:themeCss = "$PSScriptRoot\..\zebar\caelestia\bar\theme.css"
+    }
+
+    It "style.css contains zero colour literals" {
+        @(Get-ColorLiterals -Path $script:styleCss).Count | Should -Be 0
+    }
+
+    It "is non-vacuous: theme.css (which legitimately hardcodes the matugen palette) returns a nonzero count" {
+        # Proves the check above can actually fail against a real file with
+        # real colour literals in it -- theme.css is the one file in this
+        # pack that is SUPPOSED to have them (it's the matugen-generated
+        # palette style.css's var(--...) tokens point at), so if this ever
+        # returned 0 it would mean Get-ColorLiterals itself silently broke,
+        # not that theme.css became clean.
+        @(Get-ColorLiterals -Path $script:themeCss).Count | Should -Be 7
+    }
+}
