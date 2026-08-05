@@ -52,11 +52,24 @@ function Measure-CssBraces {
       CSS comments do not nest, so a single boolean is sufficient for
       InComment; likewise CSS strings don't nest inside each other.
 
-      Returns @{ Open = <int>; Close = <int>; UnterminatedComment = <bool> }.
+      Returns @{ Open = <int>; Close = <int>; UnterminatedComment = <bool>;
+      UnterminatedString = <bool> }.
+
       An unterminated `/*` (scanner still InComment at end of input) is
       itself suspicious -- truncation mid-comment -- and is surfaced so the
       caller can fail closed rather than silently treating the rest of a
-      truncated file as "no braces found here".
+      truncated file as "no braces found here". The same applies to an
+      unterminated quote: without UnterminatedString, an unclosed `"` (or
+      `'`) swallows every real `{`/`}` from that point to EOF as "inside a
+      string", and if what's left happens to balance, a genuinely corrupt
+      file passes. Found live by external review:
+      `.a{...} .b{...} .c[title="unterminated` + newline + `{ color: green;
+      }` -- the unterminated `"unterminated` swallows the rest of `.c`'s
+      selector and the next real rule's opening `{`, leaving Open=2/Close=2
+      (coincidentally balanced) and UnterminatedComment=$false. Confirmed
+      empirically against the pre-fix code before this flag existed:
+      `Test-StagedFile` returned `$true` on it, both with no baseline and
+      with a baseline hand-tuned to also match on size and rule count.
     #>
     param([Parameter(Mandatory)][string]$Text)
 
@@ -110,7 +123,7 @@ function Measure-CssBraces {
         $i += 1
     }
 
-    return @{ Open = $open; Close = $close; UnterminatedComment = $inComment }
+    return @{ Open = $open; Close = $close; UnterminatedComment = $inComment; UnterminatedString = $inString }
 }
 
 function Remove-Bom {
@@ -175,6 +188,10 @@ function Test-StagedFile {
             $counts = Measure-CssBraces -Text $text
             if ($counts.UnterminatedComment) {
                 Write-Warning "styles.css has an unterminated /* comment -- truncated or corrupt"
+                return $false
+            }
+            if ($counts.UnterminatedString) {
+                Write-Warning "styles.css has an unterminated string literal -- truncated or corrupt"
                 return $false
             }
 

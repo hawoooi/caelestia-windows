@@ -196,6 +196,60 @@ Describe "Test-StagedFile yasb structural checks" {
         $noBaseline = "$env:TEMP\yasb-lastgood-nonexistent-$PID"
         Test-StagedFile -Name 'yasb' -Path $p -LastGoodDir $noBaseline | Should -BeFalse
     }
+
+    It "rejects the reviewer's unterminated-string construction (double-quote, coincidentally balanced)" {
+        # Reviewer's exact reproduction: .a{...} and .b{...} are complete
+        # (2 open, 2 close), but .c's selector has an unterminated `"` that
+        # swallows the newline and the NEXT real rule's `{ color: green; }`
+        # as string content -- never counted, never closed. The visible
+        # brace count is a coincidental 2/2 balance on a genuinely corrupt
+        # file. Proven against the pre-UnterminatedString implementation
+        # directly below before asserting the fix rejects it.
+        $attack = @'
+.a{...} .b{...} .c[title="unterminated
+{ color: green; }
+'@
+        $p = "$env:TEMP\yasb-unterminated-string-dquote.css"
+        Set-Content $p $attack -Encoding ascii
+
+        # Confirm the pre-fix condition: Open/Close balanced, no
+        # UnterminatedComment -- the exact state that made the old
+        # (UnterminatedString-blind) check return $true.
+        $counts = Measure-CssBraces -Text $attack
+        $counts.Open | Should -Be $counts.Close
+        $counts.UnterminatedComment | Should -BeFalse
+        $counts.UnterminatedString | Should -BeTrue  # this is what the fix adds
+
+        $noBaseline = "$env:TEMP\yasb-lastgood-nonexistent-$PID"
+        Test-StagedFile -Name 'yasb' -Path $p -LastGoodDir $noBaseline | Should -BeFalse
+    }
+
+    It "rejects an unterminated single-quoted string, same shape as the double-quote case" {
+        $attack = @'
+.a{...} .b{...} .c[title='unterminated
+{ color: green; }
+'@
+        $p = "$env:TEMP\yasb-unterminated-string-squote.css"
+        Set-Content $p $attack -Encoding ascii
+
+        $counts = Measure-CssBraces -Text $attack
+        $counts.Open | Should -Be $counts.Close
+        $counts.UnterminatedComment | Should -BeFalse
+        $counts.UnterminatedString | Should -BeTrue
+
+        $noBaseline = "$env:TEMP\yasb-lastgood-nonexistent-$PID"
+        Test-StagedFile -Name 'yasb' -Path $p -LastGoodDir $noBaseline | Should -BeFalse
+    }
+
+    It "accepts a control file with well-formed, properly closed quoted strings" {
+        # Same shape of content (quoted string values) as the two rejection
+        # cases above, but every quote actually closes -- must not be
+        # over-rejected by the new UnterminatedString check.
+        $p = "$env:TEMP\yasb-wellformed-strings.css"
+        Set-Content $p ".a { content: 'well-formed'; color: red; } .b { content: `"also fine`"; color: blue; }" -Encoding ascii
+        $noBaseline = "$env:TEMP\yasb-lastgood-nonexistent-$PID"
+        Test-StagedFile -Name 'yasb' -Path $p -LastGoodDir $noBaseline | Should -BeTrue
+    }
 }
 
 Describe "Update-LastGood atomic rotation" {

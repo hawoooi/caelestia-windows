@@ -75,10 +75,31 @@ copied to a live path - using properties a palette swap can never legitimately c
      the v3 fix**, not just asserted: the same construction run through the v1 regex reduces 4/3 to
      2/2; run through `Measure-CssBraces` (v3, current) it correctly reports 4/3 and rejects.
 
-   v3 (the current character-scanner) closes both: it doesn't need to find `*/` to know it's
-   "past" a comment the way a greedy-vs-non-greedy regex choice would, and it never treats
-   in-string text as a comment delimiter in the first place, because it tracks which context it's
-   in as it goes rather than pattern-matching after the fact.
+   v3 (the character-scanner) closes both: it doesn't need to find `*/` to know it's "past" a
+   comment the way a greedy-vs-non-greedy regex choice would, and it never treats in-string text
+   as a comment delimiter in the first place, because it tracks which context it's in as it goes
+   rather than pattern-matching after the fact.
+
+   - *v3 itself had an asymmetry, also found by external review*: `Measure-CssBraces` surfaced
+     `UnterminatedComment` (an unclosed `/*` at end-of-file) but had no equivalent for strings. An
+     unclosed `"` or `'` swallows everything to EOF as "inside a string" - including any real
+     `{`/`}` after it - and if what's left of the count happens to balance, the file passes.
+     Reviewer's reproduction: `.a{...} .b{...} .c[title="unterminated` + newline + `{ color: green;
+     }` - the unterminated quote swallows the newline and the *next real rule's* opening brace as
+     string content; Open=2/Close=2 (coincidentally balanced), `UnterminatedComment=$false`,
+     `Test-StagedFile` returned `$true`. **Confirmed both with no baseline and with a baseline
+     hand-tuned to also match on size and rule count** - i.e. this wasn't only caught by the
+     other three checks as a fallback; without the fix, nothing catches it. Proven empirically
+     against the pre-fix scanner before landing the fix: `Measure-CssBraces` on that exact input
+     returned `Open=2; Close=2; UnterminatedComment=$false` (no `UnterminatedString` field existed
+     yet), and `Test-StagedFile` returned `$true` on it.
+   - v4 (current) adds an `UnterminatedString` flag, set when the scanner ends the file still
+     `InString`, and `Test-StagedFile` rejects on it with its own warning
+     (`"styles.css has an unterminated string literal -- truncated or corrupt"`), symmetric with
+     the existing `UnterminatedComment` rejection. Verified with three regression tests: the
+     reviewer's exact double-quote construction, a single-quote analog of the same shape, and a
+     positive control file using well-formed (properly closed) quoted strings of the same kind -
+     confirming the fix doesn't over-reject legitimate `content:`-style string values.
 2. **No unresolved `{{`** (generic check, already existed, applies to every target).
 3. **Selector-count sanity.** Total `{` count (from `Measure-CssBraces`, both sides) compared
    against `state/last-good/styles.css`, tolerance ±5%. A palette swap only rewrites color values
@@ -107,11 +128,15 @@ never again be the *only* signal for this target.
 
 ## What this does NOT fix
 
-- **These are structural checks, not a real CSS validator.** A staged file with the right brace
-  count, the right rule count, and a plausible size, but genuinely wrong property values (a color
-  swapped for the wrong role, a typo'd property name) will still pass. There is no offline QSS/CSS
-  validator available on this machine to catch that class of error. Visual confirmation
-  (screenshot the bar, per `~/.config/yasb/CLAUDE.md`) remains necessary after every real apply.
+- **These are structural checks, not a real CSS validator.** As of this fix, the structural checks
+  reliably catch truncation, unbalanced braces, unterminated comments, unterminated strings, and
+  unresolved template expressions - the failure shapes a corrupted or partially-rendered file
+  actually takes. What they cannot catch is a staged file with the right brace count, the right
+  rule count, a plausible size, no unterminated comment or string, but genuinely wrong *content* -
+  a color swapped for the wrong role, a typo'd property name, any semantically wrong-but-plausible
+  value. There is no offline QSS/CSS validator available on this machine to catch that class of
+  error. Visual confirmation (screenshot the bar, per `~/.config/yasb/CLAUDE.md`) remains the real
+  gate for that gap, and after every real apply generally.
 - **tacky-borders remains genuinely untestable here** - not installed/running (Task 1 finding,
   unchanged). Its post-copy log check stays conditional on the process actually running.
 - **starship fails silently on some bad values** - `starship prompt` exits 0 even when a color
