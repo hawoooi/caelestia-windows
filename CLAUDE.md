@@ -32,7 +32,11 @@ Switch-Wallpaper.ps1
        -> renders all 4 templates into state/staging/
        -> Remove-Bom + Test-StagedFile on every staged file (pre-copy, structural, per-target)
        -> abort here if any target fails -- nothing live has been touched yet
-       -> snapshot current live files is NOT done pre-copy (see "why last-good is post-check" below)
+       -> snapshot current live files is NOT done pre-copy -- last-good is only refreshed
+          AFTER this run passes every check (pre-copy structural validation + post-copy log
+          check), because a pre-copy snapshot let an undetected-bad apply silently become the
+          new "last-good" baseline on the very next run (found live in Task 8; see
+          Apply-Theme.ps1's own comment above its `Update-LastGood` call for the full account)
        -> copy staged files over the live configs
        -> yasbc reload; wait 8s; grep yasb.log tail for error|critical|invalid|could not be read
        -> tacky-borders log grep, but ONLY if the tacky-borders process is actually running
