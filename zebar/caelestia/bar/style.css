@@ -14,13 +14,25 @@
 
 html, body { margin: 0; padding: 0; height: 100%; background: transparent; overflow: hidden; }
 
-/* Task 8: the widget window is 340px wide so an expanded media panel has
-   room to paint outside the 52px strip -- see drawer.js / entries/media.js.
-   pointer-events: none while closed is essential: without it, the full
-   340px-wide transparent window would swallow every click meant for
-   whatever's tiled underneath it (see task-8-report.md for the verification
-   this task requires before considering it safe). */
-body { width: 340px; }
+/* Task 8 widened the widget window to 340px so an expanded media panel
+   could paint outside the 52px strip -- see drawer.js / entries/media.js.
+   That design was REVERTED before shipping (see docs/zebar-bar.md, "Why it
+   isn't wired up as a real, clickable feature"): live verification showed
+   dockToEdge's work-area reservation grows 1:1 with the window's actual
+   width, with no decoupling lever anywhere in the zpack schema, so the
+   288px delta became a genuine input-swallowing dead zone over whatever
+   was tiled underneath -- worse than not shipping the drawer at all.
+   zpack.json's preset width has shipped at 52px ever since (68e6df7); this
+   file's width below MUST match that, not the abandoned 340px design --
+   widening it back here to "fix" a mismatch would silently recreate the
+   dead zone Task 8 refused to ship. pointer-events: none while closed is
+   still load-bearing at 52px: without it the (now only 52px-wide) window
+   would swallow clicks meant for whatever's tiled at that edge. The
+   media-panel drawer content (drawer.js / entries/media.js) is
+   deliberately retained for the future path docs/zebar-bar.md describes
+   (a second, separate zpack widget with dockToEdge disabled) even though
+   it is unreachable by a real click in the shipped configuration. */
+body { width: 52px; }
 #bar { width: var(--bar-w); }
 body:not(.drawer-open) { pointer-events: none; }
 body:not(.drawer-open) #bar { pointer-events: auto; }
