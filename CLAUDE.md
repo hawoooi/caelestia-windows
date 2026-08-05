@@ -55,7 +55,11 @@ Switch-Wallpaper.ps1
   keybind is wired up yet).
 
 Both accept `-DryRun`, which renders everything to `state/staging/` and validates it but copies
-nothing to a live config.
+nothing to a live config. For `Switch-Wallpaper`, `-DryRun` additionally skips the Wallpaper Engine
+control command (`openWallpaper`/`nextWallpaper`) entirely -- it themes from whatever wallpaper is
+*already* current rather than advancing/setting it. Earlier in this project's history `-DryRun`
+still issued that control command and changed the actual desktop wallpaper even though nothing was
+copied to a live config file; fixed, see the final fix report's C1 for the full account.
 
 ## PowerShell 5.1 constraints
 

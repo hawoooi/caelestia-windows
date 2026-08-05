@@ -38,7 +38,9 @@ Switch-Wallpaper
 ```
 
 Both accept `-DryRun` (renders and validates to `state/staging/`, copies nothing to a live
-config) and `-Scheme <matugen-scheme-name>` (default `scheme-tonal-spot`).
+config) and `-Scheme <matugen-scheme-name>` (default `scheme-tonal-spot`). For `Switch-Wallpaper`,
+`-DryRun` also does not touch Wallpaper Engine at all -- it does not advance or set the wallpaper,
+and themes from whichever wallpaper is already current.
 
 ## Keybinds
 

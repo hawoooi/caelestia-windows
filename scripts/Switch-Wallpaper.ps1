@@ -49,6 +49,17 @@ function Get-CurrentWallpaper {
     if ($end -lt 0) { return $null }
 
     $block = $text.Substring($start, $end - $start + 1)
+    # TODO: [regex]::Match (non-global) returns the FIRST "file" key in
+    # TEXT ORDER within the selectedwallpapers block -- i.e. whichever
+    # monitor entry (MON1, MON2, ...) happens to appear first in Wallpaper
+    # Engine's own config.json, not necessarily the primary monitor or any
+    # particular monitor by identity. On a single-monitor machine this is
+    # moot; on multi-monitor it silently picks "whichever monitor WE
+    # happened to write first," which may not match the monitor the user
+    # actually cares about theming from. Not fixed here -- this machine is
+    # single-monitor and there's no live multi-monitor config.json to
+    # verify a fix against -- but recorded so the knowledge survives (the
+    # task ledger that would otherwise carry this is gitignored).
     $fileMatch = [regex]::Match($block, '"file"\s*:\s*"([^"]+)"')
     if (-not $fileMatch.Success) { return $null }
 
@@ -90,29 +101,66 @@ function Switch-Wallpaper {
         return
     }
 
-    $before = Get-CurrentWallpaper
-
-    if ($Wallpaper) {
-        & $we -control openWallpaper -file $Wallpaper
-    } else {
-        & $we -control nextWallpaper
-    }
-
-    # config.json is written asynchronously after the wallpaper changes.
-    # Poll for the value to change rather than guessing a fixed sleep.
-    $current = $before
-    for ($i = 0; $i -lt 20; $i++) {
-        Start-Sleep -Milliseconds 500
-        $current = Get-CurrentWallpaper
-        if ($current -and $current -ne $before) { break }
-    }
-
-    if (-not $current) {
-        Write-Warning "Could not read the current wallpaper from $script:WeConfig"
+    # M5: an explicit -Wallpaper path is never otherwise validated -- a
+    # typo'd or stale path would silently reach `-control openWallpaper`,
+    # which can fail or no-op inside Wallpaper Engine with nothing surfaced
+    # here. Fail fast, before Wallpaper Engine is touched at all.
+    if ($Wallpaper -and -not (Test-Path $Wallpaper)) {
+        Write-Warning "Wallpaper asset not found: $Wallpaper"
         return
     }
-    if ($current -eq $before -and -not $Wallpaper) {
-        Write-Warning "Wallpaper did not change (playlist may hold a single item). Re-theming anyway."
+
+    $before = Get-CurrentWallpaper
+
+    if ($DryRun) {
+        # C1: -DryRun must not advance the desktop wallpaper. The old code
+        # issued the WE control command (openWallpaper/nextWallpaper)
+        # unconditionally and only let -DryRun suppress the live COPY
+        # inside Apply-Theme further down -- so "dry run" still changed
+        # what was actually on screen, contradicting both this repo's own
+        # -DryRun contract and README.md/CLAUDE.md's description of it.
+        # Under -DryRun, skip the control command entirely and theme from
+        # whatever is ALREADY the current wallpaper (no polling needed --
+        # nothing was asked to change).
+        $current = $before
+        if (-not $current) {
+            Write-Warning "Could not read the current wallpaper from $script:WeConfig"
+            return
+        }
+    } else {
+        if ($Wallpaper) {
+            & $we -control openWallpaper -file $Wallpaper
+        } else {
+            & $we -control nextWallpaper
+        }
+
+        # config.json is written asynchronously after the wallpaper changes.
+        # Poll for the value to change rather than guessing a fixed sleep.
+        $current = $before
+        for ($i = 0; $i -lt 20; $i++) {
+            Start-Sleep -Milliseconds 500
+            $current = Get-CurrentWallpaper
+            if ($current -and $current -ne $before) { break }
+        }
+
+        if (-not $current) {
+            Write-Warning "Could not read the current wallpaper from $script:WeConfig"
+            return
+        }
+        if ($current -eq $before) {
+            # M5: this used to be suppressed whenever -Wallpaper was given
+            # ("-and -not $Wallpaper"), on the theory that an explicit
+            # target wallpaper can't hit the "playlist holds one item"
+            # case. That reasoning doesn't cover a slow or outright failed
+            # `-control openWallpaper` call, which also leaves $current
+            # equal to $before -- and that case was silently swallowed,
+            # theming from the stale previous wallpaper with no warning.
+            if ($Wallpaper) {
+                Write-Warning "Wallpaper did not change after requesting $Wallpaper (the set may have failed or is still in progress). Re-theming from whatever is currently active anyway."
+            } else {
+                Write-Warning "Wallpaper did not change (playlist may hold a single item). Re-theming anyway."
+            }
+        }
     }
 
     $preview = Resolve-PreviewImage -ProjectJson $current
