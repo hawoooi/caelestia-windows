@@ -12,6 +12,17 @@ if (-not (Get-Command matugen -ErrorAction SilentlyContinue)) {
 }
 
 $script:Root        = Split-Path $PSScriptRoot -Parent
+
+# C1: Restart-ZebarWidgets (below) needs to read ~/.glzr/zebar/settings.json's
+# startupConfigs to know EVERY pack/widget it must restart after killing
+# zebar.exe, not just this pack's own bar. Get-ZebarStartupConfigs is defined
+# in Install-Config.ps1 (I4's writer for the same file/field lives there
+# too) -- dot-sourcing it here has no side effects at load time (it only
+# defines functions) and keeps both the writer (Install-Config) and this
+# reader (Apply-Theme) working off one shared parsing implementation instead
+# of two that could drift apart.
+. (Join-Path $PSScriptRoot "Install-Config.ps1")
+
 $script:Staging     = Join-Path $script:Root "state\staging"
 $script:LastGood    = Join-Path $script:Root "state\last-good"
 $script:LastGoodPrev= Join-Path $script:Root "state\last-good-prev"
@@ -665,6 +676,112 @@ function Update-LastGood {
     Rename-Item -Path $LastGoodNewDir -NewName (Split-Path $LastGoodDir -Leaf) -ErrorAction Stop
 }
 
+function Test-ZebarThemeChanged {
+    <#
+      Task 9 deferred minor, folded into C1's fix: gates the (now
+      multi-widget, see Restart-ZebarWidgets below) zebar restart on
+      theme.css having actually changed, instead of unconditionally
+      killing/restarting EVERY autostarted Zebar widget on every single
+      Apply-Theme run regardless of whether this pack's stylesheet moved at
+      all. Reducing how often the restart fires directly reduces how often
+      C1's failure mode (a killed widget that doesn't come back) can bite.
+
+      Must be called BEFORE Copy-StagedToLive -- once that runs, LivePath
+      is overwritten with StagedPath's content and every call would trivially
+      report "unchanged".
+
+      Returns $true (restart needed) when LivePath doesn't exist yet (first
+      apply) or StagedPath is missing (fail toward restarting, not toward
+      silently skipping a real change).
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$StagedPath,
+        [Parameter(Mandatory)][string]$LivePath
+    )
+
+    if (-not (Test-Path $LivePath)) { return $true }
+    if (-not (Test-Path $StagedPath)) { return $false }
+    return ([System.IO.File]::ReadAllText($StagedPath)) -ne ([System.IO.File]::ReadAllText($LivePath))
+}
+
+function Restart-ZebarWidgets {
+    <#
+      C1: the previous version of this step did
+      `Get-Process zebar | Stop-Process -Force`, unconditionally killing
+      EVERY Zebar widget process on the machine -- not just this pack's --
+      then started back up ONLY caelestia/bar. The code comment justified
+      this by "only one widget is running today", which is true in this dev
+      environment but false against the REAL, live
+      ~/.glzr/zebar/settings.json, which autostarts a second pack
+      (gunturdwiap.good-enough) alongside this one. Every real machine
+      reboot -- which is also the documented WebView2 recovery step, so it
+      WILL happen -- silently and permanently drops that other widget's bar
+      the next time anything calls Apply-Theme, with no log entry anywhere.
+
+      Fix: read settings.json's startupConfigs (via Install-Config.ps1's
+      Get-ZebarStartupConfigs, dot-sourced at the top of this file -- one
+      shared parser, since I4 writes the same field) and restart EVERY
+      entry found there, not just this pack's own bar. A missing or
+      unparseable settings file restarts only caelestia/bar and WARNS
+      loudly rather than either silently doing nothing (leaving the whole
+      bar dead) or throwing (which would abort a successful theme apply
+      over a cosmetic bookkeeping read).
+
+      Also fixes the "fire and forget" half of C1: `start-widget-preset`
+      blocks the calling process for as long as that widget's window stays
+      open (see docs/zebar-bar.md), so it can NEVER be waited on to
+      completion -- but a start that fails outright (e.g. a bad/renamed
+      pack ID, the "user without the caelestia junction" case the review
+      called out) exits almost immediately with a nonzero code. Captured
+      via -PassThru and checked after StartupWaitMs, surfacing that failure
+      as a warning instead of the previous silent no-op.
+    #>
+    [CmdletBinding()]
+    param(
+        [string]$ZebarExe     = $script:ZebarExe,
+        [string]$SettingsPath = (Join-Path $env:USERPROFILE ".glzr\zebar\settings.json"),
+        [int]$StartupWaitMs   = 500
+    )
+
+    if (-not (Test-Path $ZebarExe)) {
+        Write-Warning "zebar.exe not found at $ZebarExe -- theme.css was updated on disk but no running widget was reloaded"
+        return
+    }
+
+    $ours = [PSCustomObject]@{ pack = 'caelestia'; widget = 'bar'; preset = 'default' }
+
+    $configs = Get-ZebarStartupConfigs -Path $SettingsPath
+    if ($null -eq $configs) {
+        Write-Warning "Could not read or parse $SettingsPath -- restarting only caelestia/bar. Any OTHER autostarted Zebar widget will NOT come back until it is restarted manually."
+        $toStart = @($ours)
+    } else {
+        $toStart = @($configs | Where-Object { $_.pack -and $_.widget })
+        $haveOurs = [bool]($toStart | Where-Object { $_.pack -eq $ours.pack -and $_.widget -eq $ours.widget })
+        if (-not $haveOurs) { $toStart += $ours }
+    }
+
+    Get-Process zebar -ErrorAction SilentlyContinue | Stop-Process -Force
+    Start-Sleep -Milliseconds $StartupWaitMs
+
+    foreach ($c in $toStart) {
+        $preset = if ($c.preset) { $c.preset } else { 'default' }
+        $proc = Start-Process -FilePath $ZebarExe -ArgumentList @(
+            'start-widget-preset', '--pack', $c.pack, '--widget-name', $c.widget, '--preset', $preset
+        ) -WindowStyle Hidden -PassThru
+
+        # `start-widget-preset` blocks for as long as the widget window
+        # stays open, so $proc can never be -Wait-ed on -- but a failed
+        # start (bad pack ID, etc.) exits almost immediately. A short poll
+        # is the only way to tell "started fine" from "failed silently"
+        # without hanging Apply-Theme for the widget's entire lifetime.
+        Start-Sleep -Milliseconds $StartupWaitMs
+        if ($proc -and $proc.HasExited -and $proc.ExitCode -ne 0) {
+            Write-Warning "start-widget-preset failed for pack '$($c.pack)' widget '$($c.widget)' (exit code $($proc.ExitCode)) -- that widget's bar did NOT restart. Check the pack name and that it exists under ~/.glzr/zebar."
+        }
+    }
+}
+
 function Apply-Theme {
     [CmdletBinding()]
     param(
@@ -756,6 +873,15 @@ function Apply-Theme {
     if (Test-Path $yasbLog)  { $yasbMark  = (Get-Item $yasbLog).Length }
     if (Test-Path $tackyLog) { $tackyMark = (Get-Item $tackyLog).Length }
 
+    # Task 9 deferred minor (bundled into C1): must be computed BEFORE
+    # Copy-StagedToLive -- once that runs, the zebar target's Live path is
+    # overwritten with Staged's content and a post-copy comparison would
+    # trivially always read "unchanged". See Test-ZebarThemeChanged's own
+    # comment for why this gate exists: it reduces how often the (now
+    # multi-widget) restart below fires at all.
+    $zebarTarget  = $script:Targets | Where-Object { $_.Name -eq 'zebar' }
+    $zebarChanged = Test-ZebarThemeChanged -StagedPath (Join-Path $script:Staging $zebarTarget.Staged) -LivePath $zebarTarget.Live
+
     try {
         Copy-StagedToLive
     } catch {
@@ -840,27 +966,23 @@ function Apply-Theme {
     # once every check has passed avoids that, and keeps the bar's downtime
     # to the one restart a successful apply actually needs (yasb already
     # adds 8 seconds of settle time; this should not add more than the
-    # ~500ms below).
+    # ~500ms per widget Restart-ZebarWidgets sleeps).
     #
-    # `zebar.exe start-widget-preset` blocks the calling process (verified
-    # directly against this build) -- it must go through Start-Process, never
-    # be invoked inline with `&`, or this function (and every caller of
-    # Apply-Theme) would hang waiting for a process that only exits when the
-    # widget itself closes.
+    # C1: previously killed EVERY Zebar widget on the machine
+    # (`Get-Process zebar | Stop-Process -Force`) and restarted ONLY
+    # caelestia/bar -- justified by a comment claiming only one widget was
+    # ever running, true in dev but false against the real
+    # ~/.glzr/zebar/settings.json, which autostarts a second pack
+    # (gunturdwiap.good-enough). See Restart-ZebarWidgets's own comment for
+    # the fix: it restarts every startupConfigs entry, not just this one.
     #
-    # Killing zebar.exe kills EVERY Zebar widget on the machine, not just
-    # this bar -- Stop-Process only this one process is currently running,
-    # confirmed via `Get-Process zebar` before this task's changes, so this
-    # is safe today; it would not be if a second, unrelated Zebar widget
-    # were ever added.
-    if (Test-Path $script:ZebarExe) {
-        Get-Process zebar -ErrorAction SilentlyContinue | Stop-Process -Force
-        Start-Sleep -Milliseconds 500
-        Start-Process -FilePath $script:ZebarExe -ArgumentList @(
-            'start-widget-preset', '--pack', 'caelestia', '--widget-name', 'bar', '--preset', 'default'
-        ) -WindowStyle Hidden
+    # Also gated on $zebarChanged (Task 9 deferred minor, folded into C1):
+    # no point killing every autostarted widget on the machine for a
+    # yasb/wezterm/starship-only theme apply that never touched theme.css.
+    if ($zebarChanged) {
+        Restart-ZebarWidgets
     } else {
-        Write-Warning "zebar.exe not found at $script:ZebarExe -- theme.css was updated on disk but the running widget was not reloaded"
+        Write-Host "zebar theme.css did not change; skipping the widget restart."
     }
 
     # Force WezTerm to notice the new palette (see docs/spikes.md, unknown #2).

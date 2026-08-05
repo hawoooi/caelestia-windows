@@ -702,3 +702,128 @@ Describe "Test-StagedFile zebar branch" {
         Test-StagedFile -Name 'zebar' -Path $p | Should -BeFalse
     }
 }
+
+Describe "Test-ZebarThemeChanged (C1 / Task 9 deferred minor: gate the zebar restart on a real change)" {
+    BeforeEach {
+        $script:tztRoot = "$env:TEMP\tzt-test-$PID-$(Get-Random)"
+        New-Item -ItemType Directory -Force -Path $script:tztRoot | Out-Null
+    }
+    AfterEach {
+        Remove-Item $script:tztRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    It "returns true when the live file does not exist yet (first-ever apply must still restart)" {
+        $staged = Join-Path $script:tztRoot "staged.css"
+        [System.IO.File]::WriteAllText($staged, ":root { --a: 1; }", (New-Object System.Text.UTF8Encoding($false)))
+        Test-ZebarThemeChanged -StagedPath $staged -LivePath (Join-Path $script:tztRoot "live.css") | Should -BeTrue
+    }
+
+    It "returns false when staged content is byte-identical to live -- the restart should be skipped" {
+        $staged = Join-Path $script:tztRoot "staged.css"
+        $live   = Join-Path $script:tztRoot "live.css"
+        [System.IO.File]::WriteAllText($staged, ":root { --a: 1; }", (New-Object System.Text.UTF8Encoding($false)))
+        [System.IO.File]::WriteAllText($live, ":root { --a: 1; }", (New-Object System.Text.UTF8Encoding($false)))
+        Test-ZebarThemeChanged -StagedPath $staged -LivePath $live | Should -BeFalse
+    }
+
+    It "returns true when staged content differs from live" {
+        $staged = Join-Path $script:tztRoot "staged.css"
+        $live   = Join-Path $script:tztRoot "live.css"
+        [System.IO.File]::WriteAllText($staged, ":root { --a: 2; }", (New-Object System.Text.UTF8Encoding($false)))
+        [System.IO.File]::WriteAllText($live, ":root { --a: 1; }", (New-Object System.Text.UTF8Encoding($false)))
+        Test-ZebarThemeChanged -StagedPath $staged -LivePath $live | Should -BeTrue
+    }
+}
+
+Describe "Restart-ZebarWidgets (C1)" {
+    <#
+      C1: the old code did `Get-Process zebar | Stop-Process -Force` then
+      started ONLY caelestia/bar back up -- killing every autostarted Zebar
+      widget on the machine (e.g. the real ~/.glzr/zebar/settings.json's
+      gunturdwiap.good-enough) and never bringing the others back. Every
+      test below mocks Get-Process/Stop-Process/Start-Process/Start-Sleep so
+      NO real process on this machine is ever touched -- the fake zebar.exe
+      path is only used to satisfy the Test-Path preflight check.
+    #>
+    BeforeAll {
+        $script:rzFakeExe = "$env:TEMP\rz-fake-zebar-$PID.exe"
+        [System.IO.File]::WriteAllText($script:rzFakeExe, "fake", (New-Object System.Text.UTF8Encoding($false)))
+    }
+    AfterAll {
+        Remove-Item $script:rzFakeExe -Force -ErrorAction SilentlyContinue
+    }
+    BeforeEach {
+        Mock Start-Sleep {}
+        # An empty scriptblock emits NOTHING to the pipeline -- matching
+        # real Get-Process's "no matching process" behavior, where Stop-
+        # Process downstream simply runs zero times. `return $null` (the
+        # first version of this mock) instead emits one $null object,
+        # which Stop-Process's pipeline binding rejects outright.
+        Mock Get-Process {}
+        Mock Stop-Process {}
+        Mock Start-Process { return [PSCustomObject]@{ HasExited = $false; ExitCode = 0 } }
+    }
+
+    It "restarts EVERY startupConfigs entry, not just caelestia/bar" {
+        $settings = "$env:TEMP\rz-settings-multi-$PID.json"
+        '{ "startupConfigs": [ { "pack": "gunturdwiap.good-enough", "widget": "main", "preset": "default" } ] }' |
+            Set-Content $settings -Encoding utf8
+
+        Restart-ZebarWidgets -ZebarExe $script:rzFakeExe -SettingsPath $settings -StartupWaitMs 1
+
+        Should -Invoke Start-Process -Times 1 -ParameterFilter { $ArgumentList -contains 'gunturdwiap.good-enough' }
+        Should -Invoke Start-Process -Times 1 -ParameterFilter { $ArgumentList -contains 'caelestia' }
+        Should -Invoke Start-Process -Times 2
+    }
+
+    It "kills the existing zebar.exe process before restarting anything" {
+        # A real running zebar process, standing in for one that's genuinely
+        # open (Get-Process returning nothing -- the default BeforeEach mock
+        # -- is indistinguishable from Stop-Process legitimately running
+        # zero times against zero matches, so this test needs Get-Process to
+        # actually hand back something to prove Stop-Process gets it).
+        Mock Get-Process { return [PSCustomObject]@{ Id = 99999; ProcessName = 'zebar' } }
+        $settings = "$env:TEMP\rz-settings-empty-$PID.json"
+        '{ "startupConfigs": [] }' | Set-Content $settings -Encoding utf8
+        Restart-ZebarWidgets -ZebarExe $script:rzFakeExe -SettingsPath $settings -StartupWaitMs 1
+        Should -Invoke Stop-Process -Times 1
+    }
+
+    It "falls back to restarting only caelestia/bar, with a warning, when settings.json is missing" {
+        $settings = "$env:TEMP\rz-settings-missing-$PID.json"
+        Remove-Item $settings -Force -ErrorAction SilentlyContinue
+        $warnings = @()
+        Restart-ZebarWidgets -ZebarExe $script:rzFakeExe -SettingsPath $settings -StartupWaitMs 1 -WarningVariable warnings -WarningAction SilentlyContinue
+        Should -Invoke Start-Process -Times 1
+        Should -Invoke Start-Process -ParameterFilter { $ArgumentList -contains 'caelestia' }
+        ($warnings -join ' ') | Should -Match 'caelestia'
+    }
+
+    It "falls back to restarting only caelestia/bar, with a warning, when settings.json is unparseable" {
+        $settings = "$env:TEMP\rz-settings-badjson-$PID.json"
+        [System.IO.File]::WriteAllText($settings, "not json {{{", (New-Object System.Text.UTF8Encoding($false)))
+        $warnings = @()
+        Restart-ZebarWidgets -ZebarExe $script:rzFakeExe -SettingsPath $settings -StartupWaitMs 1 -WarningVariable warnings -WarningAction SilentlyContinue
+        Should -Invoke Start-Process -Times 1
+        ($warnings -join ' ') | Should -Match 'caelestia'
+    }
+
+    It "does not touch any process when zebar.exe itself is not found, and warns instead" {
+        $settings = "$env:TEMP\rz-settings-noexe-$PID.json"
+        '{ "startupConfigs": [] }' | Set-Content $settings -Encoding utf8
+        $warnings = @()
+        Restart-ZebarWidgets -ZebarExe "$env:TEMP\does-not-exist-zebar-$PID.exe" -SettingsPath $settings -WarningVariable warnings -WarningAction SilentlyContinue
+        Should -Invoke Stop-Process -Times 0
+        Should -Invoke Start-Process -Times 0
+        ($warnings -join ' ') | Should -Match 'not found'
+    }
+
+    It "surfaces a warning when start-widget-preset exits immediately with a nonzero code, instead of firing-and-forgetting" {
+        Mock Start-Process { return [PSCustomObject]@{ HasExited = $true; ExitCode = 1 } }
+        $settings = "$env:TEMP\rz-settings-fail-$PID.json"
+        '{ "startupConfigs": [] }' | Set-Content $settings -Encoding utf8
+        $warnings = @()
+        Restart-ZebarWidgets -ZebarExe $script:rzFakeExe -SettingsPath $settings -StartupWaitMs 1 -WarningVariable warnings -WarningAction SilentlyContinue
+        ($warnings -join ' ') | Should -Match 'caelestia'
+    }
+}
