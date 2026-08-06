@@ -1,5 +1,11 @@
 :root {
-  --space-sm: 4px;  --space-md: 8px;  --space-lg: 14px;
+  /* Bar-polish item 1: 12px read as tiny on a 2560x1440 display -- bumped to
+     16px and every spacing/pill token nudged up to match, while staying
+     inside the fixed 52px strip width (--bar-w, unchanged -- see the
+     dead-zone note below on why that stays put). Judged visually via
+     screenshot, not by reasoning -- see docs/zebar-bar.md / bar-polish
+     report for the before/after. */
+  --space-sm: 6px;  --space-md: 10px;  --space-lg: 16px;
   --pad-lg: 12px;
   --radius-sm: 8px; --radius-lg: 18px; --radius-full: 999px;
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
@@ -48,22 +54,49 @@ body:not(.drawer-open) #bar { pointer-events: auto; }
   background: var(--surface);
   color: var(--on-surface);
   font-family: "0xProto Nerd Font", monospace;
-  font-size: 12px;
+  font-size: 16px;
 }
 
 .entry { display: flex; flex-direction: column; align-items: center; }
 .entry--spacer { flex: 1 1 auto; }
 
 .workspace {
-  width: 26px; height: 26px;
+  width: 30px; height: 30px;
   border: none; border-radius: var(--radius-sm);
   background: transparent; color: var(--on-surface-variant);
   font: inherit; cursor: pointer;
 }
 .workspace--focused { background: var(--primary); color: var(--on-primary); }
-.clock { line-height: 1.1; text-align: center; }
-.status-icons { display: flex; flex-direction: column; gap: var(--space-sm); }
-.power { background: transparent; border: none; color: var(--on-surface-variant); cursor: pointer; }
+.clock { line-height: 1.1; text-align: center; font-size: 0.85em; }
+
+/* Bar-polish item 2: statusIcons previously rendered the wifi/volume PUA
+   glyphs and the battery percentage as plain, unstyled divs -- no shared
+   size, no vertical rhythm, no centring. `__glyph` fixes the icon glyphs to
+   a shared square box (consistent size + centring regardless of the
+   individual glyph's natural metrics); `__battery` is deliberately smaller
+   text rather than another icon-sized box, since it's a 2-3 character
+   percentage, not a single glyph -- sizing it like a glyph box left visibly
+   uneven rhythm against the icons above it. */
+.status-icons {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-sm);
+}
+.status-icons__glyph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  line-height: 1;
+}
+.status-icons__battery {
+  font-size: 0.7em;
+  line-height: 1;
+  text-align: center;
+}
+.power { background: transparent; border: none; color: var(--on-surface-variant); cursor: pointer; font-size: 1em; }
 
 .media, .active-window {
   writing-mode: vertical-rl;

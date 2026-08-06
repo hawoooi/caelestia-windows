@@ -22,6 +22,10 @@
           {
             "program": "C:\\Users\\PC\\.config\\yasb\\scripts\\vesktop-unread.exe",
             "argsRegex": "^$"
+          },
+          {
+            "program": "C:\\Users\\PC\\scoop\\shims\\komorebic.exe",
+            "argsRegex": "^focus-workspace \\d$"
           }
         ]
       },
