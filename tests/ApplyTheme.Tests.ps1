@@ -23,22 +23,62 @@ Describe "Apply-Theme" {
     }
 
     It "-DryRun writes nothing to live configs" {
-        $before = (Get-Item "$env:USERPROFILE\.config\yasb\styles.css").LastWriteTimeUtc
+        $before = (Get-Item "$env:USERPROFILE\.config\starship.toml").LastWriteTimeUtc
         Apply-Theme -Image $script:probe -DryRun
-        (Get-Item "$env:USERPROFILE\.config\yasb\styles.css").LastWriteTimeUtc | Should -Be $before
+        (Get-Item "$env:USERPROFILE\.config\starship.toml").LastWriteTimeUtc | Should -Be $before
     }
 
-    It "-DryRun still renders all four staging files" {
+    It "yasb's live config is never touched -- retired as a theming target" {
+        # yasb and tacky-borders were retired as pipeline targets in favour
+        # of the Zebar bar and komorebi's own window borders. ~/.config/yasb
+        # is explicitly out of scope for this repo to ever write to again
+        # (see CLAUDE.md) -- this proves it, rather than merely asserting it
+        # by omission.
+        $yasbCss = "$env:USERPROFILE\.config\yasb\styles.css"
+        if (-not (Test-Path $yasbCss)) {
+            Set-ItResult -Skipped -Because "~/.config/yasb/styles.css does not exist on this machine"
+            return
+        }
+        $before = (Get-Item $yasbCss).LastWriteTimeUtc
         Apply-Theme -Image $script:probe -DryRun
-        foreach ($f in 'styles.css','tacky-config.yaml','palette.lua','starship.toml') {
+        (Get-Item $yasbCss).LastWriteTimeUtc | Should -Be $before
+    }
+
+    It "-DryRun renders the three remaining target staging files, plus the non-target komorebi-colours.json" {
+        Apply-Theme -Image $script:probe -DryRun
+        foreach ($f in 'palette.lua', 'starship.toml', 'theme.css', 'komorebi-colours.json') {
             Test-Path "$PSScriptRoot\..\state\staging\$f" | Should -BeTrue
+        }
+    }
+
+    It "no longer renders styles.css or tacky-config.yaml -- yasb/tacky retired as targets" {
+        Apply-Theme -Image $script:probe -DryRun
+        foreach ($f in 'styles.css', 'tacky-config.yaml') {
+            Test-Path "$PSScriptRoot\..\state\staging\$f" | Should -BeFalse
         }
     }
 
     It "renders staging files without a BOM" {
         Apply-Theme -Image $script:probe -DryRun
-        $b = [System.IO.File]::ReadAllBytes("$PSScriptRoot\..\state\staging\styles.css")
+        $b = [System.IO.File]::ReadAllBytes("$PSScriptRoot\..\state\staging\theme.css")
         ($b[0] -eq 0xEF -and $b[1] -eq 0xBB -and $b[2] -eq 0xBF) | Should -BeFalse
+    }
+}
+
+Describe "Apply-Theme targets (yasb/tacky retirement)" {
+    It "does not include yasb or tacky as theming targets" {
+        $script:Targets.Name | Should -Not -Contain 'yasb'
+        $script:Targets.Name | Should -Not -Contain 'tacky'
+    }
+
+    It "still includes wezterm, starship and zebar" {
+        $script:Targets.Name | Should -Contain 'wezterm'
+        $script:Targets.Name | Should -Contain 'starship'
+        $script:Targets.Name | Should -Contain 'zebar'
+    }
+
+    It "has exactly three targets" {
+        $script:Targets.Count | Should -Be 3
     }
 }
 
@@ -68,203 +108,6 @@ Describe "Test-StagedFile" {
     }
 }
 
-Describe "Test-StagedFile yasb structural checks" {
-    BeforeAll {
-        # Isolated last-good fixture -- never touches the real
-        # state/last-good/ directory, so these tests can't corrupt it.
-        $script:yasbLastGoodDir = "$env:TEMP\yasb-lastgood-test-$PID"
-        New-Item -ItemType Directory -Force -Path $script:yasbLastGoodDir | Out-Null
-        [System.IO.File]::WriteAllText(
-            (Join-Path $script:yasbLastGoodDir 'styles.css'),
-            '.a { color: red; } .b { color: blue; } .c { color: green; }',
-            (New-Object System.Text.UTF8Encoding($false))
-        )
-    }
-
-    AfterAll {
-        Remove-Item $script:yasbLastGoodDir -Recurse -Force -ErrorAction SilentlyContinue
-    }
-
-    It "rejects styles.css with unbalanced braces" {
-        $p = "$env:TEMP\yasb-unbalanced.css"
-        Set-Content $p '.a { color: red;' -Encoding ascii
-        Test-StagedFile -Name 'yasb' -Path $p -LastGoodDir $script:yasbLastGoodDir | Should -BeFalse
-    }
-
-    It "rejects styles.css whose rule count deviates more than 5% from last-good" {
-        $p = "$env:TEMP\yasb-rulecount.css"
-        # last-good has 3 rule blocks; this stages only 1 -- an unterminated
-        # or truncated render collapses rule count exactly like this.
-        Set-Content $p '.a { color: red; }' -Encoding ascii
-        Test-StagedFile -Name 'yasb' -Path $p -LastGoodDir $script:yasbLastGoodDir | Should -BeFalse
-    }
-
-    It "rejects styles.css whose size deviates more than 20% from last-good" {
-        $p = "$env:TEMP\yasb-size.css"
-        # Same rule count (3) and balanced braces as last-good, but bloated
-        # well past the 20% size tolerance -- catches runaway duplication
-        # that coincidentally preserves rule count and brace balance.
-        $padding = '/*' + ('x' * 500) + '*/'
-        Set-Content $p ".a { color: red; $padding } .b { color: blue; } .c { color: green; }" -Encoding ascii
-        Test-StagedFile -Name 'yasb' -Path $p -LastGoodDir $script:yasbLastGoodDir | Should -BeFalse
-    }
-
-    It "accepts a well-formed styles.css within tolerance of last-good" {
-        $p = "$env:TEMP\yasb-good.css"
-        Set-Content $p '.a { color: orange; } .b { color: purple; } .c { color: cyan; }' -Encoding ascii
-        Test-StagedFile -Name 'yasb' -Path $p -LastGoodDir $script:yasbLastGoodDir | Should -BeTrue
-    }
-
-    It "accepts styles.css when no last-good baseline exists yet" {
-        $p = "$env:TEMP\yasb-nobaseline.css"
-        Set-Content $p '.a { color: orange; }' -Encoding ascii
-        $emptyDir = "$env:TEMP\yasb-lastgood-empty-$PID"
-        New-Item -ItemType Directory -Force -Path $emptyDir | Out-Null
-        try {
-            Test-StagedFile -Name 'yasb' -Path $p -LastGoodDir $emptyDir | Should -BeTrue
-        } finally {
-            Remove-Item $emptyDir -Recurse -Force -ErrorAction SilentlyContinue
-        }
-    }
-
-    It "rejects styles.css where a comment-hidden brace masks an unterminated rule (reviewer's exact construction)" {
-        # Deleted the closing brace from rule .a -- unterminated, precisely
-        # the failure class the brace-balance check exists to catch -- then
-        # added one compensating '}' inside an unrelated comment. Raw brace
-        # count is balanced (3 open, 3 close); only counting braces AFTER
-        # stripping comments reveals the real 3-open/2-close imbalance. This
-        # is the external reviewer's exact construction against the real
-        # template (delete a `}` from `.cpu-widget .icon { ... }`, add a
-        # compensating `}` inside `/* MEMORY */`), reproduced at fixture
-        # scale. Deliberately points at a last-good dir that doesn't exist,
-        # so only the brace-balance check is in play -- isolating exactly
-        # the property this test exists to prove, with no interference from
-        # the (unrelated, already-covered) rule-count/size checks.
-        $p = "$env:TEMP\yasb-comment-masked.css"
-        Set-Content $p '/* MEMORY } */ .a { color: red; .b { color: blue; } .c { color: green; }' -Encoding ascii
-        $noBaseline = "$env:TEMP\yasb-lastgood-nonexistent-$PID"
-        Test-StagedFile -Name 'yasb' -Path $p -LastGoodDir $noBaseline | Should -BeFalse
-    }
-
-    It "rejects the reviewer's string-context attack: a comment stripper would mistake two string literals for one giant comment" {
-        # .a is genuinely unterminated (no closing brace at all). Its `/*`
-        # sits inside a STRING value (`content: "/*"`), and a `*/`-looking
-        # string value sits inside .c two rules later (`content: "*/"`). A
-        # regex comment-stripper with no notion of string context (the
-        # first version of this fix) treats the span from the first literal
-        # `/*` to the next literal `*/` as one comment and deletes
-        # everything between -- including .b's entire rule and part of .a/
-        # .c -- which coincidentally rebalances the count and produces a
-        # FALSE PASS on content that is genuinely corrupt. This is the
-        # reviewer's exact construction.
-        #
-        # Proven against the pre-fix logic directly (not just asserted):
-        # raw (unstripped) count is 4 open / 3 close -- confirming .a really
-        # is broken. The OLD `[regex]::Replace($text, '(?s)/\*.*?\*/', '')`
-        # approach reduces that to 2 open / 2 close (balanced -- the bug).
-        # The fixed Measure-CssBraces-based check must report the true
-        # 4/3 imbalance and reject.
-        $p = "$env:TEMP\yasb-string-context-attack.css"
-        $attack = @'
-.a { content: "/*"; color: red;
-.b { color: blue; }
-.c { content: "*/"; color: green; }
-.d { color: purple; }
-'@
-        Set-Content $p $attack -Encoding ascii
-
-        # Confirm the raw text really is unbalanced and the old approach
-        # really would have masked it, so this test is proven non-vacuous
-        # against the specific pre-fix implementation it replaces.
-        $rawOpen  = ([regex]::Matches($attack, '\{')).Count
-        $rawClose = ([regex]::Matches($attack, '\}')).Count
-        $rawOpen | Should -Not -Be $rawClose
-        $oldStripped = [regex]::Replace($attack, '(?s)/\*.*?\*/', '')
-        $oldOpen  = ([regex]::Matches($oldStripped, '\{')).Count
-        $oldClose = ([regex]::Matches($oldStripped, '\}')).Count
-        $oldOpen | Should -Be $oldClose  # the old approach's false-pass condition
-
-        $noBaseline = "$env:TEMP\yasb-lastgood-nonexistent-$PID"
-        Test-StagedFile -Name 'yasb' -Path $p -LastGoodDir $noBaseline | Should -BeFalse
-    }
-
-    It "accepts a legitimate file where CSS comment-like text appears inside real string values" {
-        # `content: "/*"` and `content: "*/"` are ordinary, valid CSS string
-        # values -- not comment delimiters -- and the file is fully
-        # well-formed (every rule opened and closed). A naive stripper that
-        # doesn't understand string context could still misparse this; the
-        # string-aware scanner must not.
-        $p = "$env:TEMP\yasb-legit-comment-like-string.css"
-        Set-Content $p '.a { content: "/*"; color: red; } .b { color: blue; } .c { content: "*/"; color: green; }' -Encoding ascii
-        $noBaseline = "$env:TEMP\yasb-lastgood-nonexistent-$PID"
-        Test-StagedFile -Name 'yasb' -Path $p -LastGoodDir $noBaseline | Should -BeTrue
-    }
-
-    It "rejects a file with an unterminated /* comment" {
-        # The comment never closes -- everything after it, including a
-        # real rule, is swallowed. Treated as suspicious/truncated and
-        # rejected rather than silently ignoring the rest of the file.
-        $p = "$env:TEMP\yasb-unterminated-comment.css"
-        Set-Content $p '.a { color: red; } /* this comment never closes .b { color: blue; }' -Encoding ascii
-        $noBaseline = "$env:TEMP\yasb-lastgood-nonexistent-$PID"
-        Test-StagedFile -Name 'yasb' -Path $p -LastGoodDir $noBaseline | Should -BeFalse
-    }
-
-    It "rejects the reviewer's unterminated-string construction (double-quote, coincidentally balanced)" {
-        # Reviewer's exact reproduction: .a{...} and .b{...} are complete
-        # (2 open, 2 close), but .c's selector has an unterminated `"` that
-        # swallows the newline and the NEXT real rule's `{ color: green; }`
-        # as string content -- never counted, never closed. The visible
-        # brace count is a coincidental 2/2 balance on a genuinely corrupt
-        # file. Proven against the pre-UnterminatedString implementation
-        # directly below before asserting the fix rejects it.
-        $attack = @'
-.a{...} .b{...} .c[title="unterminated
-{ color: green; }
-'@
-        $p = "$env:TEMP\yasb-unterminated-string-dquote.css"
-        Set-Content $p $attack -Encoding ascii
-
-        # Confirm the pre-fix condition: Open/Close balanced, no
-        # UnterminatedComment -- the exact state that made the old
-        # (UnterminatedString-blind) check return $true.
-        $counts = Measure-CssBraces -Text $attack
-        $counts.Open | Should -Be $counts.Close
-        $counts.UnterminatedComment | Should -BeFalse
-        $counts.UnterminatedString | Should -BeTrue  # this is what the fix adds
-
-        $noBaseline = "$env:TEMP\yasb-lastgood-nonexistent-$PID"
-        Test-StagedFile -Name 'yasb' -Path $p -LastGoodDir $noBaseline | Should -BeFalse
-    }
-
-    It "rejects an unterminated single-quoted string, same shape as the double-quote case" {
-        $attack = @'
-.a{...} .b{...} .c[title='unterminated
-{ color: green; }
-'@
-        $p = "$env:TEMP\yasb-unterminated-string-squote.css"
-        Set-Content $p $attack -Encoding ascii
-
-        $counts = Measure-CssBraces -Text $attack
-        $counts.Open | Should -Be $counts.Close
-        $counts.UnterminatedComment | Should -BeFalse
-        $counts.UnterminatedString | Should -BeTrue
-
-        $noBaseline = "$env:TEMP\yasb-lastgood-nonexistent-$PID"
-        Test-StagedFile -Name 'yasb' -Path $p -LastGoodDir $noBaseline | Should -BeFalse
-    }
-
-    It "accepts a control file with well-formed, properly closed quoted strings" {
-        # Same shape of content (quoted string values) as the two rejection
-        # cases above, but every quote actually closes -- must not be
-        # over-rejected by the new UnterminatedString check.
-        $p = "$env:TEMP\yasb-wellformed-strings.css"
-        Set-Content $p ".a { content: 'well-formed'; color: red; } .b { content: `"also fine`"; color: blue; }" -Encoding ascii
-        $noBaseline = "$env:TEMP\yasb-lastgood-nonexistent-$PID"
-        Test-StagedFile -Name 'yasb' -Path $p -LastGoodDir $noBaseline | Should -BeTrue
-    }
-}
-
 Describe "Update-LastGood atomic rotation" {
     BeforeEach {
         # Fully isolated fixture, sibling directories under one temp root
@@ -276,7 +119,10 @@ Describe "Update-LastGood atomic rotation" {
         $script:rotLastGoodPrev = Join-Path $script:rotRoot 'last-good-prev'
         $script:rotLastGoodNew  = Join-Path $script:rotRoot 'last-good-new'
         New-Item -ItemType Directory -Force -Path $script:rotStaging | Out-Null
-        foreach ($f in 'styles.css', 'tacky-config.yaml', 'palette.lua', 'starship.toml', 'theme.css') {
+        # Post yasb/tacky retirement, $script:Targets (and therefore every
+        # file Update-LastGood actually rotates) is palette.lua/
+        # starship.toml/theme.css -- three files, not the original five.
+        foreach ($f in 'palette.lua', 'starship.toml', 'theme.css') {
             [System.IO.File]::WriteAllText((Join-Path $script:rotStaging $f), "NEW-$f", (New-Object System.Text.UTF8Encoding($false)))
         }
     }
@@ -288,20 +134,20 @@ Describe "Update-LastGood atomic rotation" {
     It "promotes staged content to last-good on first run, with no last-good-prev created" {
         Update-LastGood -StagingDir $script:rotStaging -LastGoodDir $script:rotLastGood -LastGoodPrevDir $script:rotLastGoodPrev -LastGoodNewDir $script:rotLastGoodNew
 
-        (Get-Content (Join-Path $script:rotLastGood 'styles.css') -Raw).Trim() | Should -Be 'NEW-styles.css'
+        (Get-Content (Join-Path $script:rotLastGood 'palette.lua') -Raw).Trim() | Should -Be 'NEW-palette.lua'
         Test-Path $script:rotLastGoodPrev | Should -BeFalse
         Test-Path $script:rotLastGoodNew | Should -BeFalse
     }
 
-    It "rotates an existing last-good into last-good-prev and promotes the new generation, for all four files" {
+    It "rotates an existing last-good into last-good-prev and promotes the new generation, for all three files" {
         New-Item -ItemType Directory -Force -Path $script:rotLastGood | Out-Null
-        foreach ($f in 'styles.css', 'tacky-config.yaml', 'palette.lua', 'starship.toml') {
+        foreach ($f in 'palette.lua', 'starship.toml', 'theme.css') {
             [System.IO.File]::WriteAllText((Join-Path $script:rotLastGood $f), "OLD-$f", (New-Object System.Text.UTF8Encoding($false)))
         }
 
         Update-LastGood -StagingDir $script:rotStaging -LastGoodDir $script:rotLastGood -LastGoodPrevDir $script:rotLastGoodPrev -LastGoodNewDir $script:rotLastGoodNew
 
-        foreach ($f in 'styles.css', 'tacky-config.yaml', 'palette.lua', 'starship.toml') {
+        foreach ($f in 'palette.lua', 'starship.toml', 'theme.css') {
             (Get-Content (Join-Path $script:rotLastGood $f) -Raw).Trim() | Should -Be "NEW-$f"
             (Get-Content (Join-Path $script:rotLastGoodPrev $f) -Raw).Trim() | Should -Be "OLD-$f"
         }
@@ -310,8 +156,7 @@ Describe "Update-LastGood atomic rotation" {
 
     It "a second rotation replaces last-good-prev rather than accumulating a third generation" {
         New-Item -ItemType Directory -Force -Path $script:rotLastGood | Out-Null
-        [System.IO.File]::WriteAllText((Join-Path $script:rotLastGood 'styles.css'), 'GEN1', (New-Object System.Text.UTF8Encoding($false)))
-        foreach ($f in 'tacky-config.yaml', 'palette.lua', 'starship.toml') {
+        foreach ($f in 'palette.lua', 'starship.toml', 'theme.css') {
             [System.IO.File]::WriteAllText((Join-Path $script:rotLastGood $f), 'GEN1', (New-Object System.Text.UTF8Encoding($false)))
         }
 
@@ -319,13 +164,13 @@ Describe "Update-LastGood atomic rotation" {
         Update-LastGood -StagingDir $script:rotStaging -LastGoodDir $script:rotLastGood -LastGoodPrevDir $script:rotLastGoodPrev -LastGoodNewDir $script:rotLastGoodNew
 
         # stage a third generation and rotate again
-        foreach ($f in 'styles.css', 'tacky-config.yaml', 'palette.lua', 'starship.toml') {
+        foreach ($f in 'palette.lua', 'starship.toml', 'theme.css') {
             [System.IO.File]::WriteAllText((Join-Path $script:rotStaging $f), "GEN3-$f", (New-Object System.Text.UTF8Encoding($false)))
         }
         Update-LastGood -StagingDir $script:rotStaging -LastGoodDir $script:rotLastGood -LastGoodPrevDir $script:rotLastGoodPrev -LastGoodNewDir $script:rotLastGoodNew
 
-        (Get-Content (Join-Path $script:rotLastGood 'styles.css') -Raw).Trim() | Should -Be 'GEN3-styles.css'
-        (Get-Content (Join-Path $script:rotLastGoodPrev 'styles.css') -Raw).Trim() | Should -Be 'NEW-styles.css'
+        (Get-Content (Join-Path $script:rotLastGood 'palette.lua') -Raw).Trim() | Should -Be 'GEN3-palette.lua'
+        (Get-Content (Join-Path $script:rotLastGoodPrev 'palette.lua') -Raw).Trim() | Should -Be 'NEW-palette.lua'
     }
 
     It "leaves no last-good-new directory behind after a successful rotation" {
@@ -343,7 +188,7 @@ Describe "Update-LastGood atomic rotation" {
         # existed to replace it, silently discarding the one surviving
         # fallback on the next successful apply. Found by external review.
         New-Item -ItemType Directory -Force -Path $script:rotLastGoodPrev | Out-Null
-        foreach ($f in 'styles.css', 'tacky-config.yaml', 'palette.lua', 'starship.toml') {
+        foreach ($f in 'palette.lua', 'starship.toml', 'theme.css') {
             [System.IO.File]::WriteAllText((Join-Path $script:rotLastGoodPrev $f), "SURVIVOR-$f", (New-Object System.Text.UTF8Encoding($false)))
         }
         Test-Path $script:rotLastGood | Should -BeFalse  # simulating the interrupted state
@@ -353,11 +198,11 @@ Describe "Update-LastGood atomic rotation" {
         ($warnings -join ' ') | Should -Match 'last-good-prev'
 
         # last-good-prev must survive, untouched, with its original content.
-        foreach ($f in 'styles.css', 'tacky-config.yaml', 'palette.lua', 'starship.toml') {
+        foreach ($f in 'palette.lua', 'starship.toml', 'theme.css') {
             (Get-Content (Join-Path $script:rotLastGoodPrev $f) -Raw).Trim() | Should -Be "SURVIVOR-$f"
         }
         # This run's staged content is still promoted to last-good normally.
-        (Get-Content (Join-Path $script:rotLastGood 'styles.css') -Raw).Trim() | Should -Be 'NEW-styles.css'
+        (Get-Content (Join-Path $script:rotLastGood 'palette.lua') -Raw).Trim() | Should -Be 'NEW-palette.lua'
     }
 }
 
@@ -447,86 +292,23 @@ Describe "Pre-apply snapshot and rollback (C2)" {
         # had; not a regression introduced by this fix).
         (Get-Content $freshTargets[0].Live -Raw).Trim() | Should -Be 'BAD-FIRST-APPLY'
     }
-}
 
-Describe "Test-YasbLogFailure (I1)" {
-    It "does NOT match real unrelated widget noise captured from the live yasb.log" {
-        # Captured verbatim from ~/.config/yasb/yasb.log -- exactly the 7
-        # lines that matched the old blanket 'error|critical|invalid|could
-        # not be read' pattern, none of them anything to do with
-        # styles.css. Under the old pattern, ANY one of these landing in
-        # the 8-second post-copy window triggered a full four-target
-        # rollback for a problem that was never in the stylesheet.
-        $noise = @(
-            "2026-07-28 20:30:30,853 [ERROR] [MainThread] [root/traffic_manager.py:163]: Error loading traffic data for interface auto: Expecting value: line 1 column 1 (char 0)",
-            "2026-08-01 18:56:59,929 [ERROR] [MainThread] [root/base.py:126]: Failed to execute callback of type 'toggle_cpu_menu' with args: []",
-            "KeyError: 'toggle_cpu_menu'",
-            "2026-08-04 19:31:09,584 [WARNING] [MainThread] [glazewm_client/client.py:134]: WebSocket error: SocketError.RemoteHostClosedError. Reconnecting..."
-        ) -join "`n"
+    It "F2: also snapshots and restores komorebi.json, which has no entry in script:Targets at all" {
+        # komorebi.json is hand-maintained, lives outside any git repo, and
+        # (unlike palette.lua/starship.toml/theme.css) has no Live/Staged
+        # entry in $script:Targets at all -- before this fix it had no
+        # pre-apply recovery path whatsoever, unlike every other target.
+        $komorebiPath = Join-Path $script:preRoot 'komorebi.json'
+        [System.IO.File]::WriteAllText($komorebiPath, 'HAND-MAINTAINED-KOMOREBI', (New-Object System.Text.UTF8Encoding($false)))
 
-        # Prove the OLD pattern really would have false-positived on this,
-        # so this test is non-vacuous against the code it replaces.
-        $oldPattern = '(?i)error|critical|invalid|could not be read'
-        $noise | Should -Match $oldPattern
+        New-PreApplySnapshot -Targets $script:preTargets -PreApplyDir $script:preSnapDir -KomorebiJsonPath $komorebiPath
+        Test-Path (Join-Path $script:preSnapDir 'komorebi.json') | Should -BeTrue
 
-        Test-YasbLogFailure -LogTail $noise | Should -BeFalse
-    }
+        # Simulate Update-KomorebiBorderTheme writing new (bad) content.
+        [System.IO.File]::WriteAllText($komorebiPath, 'BAD-NEW-BORDER-COLOURS', (New-Object System.Text.UTF8Encoding($false)))
 
-    It "matches yasb's documented CSSProcessor file-read failure message" {
-        # Per docs/validation-limits.md: CSSProcessor._read_css_file logs
-        # "CSSProcessor Error '%s': %s" specifically on a file-level read
-        # error -- the one failure class the post-copy log check can
-        # actually see for yasb.
-        $line = "2026-08-05 12:00:00,000 [ERROR] [MainThread] [core/utils/css_processor.py:42]: CSSProcessor Error 'styles.css': could not be read"
-        Test-YasbLogFailure -LogTail $line | Should -BeTrue
-    }
-
-    It "returns false on an empty tail" {
-        Test-YasbLogFailure -LogTail '' | Should -BeFalse
-    }
-}
-
-Describe "Test-StagedFile tacky structural checks (I2)" {
-    BeforeAll {
-        $script:goodTacky = @'
-watch_config_changes: True
-enable_logging: True
-rendering_backend: V2
-global:
-  border_width: 3
-  active_color: "#ffffff"
-window_rules:
-  - match: Class
-    name: "Windows.UI.Core.CoreWindow"
-    enabled: False
-'@
-    }
-
-    It "accepts a well-formed tacky config with all required top-level keys" {
-        $p = "$env:TEMP\tacky-good.yaml"
-        [System.IO.File]::WriteAllText($p, $script:goodTacky, (New-Object System.Text.UTF8Encoding($false)))
-        Test-StagedFile -Name 'tacky' -Path $p | Should -BeTrue
-    }
-
-    It "rejects total garbage with none of the expected top-level keys (verified: the old default-case check accepted this unconditionally)" {
-        $p = "$env:TEMP\tacky-garbage.yaml"
-        $garbage = "totally: garbage`nnot even: [yaml"
-        [System.IO.File]::WriteAllText($p, $garbage, (New-Object System.Text.UTF8Encoding($false)))
-        Test-StagedFile -Name 'tacky' -Path $p | Should -BeFalse
-    }
-
-    It "rejects a config missing one required top-level key" {
-        $p = "$env:TEMP\tacky-missing-key.yaml"
-        $missing = $script:goodTacky -replace '(?m)^window_rules:.*', '' # drop window_rules and its body isn't fully stripped, but the top-level key line itself is gone
-        [System.IO.File]::WriteAllText($p, $missing, (New-Object System.Text.UTF8Encoding($false)))
-        Test-StagedFile -Name 'tacky' -Path $p | Should -BeFalse
-    }
-
-    It "rejects an unbalanced double-quote count" {
-        $p = "$env:TEMP\tacky-badquote.yaml"
-        $bad = $script:goodTacky -replace 'active_color: "#ffffff"', 'active_color: "#ffffff'
-        [System.IO.File]::WriteAllText($p, $bad, (New-Object System.Text.UTF8Encoding($false)))
-        Test-StagedFile -Name 'tacky' -Path $p | Should -BeFalse
+        Restore-PreApplySnapshot -Targets $script:preTargets -PreApplyDir $script:preSnapDir -KomorebiJsonPath $komorebiPath
+        (Get-Content $komorebiPath -Raw).Trim() | Should -Be 'HAND-MAINTAINED-KOMOREBI'
     }
 }
 
@@ -569,14 +351,16 @@ Describe "Update-LastGood aborts cleanly on a partial copy, instead of promoting
         $script:ilLastGoodNew  = Join-Path $script:ilRoot 'last-good-new'
         New-Item -ItemType Directory -Force -Path $script:ilStaging  | Out-Null
         New-Item -ItemType Directory -Force -Path $script:ilLastGood | Out-Null
-        # Stage only 3 of the 4 real target files -- omit starship.toml,
-        # simulating a disk error / missing render partway through.
-        foreach ($f in 'styles.css', 'tacky-config.yaml', 'palette.lua') {
+        # Stage only 1 of the 3 real target files (post yasb/tacky
+        # retirement, $script:Targets is palette.lua/starship.toml/
+        # theme.css) -- omit starship.toml and theme.css, simulating a disk
+        # error / missing render partway through.
+        foreach ($f in 'palette.lua') {
             [System.IO.File]::WriteAllText((Join-Path $script:ilStaging $f), "NEW-$f", (New-Object System.Text.UTF8Encoding($false)))
         }
         # Existing last-good baseline that must survive untouched if this
         # run's promotion fails.
-        foreach ($f in 'styles.css', 'tacky-config.yaml', 'palette.lua', 'starship.toml') {
+        foreach ($f in 'palette.lua', 'starship.toml', 'theme.css') {
             [System.IO.File]::WriteAllText((Join-Path $script:ilLastGood $f), "OLD-$f", (New-Object System.Text.UTF8Encoding($false)))
         }
     }
@@ -594,7 +378,7 @@ Describe "Update-LastGood aborts cleanly on a partial copy, instead of promoting
             Update-LastGood -StagingDir $script:ilStaging -LastGoodDir $script:ilLastGood -LastGoodPrevDir $script:ilLastGoodPrev -LastGoodNewDir $script:ilLastGoodNew
         } catch { }
 
-        foreach ($f in 'styles.css', 'tacky-config.yaml', 'palette.lua', 'starship.toml') {
+        foreach ($f in 'palette.lua', 'starship.toml', 'theme.css') {
             (Get-Content (Join-Path $script:ilLastGood $f) -Raw).Trim() | Should -Be "OLD-$f"
         }
         Test-Path $script:ilLastGoodPrev | Should -BeFalse
@@ -639,44 +423,15 @@ Describe "Resolve-ImageFromState (I6)" {
     }
 }
 
-Describe "Test-StagedFile -AcceptStructuralChange bypasses only the rule-count/size comparison (I7)" {
-    BeforeAll {
-        $script:lastGoodDir = "$env:TEMP\yasb-lastgood-i7-$PID"
-        New-Item -ItemType Directory -Force -Path $script:lastGoodDir | Out-Null
-        [System.IO.File]::WriteAllText(
-            (Join-Path $script:lastGoodDir 'styles.css'),
-            '.a { color: red; } .b { color: blue; } .c { color: green; }',
-            (New-Object System.Text.UTF8Encoding($false))
-        )
+Describe "Test-StagedFile no longer accepts -AcceptStructuralChange (I7 retired with yasb)" {
+    It "does not expose an -AcceptStructuralChange parameter" {
+        (Get-Command Test-StagedFile).Parameters.Keys | Should -Not -Contain 'AcceptStructuralChange'
     }
+}
 
-    AfterAll {
-        Remove-Item $script:lastGoodDir -Recurse -Force -ErrorAction SilentlyContinue
-    }
-
-    It "still rejects for rule-count drift without the switch (regression control)" {
-        $p = "$env:TEMP\yasb-i7-rulecount-off.css"
-        Set-Content $p '.a { color: red; }' -Encoding ascii
-        Test-StagedFile -Name 'yasb' -Path $p -LastGoodDir $script:lastGoodDir | Should -BeFalse
-    }
-
-    It "accepts the same rule-count drift when -AcceptStructuralChange is passed" {
-        $p = "$env:TEMP\yasb-i7-rulecount-on.css"
-        Set-Content $p '.a { color: red; }' -Encoding ascii
-        Test-StagedFile -Name 'yasb' -Path $p -LastGoodDir $script:lastGoodDir -AcceptStructuralChange | Should -BeTrue
-    }
-
-    It "accepts size drift when -AcceptStructuralChange is passed" {
-        $p = "$env:TEMP\yasb-i7-size-on.css"
-        $padding = '/*' + ('x' * 500) + '*/'
-        Set-Content $p ".a { color: red; $padding } .b { color: blue; } .c { color: green; }" -Encoding ascii
-        Test-StagedFile -Name 'yasb' -Path $p -LastGoodDir $script:lastGoodDir -AcceptStructuralChange | Should -BeTrue
-    }
-
-    It "does NOT bypass brace-balance -- -AcceptStructuralChange only narrows the rule-count/size comparison, not corruption checks" {
-        $p = "$env:TEMP\yasb-i7-stillcorrupt.css"
-        Set-Content $p '.a { color: red;' -Encoding ascii
-        Test-StagedFile -Name 'yasb' -Path $p -LastGoodDir $script:lastGoodDir -AcceptStructuralChange | Should -BeFalse
+Describe "Apply-Theme no longer accepts -AcceptStructuralChange (I7 retired with yasb)" {
+    It "does not expose an -AcceptStructuralChange parameter" {
+        (Get-Command Apply-Theme).Parameters.Keys | Should -Not -Contain 'AcceptStructuralChange'
     }
 }
 
@@ -825,5 +580,304 @@ Describe "Restart-ZebarWidgets (C1)" {
         $warnings = @()
         Restart-ZebarWidgets -ZebarExe $script:rzFakeExe -SettingsPath $settings -StartupWaitMs 1 -WarningVariable warnings -WarningAction SilentlyContinue
         ($warnings -join ' ') | Should -Match 'caelestia'
+    }
+}
+
+Describe "ConvertFrom-HexColor" {
+    It "converts a 6-digit hex string to an R/G/B integer triplet" {
+        $rgb = ConvertFrom-HexColor -Hex '#FF8040'
+        $rgb.R | Should -Be 255
+        $rgb.G | Should -Be 128
+        $rgb.B | Should -Be 64
+    }
+
+    It "works without a leading '#'" {
+        $rgb = ConvertFrom-HexColor -Hex '336699'
+        $rgb.R | Should -Be 51
+        $rgb.G | Should -Be 102
+        $rgb.B | Should -Be 153
+    }
+
+    It "expands a 3-digit shorthand hex string" {
+        $rgb = ConvertFrom-HexColor -Hex '#0F0'
+        $rgb.R | Should -Be 0
+        $rgb.G | Should -Be 255
+        $rgb.B | Should -Be 0
+    }
+
+    It "is case-insensitive" {
+        $rgb = ConvertFrom-HexColor -Hex '#abcdef'
+        $rgb.R | Should -Be 171
+        $rgb.G | Should -Be 205
+        $rgb.B | Should -Be 239
+    }
+
+    It "throws on a value that is not a valid hex colour" {
+        { ConvertFrom-HexColor -Hex 'not-a-color' } | Should -Throw
+    }
+}
+
+Describe "Set-KomorebiBorderColours (persist border colours into komorebi.json)" {
+    BeforeEach {
+        $script:kbcPath = "$env:TEMP\komorebi-bordercolours-test-$PID-$(Get-Random).json"
+        # A trimmed-down but realistic fixture: real top-level keys that
+        # MUST survive untouched, including an ignore_rules array (the
+        # real ~/komorebi.json's most hand-maintained section) with more
+        # than one entry, so a naive "rebuild the object" implementation
+        # that drops or reorders entries would be caught.
+        $fixture = @'
+{
+  "$schema": "https://raw.githubusercontent.com/LGUG2Z/komorebi/v0.1.41/schema.json",
+  "default_workspace_padding": 5,
+  "default_container_padding": 5,
+  "border": false,
+  "ignore_rules": [
+    { "kind": "Exe", "id": "yasb.exe", "matching_strategy": "Equals" },
+    { "kind": "Title", "id": "[Pp]icture.in.[Pp]icture", "matching_strategy": "Regex" }
+  ],
+  "monitors": [ { "workspaces": [ { "name": "1", "layout": "BSP" } ] } ]
+}
+'@
+        [System.IO.File]::WriteAllText($script:kbcPath, $fixture, (New-Object System.Text.UTF8Encoding($false)))
+    }
+    AfterEach {
+        Remove-Item $script:kbcPath -Force -ErrorAction SilentlyContinue
+    }
+
+    It "adds a border_colours object with the supplied hex values" {
+        Set-KomorebiBorderColours -Path $script:kbcPath -Colours @{ single = '#AABBCC'; stack = '#112233' }
+        $obj = [System.IO.File]::ReadAllText($script:kbcPath) | ConvertFrom-Json
+        $obj.border_colours.single | Should -Be '#AABBCC'
+        $obj.border_colours.stack | Should -Be '#112233'
+    }
+
+    It "preserves every other top-level key, including the full ignore_rules array" {
+        Set-KomorebiBorderColours -Path $script:kbcPath -Colours @{ single = '#AABBCC' }
+        $obj = [System.IO.File]::ReadAllText($script:kbcPath) | ConvertFrom-Json
+        $obj.default_workspace_padding | Should -Be 5
+        $obj.default_container_padding | Should -Be 5
+        $obj.border | Should -Be $false
+        $obj.ignore_rules.Count | Should -Be 2
+        $obj.ignore_rules[0].id | Should -Be 'yasb.exe'
+        $obj.ignore_rules[1].id | Should -Be '[Pp]icture.in.[Pp]icture'
+        $obj.monitors[0].workspaces[0].name | Should -Be '1'
+    }
+
+    It "is idempotent -- re-running with the same colours updates in place rather than duplicating" {
+        Set-KomorebiBorderColours -Path $script:kbcPath -Colours @{ single = '#AABBCC' }
+        Set-KomorebiBorderColours -Path $script:kbcPath -Colours @{ single = '#AABBCC' }
+        $obj = [System.IO.File]::ReadAllText($script:kbcPath) | ConvertFrom-Json
+        ($obj.border_colours.PSObject.Properties | Where-Object Name -eq 'single').Count | Should -Be 1
+        $obj.border_colours.single | Should -Be '#AABBCC'
+    }
+
+    It "updates an existing border_colours entry rather than leaving the old value" {
+        Set-KomorebiBorderColours -Path $script:kbcPath -Colours @{ single = '#111111' }
+        Set-KomorebiBorderColours -Path $script:kbcPath -Colours @{ single = '#222222' }
+        $obj = [System.IO.File]::ReadAllText($script:kbcPath) | ConvertFrom-Json
+        $obj.border_colours.single | Should -Be '#222222'
+    }
+
+    It "throws when the target file does not exist" {
+        { Set-KomorebiBorderColours -Path "$env:TEMP\does-not-exist-$PID.json" -Colours @{ single = '#AABBCC' } } | Should -Throw
+    }
+
+    It "writes without a BOM" {
+        Set-KomorebiBorderColours -Path $script:kbcPath -Colours @{ single = '#AABBCC' }
+        $b = [System.IO.File]::ReadAllBytes($script:kbcPath)
+        ($b[0] -eq 0xEF -and $b[1] -eq 0xBB -and $b[2] -eq 0xBF) | Should -BeFalse
+    }
+
+    It "does not leave a stray temp file behind after a successful write (F2: atomic replace)" {
+        Set-KomorebiBorderColours -Path $script:kbcPath -Colours @{ single = '#AABBCC' }
+        $dir = Split-Path $script:kbcPath -Parent
+        $leaf = Split-Path $script:kbcPath -Leaf
+        Get-ChildItem $dir -Filter "*$leaf*.tmp*" -ErrorAction SilentlyContinue | Should -BeNullOrEmpty
+    }
+
+    It "throws instead of silently truncating the file when the content is whitespace-only (F3)" {
+        # A whitespace-only file parses to `$null` via ConvertFrom-Json (verified: no
+        # exception raised), NOT malformed JSON that would already throw on its own.
+        # Before the fix, execution continued past this point: Get-Member/Add-Member on
+        # `$null` raise only NON-TERMINATING errors (nothing here catches them),
+        # ConvertTo-Json on `$null` produces no output, and
+        # WriteAllText(path, $null) truncates the file to 0 bytes with NO exception at
+        # all -- verified locally: a 7-byte fixture became 0 bytes. The fix must throw
+        # before ever reaching the write.
+        [System.IO.File]::WriteAllText($script:kbcPath, "   `r`n  ", (New-Object System.Text.UTF8Encoding($false)))
+        $before = [System.IO.File]::ReadAllBytes($script:kbcPath)
+        { Set-KomorebiBorderColours -Path $script:kbcPath -Colours @{ single = '#AABBCC' } } | Should -Throw
+        $after = [System.IO.File]::ReadAllBytes($script:kbcPath)
+        $after.Length | Should -Be $before.Length
+        $after.Length | Should -Not -Be 0
+    }
+
+    It "throws instead of silently truncating the file when the content is the literal 'null' (F3)" {
+        [System.IO.File]::WriteAllText($script:kbcPath, 'null', (New-Object System.Text.UTF8Encoding($false)))
+        $before = [System.IO.File]::ReadAllBytes($script:kbcPath)
+        { Set-KomorebiBorderColours -Path $script:kbcPath -Colours @{ single = '#AABBCC' } } | Should -Throw
+        $after = [System.IO.File]::ReadAllBytes($script:kbcPath)
+        $after.Length | Should -Be $before.Length
+        $after.Length | Should -Not -Be 0
+    }
+
+    It "throws instead of treating every element as a member container when the JSON root is an array (F4)" {
+        # ConvertFrom-Json on a root-level array yields an Object[], not a
+        # PSCustomObject -- Add-Member against that would (pre-fix) silently
+        # attach border_colours to EVERY element via PowerShell's pipeline
+        # member-enumeration behaviour, or fail non-terminating and then
+        # truncate the file the same way the null case does.
+        [System.IO.File]::WriteAllText($script:kbcPath, '[{"a":1},{"b":2}]', (New-Object System.Text.UTF8Encoding($false)))
+        $before = [System.IO.File]::ReadAllBytes($script:kbcPath)
+        { Set-KomorebiBorderColours -Path $script:kbcPath -Colours @{ single = '#AABBCC' } } | Should -Throw
+        $after = [System.IO.File]::ReadAllBytes($script:kbcPath)
+        $after.Length | Should -Be $before.Length
+        $after.Length | Should -Not -Be 0
+    }
+}
+
+Describe "Set-KomorebiBorderColour (runtime CLI, fail soft)" {
+    It "fails soft (warns, does not throw) when komorebic is not on PATH" {
+        $komorebicCmd = Get-Command komorebic -ErrorAction SilentlyContinue
+        if (-not $komorebicCmd) {
+            Set-ItResult -Skipped -Because "komorebic is not installed on this machine"
+            return
+        }
+        $komorebicDir = Split-Path $komorebicCmd.Source -Parent
+        $prevPath = $env:PATH
+        $env:PATH = ($env:PATH -split ';' | Where-Object { $_ -and $_.TrimEnd('\') -ne $komorebicDir.TrimEnd('\') }) -join ';'
+        try {
+            (Get-Command komorebic -ErrorAction SilentlyContinue) | Should -BeNullOrEmpty
+            # NOTE: -WarningVariable must be bound on a DIRECT call, not inside
+            # a `{ ... } | Should -Not -Throw` scriptblock -- a scriptblock
+            # introduces its own scope, so a variable it populates via
+            # -WarningVariable never becomes visible to this outer $warnings.
+            # Calling directly also proves "does not throw" just as well: an
+            # uncaught exception here would fail this It block on its own.
+            $warnings = @()
+            Set-KomorebiBorderColour -R 1 -G 2 -B 3 -WindowKind single -WarningVariable warnings -WarningAction SilentlyContinue
+            # F7: 'PATH' alone is also satisfied by CommandNotFoundException's own
+            # message text, so this assertion would pass even if the PATH guard at
+            # the top of Set-KomorebiBorderColour were deleted entirely (the `&
+            # komorebic ...` call below it would then throw that exception message,
+            # which itself contains the word "PATH"). Match the guard's own warning
+            # text instead, which only appears if the guard actually fired.
+            ($warnings -join ' ') | Should -Match 'skipping runtime border-colour'
+        } finally {
+            $env:PATH = $prevPath
+        }
+    }
+
+    It "warns instead of throwing when the komorebic call itself fails (mocked)" {
+        Mock komorebic { $global:LASTEXITCODE = 1 }
+        $warnings = @()
+        Set-KomorebiBorderColour -R 1 -G 2 -B 3 -WindowKind stack -WarningVariable warnings -WarningAction SilentlyContinue
+        ($warnings -join ' ') | Should -Match 'stack'
+    }
+
+    It "calls komorebic border-colour with the exact R/G/B and --window-kind arguments (mocked)" {
+        Mock komorebic { $global:LASTEXITCODE = 0 }
+        Set-KomorebiBorderColour -R 10 -G 20 -B 30 -WindowKind monocle
+        Should -Invoke komorebic -Times 1 -ParameterFilter {
+            $args -join ' ' -match 'border-colour 10 20 30' -and ($args -join ' ') -match '--window-kind monocle'
+        }
+    }
+}
+
+Describe "Update-KomorebiBorderTheme (orchestrates runtime + persisted border-colour updates)" {
+    BeforeEach {
+        $script:ukbtRoot = "$env:TEMP\ukbt-test-$PID-$(Get-Random)"
+        New-Item -ItemType Directory -Force -Path $script:ukbtRoot | Out-Null
+        $script:ukbtKomorebiJson = Join-Path $script:ukbtRoot 'komorebi.json'
+        [System.IO.File]::WriteAllText($script:ukbtKomorebiJson, '{ "border": false, "ignore_rules": [ { "kind": "Exe", "id": "yasb.exe" } ] }', (New-Object System.Text.UTF8Encoding($false)))
+        $script:ukbtColoursPath = Join-Path $script:ukbtRoot 'komorebi-colours.json'
+    }
+    AfterEach {
+        Remove-Item $script:ukbtRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    It "warns and makes no changes when the staged colours file was never rendered" {
+        $warnings = @()
+        Update-KomorebiBorderTheme -StagedColoursPath $script:ukbtColoursPath -KomorebiJsonPath $script:ukbtKomorebiJson -WarningVariable warnings -WarningAction SilentlyContinue
+        ($warnings -join ' ') | Should -Match 'not staged'
+        $obj = [System.IO.File]::ReadAllText($script:ukbtKomorebiJson) | ConvertFrom-Json
+        (Get-Member -InputObject $obj -Name 'border_colours' -MemberType NoteProperty) | Should -BeNullOrEmpty
+    }
+
+    It "warns and makes no changes when the staged colours file still has an unrendered template expression" {
+        [System.IO.File]::WriteAllText($script:ukbtColoursPath, '{ "single": "{{colors.primary.default.hex}}" }', (New-Object System.Text.UTF8Encoding($false)))
+        $warnings = @()
+        Update-KomorebiBorderTheme -StagedColoursPath $script:ukbtColoursPath -KomorebiJsonPath $script:ukbtKomorebiJson -WarningVariable warnings -WarningAction SilentlyContinue
+        ($warnings -join ' ') | Should -Match 'unrendered'
+        $obj = [System.IO.File]::ReadAllText($script:ukbtKomorebiJson) | ConvertFrom-Json
+        (Get-Member -InputObject $obj -Name 'border_colours' -MemberType NoteProperty) | Should -BeNullOrEmpty
+    }
+
+    It "warns and makes no changes when the staged colours file is not valid JSON" {
+        [System.IO.File]::WriteAllText($script:ukbtColoursPath, 'not json at all', (New-Object System.Text.UTF8Encoding($false)))
+        $warnings = @()
+        Update-KomorebiBorderTheme -StagedColoursPath $script:ukbtColoursPath -KomorebiJsonPath $script:ukbtKomorebiJson -WarningVariable warnings -WarningAction SilentlyContinue
+        ($warnings -join ' ') | Should -Match 'could not be parsed'
+    }
+
+    It "still persists into komorebi.json when komorebi is not running, after warning" {
+        [System.IO.File]::WriteAllText($script:ukbtColoursPath, '{ "single": "#AABBCC", "stack": "#112233", "monocle": "#334455", "unfocused": "#556677", "floating": "#EE0000" }', (New-Object System.Text.UTF8Encoding($false)))
+        Mock Get-Process { $null } -ParameterFilter { $Name -eq 'komorebi' }
+        $warnings = @()
+        Update-KomorebiBorderTheme -StagedColoursPath $script:ukbtColoursPath -KomorebiJsonPath $script:ukbtKomorebiJson -WarningVariable warnings -WarningAction SilentlyContinue
+        ($warnings -join ' ') | Should -Match 'not running'
+        $obj = [System.IO.File]::ReadAllText($script:ukbtKomorebiJson) | ConvertFrom-Json
+        $obj.border_colours.single | Should -Be '#AABBCC'
+        $obj.border_colours.floating | Should -Be '#EE0000'
+        # The pre-existing ignore_rules entry must survive untouched.
+        $obj.ignore_rules[0].id | Should -Be 'yasb.exe'
+    }
+
+    It "calls the runtime border-colour update for every mapped kind when komorebi IS running (mocked)" {
+        [System.IO.File]::WriteAllText($script:ukbtColoursPath, '{ "single": "#AABBCC", "stack": "#112233", "monocle": "#334455", "unfocused": "#556677", "floating": "#EE0000" }', (New-Object System.Text.UTF8Encoding($false)))
+        Mock Get-Process { [PSCustomObject]@{ Id = 1 } } -ParameterFilter { $Name -eq 'komorebi' }
+        Mock Set-KomorebiBorderColour {}
+        Update-KomorebiBorderTheme -StagedColoursPath $script:ukbtColoursPath -KomorebiJsonPath $script:ukbtKomorebiJson
+        Should -Invoke Set-KomorebiBorderColour -Times 5
+        Should -Invoke Set-KomorebiBorderColour -Times 1 -ParameterFilter { $WindowKind -eq 'single' -and $R -eq 170 -and $G -eq 187 -and $B -eq 204 }
+    }
+
+    It "F1: does not throw and still themes the other kinds when one value is malformed (e.g. a .rgb accessor used instead of .hex)" {
+        # Reproduced by the reviewer with a template edited to use matugen's
+        # documented `.rgb` accessor instead of `.hex` for one role -- both
+        # accessors are legitimate matugen output, but ConvertFrom-HexColor only
+        # accepts hex. Before the fix this threw out of the runtime-update
+        # foreach, uncaught, aborting BOTH the runtime update and the
+        # komorebi.json persistence for every other (perfectly valid) kind too.
+        [System.IO.File]::WriteAllText($script:ukbtColoursPath, '{ "single": "rgb(135,209,234)", "stack": "#112233", "monocle": "#334455", "unfocused": "#556677", "floating": "#EE0000" }', (New-Object System.Text.UTF8Encoding($false)))
+        Mock Get-Process { [PSCustomObject]@{ Id = 1 } } -ParameterFilter { $Name -eq 'komorebi' }
+        Mock Set-KomorebiBorderColour {}
+        # NOTE (same pitfall as Set-KomorebiBorderColour's PATH test above):
+        # -WarningVariable must be bound on a DIRECT call, not inside a
+        # `{ ... } | Should -Not -Throw` scriptblock, or the outer $warnings
+        # never gets populated. Calling directly proves "does not throw"
+        # just as well -- an uncaught exception here fails this It on its own.
+        $warnings = @()
+        Update-KomorebiBorderTheme -StagedColoursPath $script:ukbtColoursPath -KomorebiJsonPath $script:ukbtKomorebiJson -WarningVariable warnings -WarningAction SilentlyContinue
+        ($warnings -join ' ') | Should -Match 'single'
+        # The four well-formed kinds must still be themed, both halves.
+        Should -Invoke Set-KomorebiBorderColour -Times 4
+        Should -Invoke Set-KomorebiBorderColour -Times 0 -ParameterFilter { $WindowKind -eq 'single' }
+        $obj = [System.IO.File]::ReadAllText($script:ukbtKomorebiJson) | ConvertFrom-Json
+        $obj.border_colours.stack | Should -Be '#112233'
+        (Get-Member -InputObject $obj.border_colours -Name 'single' -MemberType NoteProperty) | Should -BeNullOrEmpty
+    }
+}
+
+Describe "Apply-Theme -DryRun leaves ~/komorebi.json untouched" {
+    It "does not modify komorebi.json (the border-theming step never runs under -DryRun)" {
+        $komorebiJson = "$env:USERPROFILE\komorebi.json"
+        if (-not (Test-Path $komorebiJson)) {
+            Set-ItResult -Skipped -Because "~/komorebi.json does not exist on this machine"
+            return
+        }
+        $before = (Get-Item $komorebiJson).LastWriteTimeUtc
+        Apply-Theme -Image $script:probe -DryRun
+        (Get-Item $komorebiJson).LastWriteTimeUtc | Should -Be $before
     }
 }

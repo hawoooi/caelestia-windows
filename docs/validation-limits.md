@@ -4,6 +4,17 @@ Captured 2026-08-05 on this machine (branch `feat/theming-pipeline`, Task 8), af
 found a structural gap in the original design. This doc exists so the gap is documented where a
 future reader will find it, not just buried in a task report.
 
+**Retirement note (branch `feat/borders-and-yasb-retirement`):** yasb and tacky-borders were
+retired as theming targets -- yasb's `[templates.yasb]` entry, its `Test-StagedFile` branch, its
+post-copy `yasb.log` check, and its `$script:Targets` row are all gone from
+`scripts/Apply-Theme.ps1`/`matugen/config.toml`; tacky-borders' equivalents went with it (it was
+never installed on this machine to begin with). Everything below describing yasb's and
+tacky-borders' validation ceiling is kept as historical record -- the reasoning (structural checks
+catch corruption *shape*, not semantic correctness; a clean log is not proof of a correct render)
+still applies to every remaining target, including zebar's own `Test-StagedFile` branch, which
+reuses the same `Measure-CssBraces` scanner yasb's did. Nothing below describes anything this
+pipeline currently renders or copies for yasb/tacky-borders.
+
 ## The yasb blind spot
 
 **A clean `yasb.log` after `yasbc reload` is not evidence that `styles.css` rendered correctly.**

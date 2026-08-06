@@ -1,10 +1,13 @@
 # Wallpaper-driven theming pipeline — working knowledge
 
 One command extracts a Material You palette from the current Wallpaper Engine wallpaper and
-regenerates the colors of yasb, tacky-borders, WezTerm, starship and the Zebar sidebar (a fifth
-theming target added alongside a new Caelestia-style vertical bar — see `docs/zebar-bar.md`). This
-file is the working knowledge for this repo, captured while building it — read it before changing
-anything here.
+regenerates the colors of WezTerm, starship, the Zebar sidebar, and komorebi's own window-border
+colours. yasb and tacky-borders were **retired** as theming targets (see "The stack" and "Window borders and gaps" below) --
+the Zebar bar (docked left) replaced yasb as the desktop's only bar, and komorebi's built-in window
+borders (`border`/`border_style`/`border_colours` in `~/komorebi.json`) now do the job the
+tacky-borders template was built for but never actually got to do (tacky-borders was never
+installed on this machine). This file is the working knowledge for this repo, captured while
+building it — read it before changing anything here.
 
 ## The stack
 
@@ -12,16 +15,63 @@ anything here.
 |---|---|
 | matugen (Rust, v4.1.0) | `~/.cargo/bin/matugen.exe`, installed via `cargo install matugen`. **Not on the default PATH of a fresh PowerShell process** — only this session's profile happens to prepend it. `Apply-Theme.ps1` defends against this itself (see below); any other caller needs the same guard or an explicit path. |
 | matugen config | `matugen/config.toml` (this repo) — points every template at a staging output under `state/staging/`, never at a live config |
-| matugen templates | `matugen/templates/*.{css,yaml,lua,toml}` (this repo) |
-| color mapping | `matugen/mapping.json` (this repo) — keyed by normalized Catppuccin literal, each value an `{ "expression": "<matugen expr>" }` |
-| yasb (v2.0.5) | `C:\Program Files\yasb\yasbc.exe` — config at `~/.config/yasb/` (its own git repo) |
-| tacky-borders | config + log at `~/.config/tacky-borders/`, **not installed as an executable on this machine** (Task 1 finding, unchanged as of Task 10) — the template is built and ready if it's ever reinstalled |
+| matugen templates | `matugen/templates/*.{css,yaml,lua,toml,json}` (this repo) |
+| color mapping | `matugen/mapping.json` (this repo) — keyed by normalized Catppuccin literal, each value an `{ "expression": "<matugen expr>" }`. Historical: this mapping was built for `yasb.styles.css`, which is no longer a rendered/live target (see the yasb row directly below); kept for the recovery procedure below. |
+| yasb (v2.0.5) | `C:\Program Files\yasb\yasbc.exe`, config at `~/.config/yasb/` (its own git repo) — **retired as a theming target**, replaced by the Zebar bar (docked left). Still installed on disk; its process is no longer expected to be running, and `~/.config/yasb/` is never written to by this pipeline. |
+| tacky-borders | config + log at `~/.config/tacky-borders/`, **not installed as an executable on this machine** (Task 1 finding, unchanged through Task 10) and **retired as a theming target** on top of that — komorebi's own borders replaced the job this template was built for. The template (`matugen/templates/tacky-borders.yaml`) is kept on disk, unwired from `matugen/config.toml` and from `$script:Targets`, in case it's ever wanted again. |
 | WezTerm | `C:\Program Files\WezTerm\wezterm.exe` — config at `~/.wezterm.lua`, **not under version control** (home directory is not a git repo); the pipeline's two required edits there are recorded in `docs/wezterm-integration.md` because of this |
 | starship | config at `~/.config/starship.toml` |
 | Wallpaper Engine | `C:\Program Files (x86)\Steam\steamapps\common\wallpaper_engine\` — `wallpaper32.exe` or `wallpaper64.exe` (whichever is the live process; both exist on disk, this machine runs `wallpaper32.exe`) |
-| Zebar (v3.3.1) | `C:\Program Files\glzr.io\Zebar\zebar.exe` — a second, vertical Caelestia-style bar docked left, alongside yasb (top). Pack source tracked at `zebar/caelestia/`, served to Zebar via a junction at `~/.glzr/zebar/caelestia`. Full detail: `docs/zebar-bar.md`. |
-| komorebi + whkd | `~/komorebi.json`, `~/.config/whkdrc` — the tiling WM driving the desktop (GlazeWM was replaced during this project's pre-flight; see `~/.config/yasb/CLAUDE.md`) |
+| Zebar (v3.3.1) | `C:\Program Files\glzr.io\Zebar\zebar.exe` — a vertical Caelestia-style bar docked left, and (since yasb's retirement) the **only** bar on the desktop. Pack source tracked at `zebar/caelestia/`, served to Zebar via a junction at `~/.glzr/zebar/caelestia`. Full detail: `docs/zebar-bar.md`. |
+| komorebi + whkd | `~/komorebi.json`, `~/.config/whkdrc` — the tiling WM driving the desktop (GlazeWM was replaced during this project's pre-flight; see `~/.config/yasb/CLAUDE.md`). Since the borders/yasb-retirement task, komorebi.json also carries `border: true`, `border_style: "Rounded"`, `border_width: 4`, `border_offset: 1`, increased `default_workspace_padding`/`default_container_padding` (12/12, up from 5/5), and a themed `border_colours` object -- see "Window borders and gaps" below. |
 | Pester | 6.0.1 and 3.4.0 are both installed; **all tests in this repo are Pester 5+ syntax** (`Should -Be`, not `Should Be`) — `Import-Module Pester -MinimumVersion 5.0.0` before running the suite, or 3.4.0 loads by default and every test errors on syntax it doesn't recognize |
+
+## Window borders and gaps
+
+komorebi has a full border CLI (`komorebic border enable|disable`, `border-style`, `border-width`,
+`border-offset`, `border-colour <R> <G> <B> --window-kind <kind>` -- **RGB integers, not hex**).
+`~/komorebi.json` was hand-edited (surgically -- parsed, mutated, re-serialized, never rewritten
+wholesale, preserving all 20 `ignore_rules` entries and every other key) to turn this on
+persistently: `border: true`, `border_style: "Rounded"`, `border_width: 4`, `border_offset: 1`,
+`default_workspace_padding`/`default_container_padding` raised from 5 to 12. Applied live via
+`komorebic stop` + `komorebic start` (config is read at startup, not hot-reloaded).
+
+`Apply-Theme` now also themes the border colours every run, via `Update-KomorebiBorderTheme`
+(`scripts/Apply-Theme.ps1`):
+
+- matugen renders `matugen/templates/komorebi-colours.json` -> `state/staging/komorebi-colours.json`
+  (`[templates.komorebi]` in `matugen/config.toml`) -- **not** one of `$script:Targets` (no live
+  config of its own to copy/validate/roll back; it exists purely to hand this step hex values
+  without a second matugen invocation).
+- Role mapping: `single` (focused window) -> `primary`, `stack` -> `tertiary`, `monocle` ->
+  `secondary`, `unfocused` -> `outline`, `floating` -> `error`. `unfocused_locked` is intentionally
+  left unmapped (komorebi's own default).
+- **Runtime**: `Set-KomorebiBorderColour` calls `komorebic border-colour <R> <G> <B> --window-kind
+  <kind>` per role (hex converted to RGB ints via `ConvertFrom-HexColor`). This is **fail-soft** --
+  if `komorebic` isn't on PATH or komorebi isn't running, it warns and Apply-Theme continues; a
+  theming run must never fail because the WM is down.
+- **Persisted**: `Set-KomorebiBorderColours` writes the same colours (as hex strings -- komorebi's
+  schema.json accepts `border_colours.<kind>` as either an `{r,g,b}` object or a `"#RRGGBB"`
+  string) into `~/komorebi.json`'s `border_colours` field, structurally (same
+  parse-mutate-serialize pattern as `Set-ZebarStartupConfig` in `Install-Config.ps1`), so a
+  komorebi restart (reboot, crash, `komorebic stop`/`start`) keeps the themed colours instead of
+  reverting to whatever was last saved on disk. **This runs regardless of whether the runtime CLI
+  call above succeeded** -- persistence and the live nudge are independent.
+- **Guarded and atomic** (fix wave after review): the parsed komorebi.json content is rejected with
+  a thrown exception -- caught by `Update-KomorebiBorderTheme`'s own try/catch, never escaping it --
+  if it parses to `$null` (empty/whitespace/literal `null`) or to anything other than a JSON object
+  (e.g. a root-level array), instead of silently truncating the file to 0 bytes the way an
+  unguarded `Get-Member`/`Add-Member`/`ConvertTo-Json`/`WriteAllText($path, $null)` chain did
+  before. The write itself is a temp-file-then-rename (`Move-Item -Force`, same directory/volume,
+  atomic) rather than an in-place `WriteAllText`, so an interrupt can never leave a truncated
+  `~/komorebi.json` on disk. `New-PreApplySnapshot`/`Restore-PreApplySnapshot` also snapshot
+  `~/komorebi.json` into `state/pre-apply/` (see "Pipeline flow" above), even though it isn't one of
+  `$script:Targets`, so it has a manual recovery path like every other target. Per-kind hex values
+  that fail to parse (e.g. a template edited to emit matugen's `.rgb` accessor instead of `.hex` for
+  one role) are warned about and skipped individually -- the other, well-formed kinds are still
+  themed and persisted, and `Update-KomorebiBorderTheme` never throws out to its caller over one bad
+  value. `Apply-Theme`'s own call to `Update-KomorebiBorderTheme` is additionally wrapped in
+  try/catch as defence in depth.
 
 ## Pipeline flow
 
@@ -32,32 +82,37 @@ Switch-Wallpaper.ps1
   -> Resolve-PreviewImage            (preview.jpg -> preview.gif -> preview.png -> $null)
   -> Apply-Theme.ps1
        -> matugen image <preview> --mode dark --type <scheme> --prefer saturation --config matugen/config.toml
-       -> renders all 4 templates into state/staging/
-       -> Remove-Bom + Test-StagedFile on every staged file (pre-copy, structural, per-target)
+       -> renders the 3 live targets (wezterm, starship, zebar) PLUS the non-target
+          komorebi-colours.json into state/staging/ -- yasb/tacky-borders templates are no longer
+          in matugen/config.toml, so nothing renders for them at all (see "The stack" above)
+       -> Remove-Bom + Test-StagedFile on every staged TARGET file (pre-copy, structural, per-target)
        -> abort here if any target fails -- nothing live has been touched yet
-       -> New-PreApplySnapshot: snapshot the CURRENTLY LIVE content of all 4 targets into
-          state/pre-apply/ (a directory SEPARATE from state/last-good/ -- see below)
+       -> New-PreApplySnapshot: snapshot the CURRENTLY LIVE content of all 3 targets, PLUS
+          ~/komorebi.json (F2 -- hand-maintained, outside any git repo, and not itself one of
+          $script:Targets), into state/pre-apply/ (a directory SEPARATE from state/last-good/ --
+          see below)
        -> state/last-good/ itself is NOT refreshed pre-copy -- it is only refreshed AFTER this
-          run passes every check (pre-copy structural validation + post-copy log check), because
-          a pre-copy refresh of last-good let an undetected-bad apply silently become the new
-          "last-good" baseline on the very next run (found live in Task 8; see Apply-Theme.ps1's
-          own comment above its `Update-LastGood` call for the full account)
+          run passes every pre-copy structural validation check, because a pre-copy refresh of
+          last-good let an undetected-bad apply silently become the new "last-good" baseline on
+          the very next run (found live in Task 8, back when yasb was still a target; see
+          Apply-Theme.ps1's own comment above its `Update-LastGood` call for the full account)
        -> Copy-StagedToLive: copy staged files over the live configs (-ErrorAction Stop; a
-          partial copy rolls back from state/pre-apply/ immediately, before any post-copy check)
-       -> yasbc reload; wait 8s; Test-YasbLogFailure greps the yasb.log tail for a
-          CSS/stylesheet-specific signal (narrowed from a blanket error|critical|invalid|could
-          not be read grep, which matched unrelated widget noise and false-triggered rollback)
-       -> tacky-borders log grep, but ONLY if the tacky-borders process is actually running
-       -> zebar reload: Stop-Process zebar (kills ALL running zebar widgets -- no per-widget
-          reload verb exists), wait 500ms, Start-Process (never inline -- start-widget-preset
-          blocks the caller) start-widget-preset --pack caelestia --widget-name bar --preset
-          default. Runs LAST, after every other check has passed -- see docs/zebar-bar.md
-       -> on any post-copy failure: roll back every target from state/pre-apply/ (NOT
-          state/last-good/ -- pre-apply holds what was actually live a moment ago, hand-edits
-          included; last-good holds the last VALIDATED PIPELINE generation, which is a different
-          thing and would silently discard a hand-edited live file on rollback), reload again
+          partial copy rolls back from state/pre-apply/ immediately)
+       -> (yasb's post-copy yasb.log check and tacky-borders' log check were removed along with
+          those two targets -- wezterm/starship/zebar have no equivalent post-copy signal; their
+          pre-copy Test-StagedFile checks are the only gate, same as always. This also removed the
+          8-second post-copy sleep yasb's log check needed to settle.)
        -> on success: Update-LastGood (atomic 2-generation rotation; a failed rotation warns
-          rather than rolling back an already-good live apply), touch ~/.wezterm.lua
+          rather than rolling back an already-good live apply)
+       -> zebar reload, ONLY if theme.css actually changed: Stop-Process zebar (kills ALL running
+          zebar widgets -- no per-widget reload verb exists), wait 500ms, Start-Process (never
+          inline -- start-widget-preset blocks the caller) start-widget-preset --pack caelestia
+          --widget-name bar --preset default. See docs/zebar-bar.md
+       -> touch ~/.wezterm.lua
+       -> Update-KomorebiBorderTheme: theme komorebi's window-border colours, both at runtime
+          (`komorebic border-colour`, fail-soft) and persisted into ~/komorebi.json's
+          border_colours field -- see "Window borders and gaps" above. Entirely fail-soft; never
+          affects this run's own Success/Failed result.
   -> writes state/current.json ({ wallpaper, preview, appliedUtc }) -- also now the -Image
      fallback source: `Apply-Theme` with no -Image reads this file's `preview` field
 ```
@@ -175,6 +230,19 @@ one.
    iterations).
 
 ## Re-running the round-trip gate after `styles.css` changes upstream
+
+**Retired along with yasb (see "The stack" above): `yasb.styles.css` is no longer a matugen
+target at all** -- `[templates.yasb]` was removed from `matugen/config.toml` and the `'yasb'` row
+from `$script:Targets` in `scripts/Apply-Theme.ps1`, so `Apply-Theme` never renders or copies it
+anywhere anymore. This whole section, including the entire procedure below, is now purely
+historical -- kept because `matugen/templates/yasb.styles.css` and `matugen/mapping.json` are
+still on disk (unwired, not deleted, so the work is recoverable) and this is the only record of
+how to rebuild the mapping/template pair if yasb is ever re-wired into the pipeline. **The
+`-AcceptStructuralChange` switch this section describes (I7) was removed from both
+`Test-StagedFile` and `Apply-Theme` when yasb's rule-count/size check went with it** -- it had no
+other caller, so it would have been dead, unreachable plumbing otherwise. If yasb is ever
+reinstated as a target, that switch would need to be re-added alongside its rule-count/size check,
+not just uncommented.
 
 **Do not follow the live-file procedure below against the CURRENT `~/.config/yasb/styles.css`
 blindly — it is matugen-GENERATED output now, not hand-authored Catppuccin content.** Step 1 below
@@ -302,13 +370,17 @@ short version.
 ## Validation limits — what this pipeline can and can't catch
 
 `docs/validation-limits.md` is the full account (worth reading in full before touching
-`Test-StagedFile`). The short version: yasb and tacky-borders have **no offline
-CSS/QSS validator**, and yasb's own bundled parser does spec-mandated lenient error recovery, so a
-clean `yasb.log` after reload is **not** proof the stylesheet rendered correctly — this was
-observed live, not theorized (a deliberately corrupted stylesheet deployed with a clean log and a
-visibly broken bar). The structural checks in `Test-StagedFile` (brace balance via a
-string/comment-aware scanner, unterminated-comment/string detection, rule-count and size sanity
-against `state/last-good/`) catch every corruption *shape* that's been tried against them, but they
-cannot catch a structurally valid file with semantically wrong *content* (right role, wrong color;
-a typo'd property name). **Visual confirmation — screenshot the bar — remains the real gate for
-that gap**, after every real (non-`-DryRun`) apply.
+`Test-StagedFile`). **yasb and tacky-borders are retired as theming targets** (see "The stack"
+above) -- the account below of their validation ceiling is kept as historical record (the same
+"structural, not semantic" ceiling applies to every remaining target, including zebar) but no
+longer describes anything this pipeline actively renders or copies. The short version: yasb and
+tacky-borders had **no offline CSS/QSS validator**, and yasb's own bundled parser did
+spec-mandated lenient error recovery, so a clean `yasb.log` after reload was **not** proof the
+stylesheet rendered correctly — this was observed live, not theorized (a deliberately corrupted
+stylesheet deployed with a clean log and a visibly broken bar). The structural checks in
+`Test-StagedFile` (brace balance via a string/comment-aware scanner, unterminated-comment/string
+detection, and for yasb specifically, rule-count and size sanity against `state/last-good/`) catch
+every corruption *shape* that's been tried against them, but they cannot catch a structurally
+valid file with semantically wrong *content* (right role, wrong color; a typo'd property name).
+**Visual confirmation — screenshot the bar — remains the real gate for that gap**, after every
+real (non-`-DryRun`) apply.
