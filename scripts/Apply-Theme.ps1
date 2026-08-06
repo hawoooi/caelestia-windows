@@ -32,17 +32,21 @@ $script:LastGoodNew = Join-Path $script:Root "state\last-good-new"
 # pipeline generation; pre-apply is whatever was live a moment ago,
 # hand-edits included. Deliberately not reused/aliased with LastGood*.
 $script:PreApply    = Join-Path $script:Root "state\pre-apply"
-$script:Yasbc       = "C:\Program Files\yasb\yasbc.exe"
 $script:ZebarExe    = "C:\Program Files\glzr.io\Zebar\zebar.exe"
 
+# yasb and tacky-borders were retired as pipeline targets: yasb is replaced
+# by the Zebar bar (docked left) and komorebi's own window borders now do
+# the job tacky-borders' template was built for but never actually used
+# (tacky-borders was never installed on this machine -- see CLAUDE.md).
+# Their templates (matugen/templates/yasb.styles.css,
+# matugen/templates/tacky-borders.yaml) are kept on disk, unwired from
+# matugen/config.toml and from this list, so the work stays recoverable.
 $script:Targets = @(
-    @{ Name='yasb';     Staged='styles.css';       Live="$env:USERPROFILE\.config\yasb\styles.css" }
-    @{ Name='tacky';    Staged='tacky-config.yaml';Live="$env:USERPROFILE\.config\tacky-borders\config.yaml" }
     @{ Name='wezterm';  Staged='palette.lua';      Live="$env:USERPROFILE\.config\palette.lua" }
     @{ Name='starship'; Staged='starship.toml';    Live="$env:USERPROFILE\.config\starship.toml" }
-    # Unlike the four targets above, this one lives INSIDE the repo -- the
+    # Unlike the two targets above, this one lives INSIDE the repo -- the
     # zebar pack is tracked, and theme.css is a committed generated
-    # artifact, same as styles.css is for yasb (see Task 9 brief).
+    # artifact (see Task 9 brief).
     @{ Name='zebar';    Staged='theme.css';        Live="$script:Root\zebar\caelestia\bar\theme.css" }
 )
 
@@ -158,38 +162,19 @@ function Remove-Bom {
 function Test-StagedFile {
     <#
       Pre-move validation. Returns $true if the staged file looks usable.
-      tacky-borders has no offline validator, so it is checked after the
-      move via its log instead.
 
-      yasb ALSO has no offline validator, but unlike tacky it cannot be
-      checked after the move either: see docs/validation-limits.md. yasb's
-      CSS loader only logs on file-read errors, and its bundled CSS parser
-      does spec-mandated lenient error recovery, so content corruption is
-      invisible to the post-copy log grep -- confirmed live (Task 8 report).
-      The checks below are therefore the ONLY gate for yasb; they run
-      pre-copy, deliberately, so a rejection here never touches a live file.
+      yasb and tacky-borders were retired as theming targets (see CLAUDE.md,
+      "Retiring yasb") -- the -AcceptStructuralChange switch this function
+      used to accept (I7) existed ONLY to bypass yasb's rule-count/size
+      comparison against state/last-good/styles.css, which no longer exists
+      as a check at all now that the 'yasb' case is gone. Removed along with
+      it rather than left as dead, unreachable plumbing.
     #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$Name,
         [Parameter(Mandatory)][string]$Path,
-        [string]$LastGoodDir = $script:LastGood,
-        # I7: bypasses the yasb rule-count/size comparison against
-        # last-good below. The +-5%/+-20% tolerances assume a palette swap
-        # never adds/removes rules -- a maintainer genuinely adding ~9 rules
-        # to a 175-block file (an intentional, legitimate structural
-        # change) is otherwise rejected FOREVER, because every future apply
-        # keeps comparing against the same stale last-good baseline that
-        # can never pass (CLAUDE.md's old remedy for this was circular: it
-        # says the baseline "re-baselines automatically... the next time
-        # Apply-Theme succeeds", but Apply-Theme can't succeed BECAUSE the
-        # baseline rejects it). Passing this switch for one apply skips
-        # only the rule-count/size comparison (brace-balance and
-        # unterminated-comment/string checks -- the ones that actually
-        # catch corruption -- still run); if that apply then succeeds,
-        # Update-LastGood re-baselines normally and subsequent applies are
-        # compared against the new, larger baseline.
-        [switch]$AcceptStructuralChange
+        [string]$LastGoodDir = $script:LastGood
     )
 
     $text = [System.IO.File]::ReadAllText($Path)
@@ -201,95 +186,6 @@ function Test-StagedFile {
     }
 
     switch ($Name) {
-        'yasb' {
-            # Structural checks only -- no offline QSS/CSS validator exists
-            # (Qt's own parser doesn't surface content errors either; see
-            # docs/validation-limits.md). Each check below was proven to
-            # actually fire against real corruption, not just synthetic
-            # fixtures -- see tests/ApplyTheme.Tests.ps1.
-
-            # Count braces with Measure-CssBraces, a string-aware scanner --
-            # NOT a regex comment-stripper. An earlier version of this
-            # stripped /* ... */ via regex, which has no notion of string
-            # context: `content: "/*"; ... content: "*/";` spanning two
-            # separate rules would be seen as one giant comment, silently
-            # deleting real code between them and producing a false PASS on
-            # genuinely corrupt content -- found by external review. See
-            # Measure-CssBraces's own doc comment for the full case.
-            #
-            # This also still catches the original Task 8 finding (a brace
-            # hidden inside a real, non-string comment: deleted one closing
-            # brace from `.cpu-widget .icon { ... }` and added a
-            # compensating `}` inside `/* MEMORY */` -- raw count 175/175,
-            # comment-aware count correctly reports 175/174).
-            $counts = Measure-CssBraces -Text $text
-            if ($counts.UnterminatedComment) {
-                Write-Warning "styles.css has an unterminated /* comment -- truncated or corrupt"
-                return $false
-            }
-            if ($counts.UnterminatedString) {
-                Write-Warning "styles.css has an unterminated string literal -- truncated or corrupt"
-                return $false
-            }
-
-            # Balanced braces: catches truncation and unterminated blocks.
-            # This alone would have caught the Task 8 unterminated-block
-            # corruption that the log check missed entirely.
-            $open  = $counts.Open
-            $close = $counts.Close
-            if ($open -ne $close) {
-                Write-Warning "styles.css has unbalanced braces ($open open, $close close)"
-                return $false
-            }
-
-            $lastGoodPath = Join-Path $LastGoodDir 'styles.css'
-            if (Test-Path $lastGoodPath) {
-                $lastGoodItem = Get-Item $lastGoodPath
-                $lastGoodText = [System.IO.File]::ReadAllText($lastGoodPath)
-                $lastGoodCounts = Measure-CssBraces -Text $lastGoodText
-
-                # Selector-count sanity: a palette swap only rewrites color
-                # values, never adds/removes rules, so the number of rule
-                # blocks (one `{` per selector prelude) should stay stable.
-                # +-5% tolerance for incidental future template edits.
-                # Comment-and-string-aware on both sides -- the real
-                # state/last-good-prev/styles.css carries a multi-line
-                # "Acrylic recipe" prose comment that could itself gain a
-                # stray brace and skew this baseline if counted naively.
-                if (-not $AcceptStructuralChange) {
-                    $lastRuleCount = $lastGoodCounts.Open
-                    if ($lastRuleCount -gt 0) {
-                        $ruleDelta = [math]::Abs($open - $lastRuleCount) / $lastRuleCount
-                        if ($ruleDelta -gt 0.05) {
-                            Write-Warning "styles.css rule count changed by $([math]::Round($ruleDelta * 100, 1))% ($lastRuleCount -> $open braces) -- more than the 5% tolerance (pass -AcceptStructuralChange if this is an intentional template edit)"
-                            return $false
-                        }
-                    }
-
-                    # Size sanity: catches truncation and runaway duplication
-                    # that could coincidentally preserve rule count and balance.
-                    # +-20% tolerance. Deliberately stays on the RAW (comment-
-                    # included) byte length -- comments are legitimate file
-                    # content, and stripping them here would let comment-based
-                    # padding or truncation slip past this specific check; the
-                    # brace-balance and rule-count checks above already use the
-                    # comment-stripped text for what they measure.
-                    $size     = (Get-Item $Path).Length
-                    $lastSize = $lastGoodItem.Length
-                    if ($lastSize -gt 0) {
-                        $sizeDelta = [math]::Abs($size - $lastSize) / $lastSize
-                        if ($sizeDelta -gt 0.20) {
-                            Write-Warning "styles.css size changed by $([math]::Round($sizeDelta * 100, 1))% ($lastSize -> $size bytes) -- more than the 20% tolerance (pass -AcceptStructuralChange if this is an intentional template edit)"
-                            return $false
-                        }
-                    }
-                }
-            }
-            # else: no last-good baseline yet (first-ever apply) -- nothing
-            # to compare against, so only the brace-balance check above applies.
-
-            return $true
-        }
         'wezterm' {
             # Structural check, not a full Lua parse: no interpreter is installed.
             if ($text -notmatch '(?s)^\s*--.*?return\s*\{' -and $text -notmatch '(?s)^\s*return\s*\{') {
@@ -339,36 +235,6 @@ function Test-StagedFile {
             $env:STARSHIP_CONFIG = $prev
             if ($code -ne 0) {
                 Write-Warning "starship rejected the generated config (exit $code)"
-                return $false
-            }
-            return $true
-        }
-        'tacky' {
-            # I2: tacky-borders has no offline validator and no CLI to
-            # dry-run a config against (same ceiling as yasb -- see
-            # docs/validation-limits.md), so this is a structural sanity
-            # check, not a real YAML parse. Previously fell through to the
-            # `default` case below, i.e. zero validation at all -- verified
-            # that a completely garbage staged file ("totally: garbage`n
-            # not even: [yaml") passed unconditionally before this fix.
-            $requiredKeys = 'watch_config_changes', 'enable_logging', 'rendering_backend', 'global', 'window_rules'
-            foreach ($key in $requiredKeys) {
-                if ($text -notmatch "(?m)^$([regex]::Escape($key)):") {
-                    Write-Warning "tacky-config.yaml is missing expected top-level key '$key'"
-                    return $false
-                }
-            }
-            # Balanced quotes: an odd count of un-escaped quote characters
-            # means a value's quoting broke mid-render (e.g. a truncated
-            # matugen expression), which YAML has to reject or misparse.
-            $dq = ([regex]::Matches($text, '(?<!\\)"')).Count
-            if ($dq % 2 -ne 0) {
-                Write-Warning "tacky-config.yaml has an unbalanced double-quote count ($dq)"
-                return $false
-            }
-            $sq = ([regex]::Matches($text, "(?<!\\)'")).Count
-            if ($sq % 2 -ne 0) {
-                Write-Warning "tacky-config.yaml has an unbalanced single-quote count ($sq)"
                 return $false
             }
             return $true
@@ -425,54 +291,6 @@ function Test-StagedFile {
         }
         default { return $true }
     }
-}
-
-function Get-LogTail {
-    param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][long]$Offset)
-    if (-not (Test-Path $Path)) { return '' }
-    $fs = [System.IO.File]::Open($Path, 'Open', 'Read', 'ReadWrite')
-    $fs.Seek($Offset, 'Begin') | Out-Null
-    $sr = New-Object System.IO.StreamReader($fs)
-    $tail = $sr.ReadToEnd()
-    $sr.Close(); $fs.Close()
-    return $tail
-}
-
-function Test-YasbLogFailure {
-    <#
-      I1: the post-copy yasb.log check used to grep the whole log tail for
-      '(?i)error|critical|invalid|could not be read' -- a pattern that
-      matches ANY widget's log output, not just CSS/stylesheet-loading
-      failures. yasb.log carries every widget's own errors on the same
-      timeline (traffic_manager JSON errors, glazewm_client websocket
-      reconnects, a KeyError from an unrelated callback -- all observed for
-      real in the live log, 7 matching lines with zero relation to
-      styles.css). Any one of those landing in the 8-second post-copy
-      window triggered a full four-target rollback for a stylesheet that
-      was never actually the problem.
-
-      Narrowed to the one signal documented (docs/validation-limits.md) as
-      actually specific to CSS loading: yasb's CSSProcessor logs
-      "CSSProcessor Error '%s': %s" specifically on a file-level read
-      failure (missing file, permission denied -- see
-      CSSProcessor._read_css_file in that doc). Matching on "CSSProcessor"
-      keeps the log check able to catch the one failure class it CAN see
-      (docs/validation-limits.md: "kept as a secondary signal... must
-      never again be the only signal") while eliminating the false-positive
-      class that made it a liability instead. Chose narrowing the pattern
-      over making the check warn-only, specifically so it can still
-      trigger a real rollback for the failure it's actually able to detect
-      -- a warn-only check that never rejects anything is not a check
-      (this project's own stated principle, docs/validation-limits.md).
-
-      tacky-borders' log check is NOT narrowed the same way: it is not
-      shared across dozens of widgets the way yasb.log is (tacky-borders
-      logs only its own activity), so the false-positive class this fixes
-      doesn't apply there.
-    #>
-    [CmdletBinding()]
-    param([Parameter(Mandatory)][AllowEmptyString()][string]$LogTail)
-    return $LogTail -match '(?i)CSSProcessor'
 }
 
 function New-PreApplySnapshot {
@@ -782,13 +600,214 @@ function Restart-ZebarWidgets {
     }
 }
 
+function ConvertFrom-HexColor {
+    <#
+      Converts a "#RRGGBB" (or shorthand "#RGB") hex colour string into an
+      {R;G;B} integer triplet. `komorebic border-colour` takes three
+      DECIMAL integer arguments, not a hex string -- this is the one
+      conversion point between matugen's hex output (and this repo's
+      mapping conventions, which are hex throughout) and that CLI.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Hex)
+
+    $h = $Hex.Trim().TrimStart('#')
+    if ($h.Length -eq 3) {
+        $h = ($h.ToCharArray() | ForEach-Object { "$_$_" }) -join ''
+    }
+    if ($h.Length -ne 6 -or $h -notmatch '^[0-9a-fA-F]{6}$') {
+        throw "ConvertFrom-HexColor: '$Hex' is not a valid 3- or 6-digit hex colour"
+    }
+    return [PSCustomObject]@{
+        R = [Convert]::ToInt32($h.Substring(0, 2), 16)
+        G = [Convert]::ToInt32($h.Substring(2, 2), 16)
+        B = [Convert]::ToInt32($h.Substring(4, 2), 16)
+    }
+}
+
+function Set-KomorebiBorderColour {
+    <#
+      Runtime half of the border-colour update: calls
+      `komorebic border-colour <R> <G> <B> --window-kind <kind>` against a
+      LIVE komorebi process. This changes komorebi's in-memory config only
+      -- it is lost on the next komorebi restart. Set-KomorebiBorderColours
+      (persist, below) is the durable half of this pair, writing the same
+      colours into komorebi.json's border_colours field.
+
+      Fails SOFT, per this pipeline's own rule that a WM being down must
+      never fail a theming run: both "komorebic isn't on PATH" and
+      "komorebic is on PATH but komorebi.exe isn't running" (the CLI call
+      itself errors or returns nonzero talking to a dead IPC pipe) are
+      caught and turned into a warning, never a thrown exception.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][int]$R,
+        [Parameter(Mandatory)][int]$G,
+        [Parameter(Mandatory)][int]$B,
+        [Parameter(Mandatory)][ValidateSet('single', 'stack', 'monocle', 'unfocused', 'unfocused-locked', 'floating')][string]$WindowKind
+    )
+
+    if (-not (Get-Command komorebic -ErrorAction SilentlyContinue)) {
+        Write-Warning "komorebic is not on PATH -- skipping runtime border-colour update for '$WindowKind'"
+        return
+    }
+    try {
+        & komorebic border-colour $R $G $B --window-kind $WindowKind 2>&1 | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warning "komorebic border-colour failed for window-kind '$WindowKind' (exit $LASTEXITCODE) -- komorebi may not be running"
+        }
+    } catch {
+        Write-Warning "komorebic border-colour threw for window-kind '$WindowKind': $($_.Exception.Message)"
+    }
+}
+
+function Set-KomorebiBorderColours {
+    <#
+      Persists border colours into komorebi.json's border_colours field, so
+      a komorebi restart (reboot, crash, `komorebic stop`/`start`) keeps the
+      themed colours instead of reverting to whatever was last saved on
+      disk. Same structural parse/mutate/serialize pattern
+      Set-ZebarStartupConfig (Install-Config.ps1) uses for settings.json --
+      preserves every other top-level key (ignore_rules, monitors,
+      animation, border_width, ...) untouched, and is idempotent
+      (re-running with the same Colours produces the same border_colours
+      content, updating in place rather than duplicating).
+
+      komorebi's own schema.json (v0.1.41) documents border_colours.<kind>
+      as `anyOf [Rgb, Hex]` -- an {r,g,b} object OR a "#RRGGBB" string are
+      both valid. Writing hex strings here (matching matugen's own output
+      format) avoids a redundant hex->int->JSON round trip; the runtime
+      `komorebic border-colour` CLI call still needs R/G/B integers
+      separately (see ConvertFrom-HexColor), since the CLI has no
+      hex-accepting form.
+
+      $Colours is a hashtable/PSCustomObject keyed by window-kind
+      (single/stack/monocle/unfocused/floating/unfocused_locked -- JSON
+      field names use underscores, NOT the CLI's hyphenated
+      --window-kind values) -> "#RRGGBB" string. Only the keys present in
+      $Colours are written; any kind not supplied is left as whatever it
+      already was (or absent).
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)]$Colours
+    )
+
+    if (-not (Test-Path $Path)) { throw "Set-KomorebiBorderColours: komorebi.json not found at $Path" }
+
+    $obj = [System.IO.File]::ReadAllText($Path) | ConvertFrom-Json
+    if (-not (Get-Member -InputObject $obj -Name 'border_colours' -MemberType NoteProperty)) {
+        $obj | Add-Member -NotePropertyName 'border_colours' -NotePropertyValue ([PSCustomObject]@{}) -Force
+    }
+
+    $entries = @{}
+    if ($Colours -is [System.Collections.IDictionary]) {
+        foreach ($k in $Colours.Keys) { $entries[$k] = $Colours[$k] }
+    } else {
+        foreach ($p in $Colours.PSObject.Properties) { $entries[$p.Name] = $p.Value }
+    }
+
+    foreach ($kind in $entries.Keys) {
+        $value = $entries[$kind]
+        if (-not (Get-Member -InputObject $obj.border_colours -Name $kind -MemberType NoteProperty)) {
+            $obj.border_colours | Add-Member -NotePropertyName $kind -NotePropertyValue $value -Force
+        } else {
+            $obj.border_colours.$kind = $value
+        }
+    }
+
+    $json = $obj | ConvertTo-Json -Depth 10
+    [System.IO.File]::WriteAllText($Path, $json, (New-Object System.Text.UTF8Encoding($false)))
+}
+
+function Update-KomorebiBorderTheme {
+    <#
+      Ties the border-colour role mapping (single->primary, stack->
+      tertiary, monocle->secondary, unfocused->outline, floating->error --
+      see matugen/templates/komorebi-colours.json, rendered by matugen
+      alongside every other template but deliberately NOT one of
+      $script:Targets: it has no live config of its own to copy/validate/
+      roll back, it only exists to hand this function hex values without
+      needing a second matugen invocation) to both halves of the
+      border-colour update: the runtime CLI call (Set-KomorebiBorderColour,
+      lost on restart) and the persisted komorebi.json write
+      (Set-KomorebiBorderColours, survives a restart).
+
+      Deliberately entirely fail-soft and isolated from the rest of
+      Apply-Theme's success/failure signal: any problem here (matugen
+      didn't render the staged colours file, komorebic missing, komorebi
+      not running, a malformed komorebi.json) is a warning, never a thrown
+      exception that could abort an otherwise-successful theme apply over
+      what is, after all, a cosmetic accent on top of it.
+    #>
+    [CmdletBinding()]
+    param(
+        [string]$StagedColoursPath = (Join-Path $script:Staging 'komorebi-colours.json'),
+        [string]$KomorebiJsonPath  = "$env:USERPROFILE\komorebi.json"
+    )
+
+    if (-not (Test-Path $StagedColoursPath)) {
+        Write-Warning "komorebi-colours.json was not staged -- skipping border-colour update"
+        return
+    }
+    $text = [System.IO.File]::ReadAllText($StagedColoursPath)
+    if ($text -match '\{\{') {
+        Write-Warning "komorebi-colours.json still contains an unrendered template expression -- skipping border-colour update"
+        return
+    }
+    try {
+        $colours = $text | ConvertFrom-Json
+    } catch {
+        Write-Warning "komorebi-colours.json could not be parsed -- skipping border-colour update: $($_.Exception.Message)"
+        return
+    }
+
+    # CLI --window-kind uses hyphens; komorebi.json's border_colours uses
+    # underscores -- irrelevant here since none of these five kind names
+    # contain a hyphen either way. unfocused-locked/unfocused_locked is
+    # intentionally not part of this mapping (no role was specified for it).
+    $kindToHex = [ordered]@{
+        single    = $colours.single
+        stack     = $colours.stack
+        monocle   = $colours.monocle
+        unfocused = $colours.unfocused
+        floating  = $colours.floating
+    }
+    foreach ($kind in @($kindToHex.Keys)) {
+        if (-not $kindToHex[$kind]) {
+            Write-Warning "komorebi-colours.json is missing a value for '$kind' -- skipping it"
+            $kindToHex.Remove($kind)
+        }
+    }
+    if ($kindToHex.Count -eq 0) {
+        Write-Warning "komorebi-colours.json had no usable colour values -- skipping border-colour update entirely"
+        return
+    }
+
+    if (-not (Get-Process komorebi -ErrorAction SilentlyContinue)) {
+        Write-Warning "komorebi is not running -- skipping the runtime border-colour update (komorebi.json will still be updated so the next start picks up the colours)"
+    } else {
+        foreach ($kind in $kindToHex.Keys) {
+            $rgb = ConvertFrom-HexColor -Hex $kindToHex[$kind]
+            Set-KomorebiBorderColour -R $rgb.R -G $rgb.G -B $rgb.B -WindowKind $kind
+        }
+    }
+
+    try {
+        Set-KomorebiBorderColours -Path $KomorebiJsonPath -Colours $kindToHex
+    } catch {
+        Write-Warning "Failed to persist border colours into komorebi.json: $($_.Exception.Message)"
+    }
+}
+
 function Apply-Theme {
     [CmdletBinding()]
     param(
         [string]$Image,
         [string]$Scheme = 'scheme-tonal-spot',
-        [switch]$DryRun,
-        [switch]$AcceptStructuralChange
+        [switch]$DryRun
     )
 
     $failed = @()
@@ -816,11 +835,10 @@ function Apply-Theme {
     # last-good and last-good-prev are deliberately NOT pre-created here.
     # Update-LastGood manages their existence entirely via directory
     # renames (see its own comment) -- pre-creating empty directories would
-    # only complicate that dance for no benefit. Test-StagedFile's yasb
-    # check and the rollback loop below both use file-level Test-Path
-    # against paths inside them, which is false whether the file or the
-    # containing directory is missing, so neither needs the directory to
-    # pre-exist.
+    # only complicate that dance for no benefit. Test-StagedFile's checks
+    # and the rollback loop below both use file-level Test-Path against
+    # paths inside them, which is false whether the file or the containing
+    # directory is missing, so neither needs the directory to pre-exist.
     New-Item -ItemType Directory -Force -Path $script:Staging | Out-Null
 
     # --prefer is REQUIRED for scripted use. Many images yield multiple
@@ -841,7 +859,7 @@ function Apply-Theme {
             continue
         }
         Remove-Bom -Path $staged
-        if (-not (Test-StagedFile -Name $t.Name -Path $staged -AcceptStructuralChange:$AcceptStructuralChange)) { $failed += $t.Name }
+        if (-not (Test-StagedFile -Name $t.Name -Path $staged)) { $failed += $t.Name }
     }
     if ($failed.Count -gt 0) { return [PSCustomObject]@{ Success = $false; Failed = $failed } }
 
@@ -854,24 +872,16 @@ function Apply-Theme {
     # content. It used to be (a pre-copy snapshot-from-live), which meant an
     # undetected-bad apply became the new "last known good" baseline on the
     # very next run, silently destroying the only real safety net (found for
-    # real in Task 8: an undetected-broken yasb stylesheet got snapshotted as
-    # last-good by the following apply). last-good is now only refreshed
-    # further down, after THIS run has passed every check -- pre-copy
-    # structural validation AND the post-copy log check.
+    # real in Task 8, back when yasb was still a target: an undetected-broken
+    # stylesheet got snapshotted as last-good by the following apply).
+    # last-good is now only refreshed further down, after THIS run has passed
+    # every pre-copy structural validation check.
 
     # C2: snapshot what's ACTUALLY LIVE right now, separately from
     # last-good, immediately before it gets overwritten -- see
     # New-PreApplySnapshot's own comment for why this can't just be
     # last-good/. This is the source the rollback below restores from.
     New-PreApplySnapshot
-
-    # Mark both logs BEFORE copying -- tacky-borders may react to its config
-    # changing on disk, without waiting for an explicit reload.
-    $yasbLog  = "$env:USERPROFILE\.config\yasb\yasb.log"
-    $tackyLog = "$env:USERPROFILE\.config\tacky-borders\tacky-borders.log"
-    $yasbMark  = 0; $tackyMark = 0
-    if (Test-Path $yasbLog)  { $yasbMark  = (Get-Item $yasbLog).Length }
-    if (Test-Path $tackyLog) { $tackyMark = (Get-Item $tackyLog).Length }
 
     # Task 9 deferred minor (bundled into C1): must be computed BEFORE
     # Copy-StagedToLive -- once that runs, the zebar target's Live path is
@@ -887,47 +897,26 @@ function Apply-Theme {
     } catch {
         # I4: a partial copy (some targets written, one failed) must not be
         # left standing -- restore everything from the pre-apply snapshot
-        # taken a moment ago and bail out before the post-copy checks or
-        # Update-LastGood ever run.
+        # taken a moment ago and bail out before Update-LastGood ever runs.
         Write-Warning "Copy to live config failed: $($_.Exception.Message). Rolling back all targets from the pre-apply snapshot."
         Restore-PreApplySnapshot
-        & $script:Yasbc reload | Out-Null
         return [PSCustomObject]@{ Success = $false; Failed = @('copy') }
     }
 
-    & $script:Yasbc reload | Out-Null
-    Start-Sleep -Seconds 8
+    # NOTE: yasb/tacky-borders' post-copy log-based checks (Test-YasbLogFailure,
+    # the tacky-borders.log grep, and the 8-second yasbc-reload settle wait
+    # they needed) were removed along with those two targets -- see
+    # CLAUDE.md's "Retiring yasb" section. wezterm/starship/zebar have no
+    # equivalent post-copy signal; their pre-copy Test-StagedFile checks
+    # above (plus starship's real `starship prompt` validation) are the only
+    # gate for them, same as they always were.
 
-    # I1: narrowed from a blanket error|critical|invalid|could not be read
-    # grep (which matches ANY widget's log output, not just CSS-loading
-    # failures -- see Test-YasbLogFailure's own comment) to the one signal
-    # documented as actually specific to yasb's stylesheet loader.
-    if (Test-YasbLogFailure -LogTail (Get-LogTail -Path $yasbLog -Offset $yasbMark)) { $failed += 'yasb' }
-
-    # tacky-borders is not installed here (see docs/spikes.md, unknown #3).
-    # Only trust its log when the process is actually running, otherwise the
-    # tail is stale output from a previous session and means nothing. Not
-    # narrowed like yasb's check above -- tacky-borders logs only its own
-    # activity, not dozens of unrelated widgets, so the false-positive class
-    # I1 fixes for yasb doesn't apply here.
-    $pattern = '(?i)error|critical|invalid|could not be read'
-    if (Get-Process -Name 'tacky-borders' -ErrorAction SilentlyContinue) {
-        if ((Get-LogTail -Path $tackyLog -Offset $tackyMark) -match $pattern) { $failed += 'tacky' }
-    }
-
-    if ($failed.Count -gt 0) {
-        Write-Warning "Rejected by: $($failed -join ', '). Rolling back all targets."
-        Restore-PreApplySnapshot
-        & $script:Yasbc reload | Out-Null
-        return [PSCustomObject]@{ Success = $false; Failed = $failed }
-    }
-
-    # Passed every check (pre-copy structural validation + post-copy log
-    # check): only NOW is it safe to call this run's output "known good".
-    # Rotate two generations atomically (see Update-LastGood) -- so a
-    # single bad-but-undetected apply cannot, by itself, destroy the only
-    # known-good copy, and a crash mid-rotation can't leave last-good
-    # holding a mix of two theme generations across the four files.
+    # Passed every pre-copy structural validation check: only NOW is it safe
+    # to call this run's output "known good". Rotate two generations
+    # atomically (see Update-LastGood) -- so a single bad-but-undetected
+    # apply cannot, by itself, destroy the only known-good copy, and a crash
+    # mid-rotation can't leave last-good holding a mix of two theme
+    # generations across the targets.
     try {
         Update-LastGood
     } catch {
@@ -954,19 +943,15 @@ function Apply-Theme {
     # only way to make a running widget notice a new stylesheet is to kill
     # the zebar.exe process and start it again.
     #
-    # Deliberately placed HERE -- after the post-copy log check and
-    # Update-LastGood -- not immediately after Copy-StagedToLive above.
-    # Restarting hands the widget whatever is CURRENTLY on disk. If this
-    # apply were instead rejected by the yasb/tacky log check and rolled
-    # back, restarting before that rollback would have shown the rejected
-    # theme.css for the length of a restart, and the rollback's
-    # Restore-PreApplySnapshot alone would not be enough to make the
-    # already-restarted widget's displayed colour match the restored file --
-    # it would need a SECOND restart just to undo the first. Restarting only
-    # once every check has passed avoids that, and keeps the bar's downtime
-    # to the one restart a successful apply actually needs (yasb already
-    # adds 8 seconds of settle time; this should not add more than the
-    # ~500ms per widget Restart-ZebarWidgets sleeps).
+    # Deliberately placed HERE -- after Update-LastGood -- not immediately
+    # after Copy-StagedToLive above. Restarting hands the widget whatever is
+    # CURRENTLY on disk. If this apply were instead rejected by the
+    # pre-copy validation loop and never reached this point, restarting
+    # before that rejection would have shown a rejected theme.css for the
+    # length of a restart. Restarting only once every check has passed
+    # avoids that, and keeps the bar's downtime to the one restart a
+    # successful apply actually needs (~500ms per widget,
+    # Restart-ZebarWidgets' own sleep).
     #
     # C1: previously killed EVERY Zebar widget on the machine
     # (`Get-Process zebar | Stop-Process -Force`) and restarted ONLY
@@ -978,7 +963,7 @@ function Apply-Theme {
     #
     # Also gated on $zebarChanged (Task 9 deferred minor, folded into C1):
     # no point killing every autostarted widget on the machine for a
-    # yasb/wezterm/starship-only theme apply that never touched theme.css.
+    # wezterm/starship-only theme apply that never touched theme.css.
     if ($zebarChanged) {
         Restart-ZebarWidgets
     } else {
@@ -989,6 +974,11 @@ function Apply-Theme {
     if (Test-Path "$env:USERPROFILE\.wezterm.lua") {
         (Get-Item "$env:USERPROFILE\.wezterm.lua").LastWriteTime = Get-Date
     }
+
+    # Update komorebi's window-border colours from this apply's palette.
+    # Entirely fail-soft (see Update-KomorebiBorderTheme's own comment) --
+    # never affects this function's own Success/Failed result.
+    Update-KomorebiBorderTheme
 
     return [PSCustomObject]@{ Success = $true; Failed = @() }
 }

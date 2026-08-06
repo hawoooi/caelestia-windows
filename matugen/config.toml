@@ -1,12 +1,11 @@
 [config]
 
-[templates.yasb]
-input_path = 'C:\Users\PC\Documents\git\setup\matugen\templates\yasb.styles.css'
-output_path = 'C:\Users\PC\Documents\git\setup\state\staging\styles.css'
-
-[templates.tacky]
-input_path = 'C:\Users\PC\Documents\git\setup\matugen\templates\tacky-borders.yaml'
-output_path = 'C:\Users\PC\Documents\git\setup\state\staging\tacky-config.yaml'
+# yasb and tacky-borders templates were unwired from the pipeline when yasb
+# was retired in favour of the Zebar bar and komorebi's own window borders
+# (see CLAUDE.md, "Retiring yasb" / docs/borders-yasb.md). The template
+# files themselves (matugen/templates/yasb.styles.css,
+# matugen/templates/tacky-borders.yaml) are kept on disk, unreferenced here,
+# so the work is recoverable -- just not rendered by matugen anymore.
 
 [templates.wezterm]
 input_path = 'C:\Users\PC\Documents\git\setup\matugen\templates\palette.lua'
@@ -19,3 +18,12 @@ output_path = 'C:\Users\PC\Documents\git\setup\state\staging\starship.toml'
 [templates.zebar]
 input_path = 'C:\Users\PC\Documents\git\setup\matugen\templates\zebar.theme.css'
 output_path = 'C:\Users\PC\Documents\git\setup\state\staging\theme.css'
+
+# NOT one of $script:Targets in Apply-Theme.ps1 -- this has no live config of
+# its own to copy/validate/roll back. It only exists so Apply-Theme's
+# border-colour step (Update-KomorebiBorderTheme) has hex values to read
+# after matugen's single render pass, instead of needing a second matugen
+# invocation just to dump colours.
+[templates.komorebi]
+input_path = 'C:\Users\PC\Documents\git\setup\matugen\templates\komorebi-colours.json'
+output_path = 'C:\Users\PC\Documents\git\setup\state\staging\komorebi-colours.json'
