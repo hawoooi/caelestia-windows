@@ -2,10 +2,12 @@
 
 # yasb and tacky-borders templates were unwired from the pipeline when yasb
 # was retired in favour of the Zebar bar and komorebi's own window borders
-# (see CLAUDE.md, "Retiring yasb" / docs/borders-yasb.md). The template
-# files themselves (matugen/templates/yasb.styles.css,
-# matugen/templates/tacky-borders.yaml) are kept on disk, unreferenced here,
-# so the work is recoverable -- just not rendered by matugen anymore.
+# (see CLAUDE.md's "The stack" table and "Window borders and gaps" section --
+# there is no separate docs/borders-yasb.md; CLAUDE.md itself is where this
+# is documented). The template files themselves
+# (matugen/templates/yasb.styles.css, matugen/templates/tacky-borders.yaml)
+# are kept on disk, unreferenced here, so the work is recoverable -- just not
+# rendered by matugen anymore.
 
 [templates.wezterm]
 input_path = 'C:\Users\PC\Documents\git\setup\matugen\templates\palette.lua'

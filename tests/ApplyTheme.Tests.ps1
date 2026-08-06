@@ -292,6 +292,24 @@ Describe "Pre-apply snapshot and rollback (C2)" {
         # had; not a regression introduced by this fix).
         (Get-Content $freshTargets[0].Live -Raw).Trim() | Should -Be 'BAD-FIRST-APPLY'
     }
+
+    It "F2: also snapshots and restores komorebi.json, which has no entry in script:Targets at all" {
+        # komorebi.json is hand-maintained, lives outside any git repo, and
+        # (unlike palette.lua/starship.toml/theme.css) has no Live/Staged
+        # entry in $script:Targets at all -- before this fix it had no
+        # pre-apply recovery path whatsoever, unlike every other target.
+        $komorebiPath = Join-Path $script:preRoot 'komorebi.json'
+        [System.IO.File]::WriteAllText($komorebiPath, 'HAND-MAINTAINED-KOMOREBI', (New-Object System.Text.UTF8Encoding($false)))
+
+        New-PreApplySnapshot -Targets $script:preTargets -PreApplyDir $script:preSnapDir -KomorebiJsonPath $komorebiPath
+        Test-Path (Join-Path $script:preSnapDir 'komorebi.json') | Should -BeTrue
+
+        # Simulate Update-KomorebiBorderTheme writing new (bad) content.
+        [System.IO.File]::WriteAllText($komorebiPath, 'BAD-NEW-BORDER-COLOURS', (New-Object System.Text.UTF8Encoding($false)))
+
+        Restore-PreApplySnapshot -Targets $script:preTargets -PreApplyDir $script:preSnapDir -KomorebiJsonPath $komorebiPath
+        (Get-Content $komorebiPath -Raw).Trim() | Should -Be 'HAND-MAINTAINED-KOMOREBI'
+    }
 }
 
 Describe "Test-StagedFile starship PATH guard (I3)" {
@@ -669,6 +687,53 @@ Describe "Set-KomorebiBorderColours (persist border colours into komorebi.json)"
         $b = [System.IO.File]::ReadAllBytes($script:kbcPath)
         ($b[0] -eq 0xEF -and $b[1] -eq 0xBB -and $b[2] -eq 0xBF) | Should -BeFalse
     }
+
+    It "does not leave a stray temp file behind after a successful write (F2: atomic replace)" {
+        Set-KomorebiBorderColours -Path $script:kbcPath -Colours @{ single = '#AABBCC' }
+        $dir = Split-Path $script:kbcPath -Parent
+        $leaf = Split-Path $script:kbcPath -Leaf
+        Get-ChildItem $dir -Filter "*$leaf*.tmp*" -ErrorAction SilentlyContinue | Should -BeNullOrEmpty
+    }
+
+    It "throws instead of silently truncating the file when the content is whitespace-only (F3)" {
+        # A whitespace-only file parses to `$null` via ConvertFrom-Json (verified: no
+        # exception raised), NOT malformed JSON that would already throw on its own.
+        # Before the fix, execution continued past this point: Get-Member/Add-Member on
+        # `$null` raise only NON-TERMINATING errors (nothing here catches them),
+        # ConvertTo-Json on `$null` produces no output, and
+        # WriteAllText(path, $null) truncates the file to 0 bytes with NO exception at
+        # all -- verified locally: a 7-byte fixture became 0 bytes. The fix must throw
+        # before ever reaching the write.
+        [System.IO.File]::WriteAllText($script:kbcPath, "   `r`n  ", (New-Object System.Text.UTF8Encoding($false)))
+        $before = [System.IO.File]::ReadAllBytes($script:kbcPath)
+        { Set-KomorebiBorderColours -Path $script:kbcPath -Colours @{ single = '#AABBCC' } } | Should -Throw
+        $after = [System.IO.File]::ReadAllBytes($script:kbcPath)
+        $after.Length | Should -Be $before.Length
+        $after.Length | Should -Not -Be 0
+    }
+
+    It "throws instead of silently truncating the file when the content is the literal 'null' (F3)" {
+        [System.IO.File]::WriteAllText($script:kbcPath, 'null', (New-Object System.Text.UTF8Encoding($false)))
+        $before = [System.IO.File]::ReadAllBytes($script:kbcPath)
+        { Set-KomorebiBorderColours -Path $script:kbcPath -Colours @{ single = '#AABBCC' } } | Should -Throw
+        $after = [System.IO.File]::ReadAllBytes($script:kbcPath)
+        $after.Length | Should -Be $before.Length
+        $after.Length | Should -Not -Be 0
+    }
+
+    It "throws instead of treating every element as a member container when the JSON root is an array (F4)" {
+        # ConvertFrom-Json on a root-level array yields an Object[], not a
+        # PSCustomObject -- Add-Member against that would (pre-fix) silently
+        # attach border_colours to EVERY element via PowerShell's pipeline
+        # member-enumeration behaviour, or fail non-terminating and then
+        # truncate the file the same way the null case does.
+        [System.IO.File]::WriteAllText($script:kbcPath, '[{"a":1},{"b":2}]', (New-Object System.Text.UTF8Encoding($false)))
+        $before = [System.IO.File]::ReadAllBytes($script:kbcPath)
+        { Set-KomorebiBorderColours -Path $script:kbcPath -Colours @{ single = '#AABBCC' } } | Should -Throw
+        $after = [System.IO.File]::ReadAllBytes($script:kbcPath)
+        $after.Length | Should -Be $before.Length
+        $after.Length | Should -Not -Be 0
+    }
 }
 
 Describe "Set-KomorebiBorderColour (runtime CLI, fail soft)" {
@@ -691,7 +756,13 @@ Describe "Set-KomorebiBorderColour (runtime CLI, fail soft)" {
             # uncaught exception here would fail this It block on its own.
             $warnings = @()
             Set-KomorebiBorderColour -R 1 -G 2 -B 3 -WindowKind single -WarningVariable warnings -WarningAction SilentlyContinue
-            ($warnings -join ' ') | Should -Match 'PATH'
+            # F7: 'PATH' alone is also satisfied by CommandNotFoundException's own
+            # message text, so this assertion would pass even if the PATH guard at
+            # the top of Set-KomorebiBorderColour were deleted entirely (the `&
+            # komorebic ...` call below it would then throw that exception message,
+            # which itself contains the word "PATH"). Match the guard's own warning
+            # text instead, which only appears if the guard actually fired.
+            ($warnings -join ' ') | Should -Match 'skipping runtime border-colour'
         } finally {
             $env:PATH = $prevPath
         }
@@ -769,5 +840,44 @@ Describe "Update-KomorebiBorderTheme (orchestrates runtime + persisted border-co
         Update-KomorebiBorderTheme -StagedColoursPath $script:ukbtColoursPath -KomorebiJsonPath $script:ukbtKomorebiJson
         Should -Invoke Set-KomorebiBorderColour -Times 5
         Should -Invoke Set-KomorebiBorderColour -Times 1 -ParameterFilter { $WindowKind -eq 'single' -and $R -eq 170 -and $G -eq 187 -and $B -eq 204 }
+    }
+
+    It "F1: does not throw and still themes the other kinds when one value is malformed (e.g. a .rgb accessor used instead of .hex)" {
+        # Reproduced by the reviewer with a template edited to use matugen's
+        # documented `.rgb` accessor instead of `.hex` for one role -- both
+        # accessors are legitimate matugen output, but ConvertFrom-HexColor only
+        # accepts hex. Before the fix this threw out of the runtime-update
+        # foreach, uncaught, aborting BOTH the runtime update and the
+        # komorebi.json persistence for every other (perfectly valid) kind too.
+        [System.IO.File]::WriteAllText($script:ukbtColoursPath, '{ "single": "rgb(135,209,234)", "stack": "#112233", "monocle": "#334455", "unfocused": "#556677", "floating": "#EE0000" }', (New-Object System.Text.UTF8Encoding($false)))
+        Mock Get-Process { [PSCustomObject]@{ Id = 1 } } -ParameterFilter { $Name -eq 'komorebi' }
+        Mock Set-KomorebiBorderColour {}
+        # NOTE (same pitfall as Set-KomorebiBorderColour's PATH test above):
+        # -WarningVariable must be bound on a DIRECT call, not inside a
+        # `{ ... } | Should -Not -Throw` scriptblock, or the outer $warnings
+        # never gets populated. Calling directly proves "does not throw"
+        # just as well -- an uncaught exception here fails this It on its own.
+        $warnings = @()
+        Update-KomorebiBorderTheme -StagedColoursPath $script:ukbtColoursPath -KomorebiJsonPath $script:ukbtKomorebiJson -WarningVariable warnings -WarningAction SilentlyContinue
+        ($warnings -join ' ') | Should -Match 'single'
+        # The four well-formed kinds must still be themed, both halves.
+        Should -Invoke Set-KomorebiBorderColour -Times 4
+        Should -Invoke Set-KomorebiBorderColour -Times 0 -ParameterFilter { $WindowKind -eq 'single' }
+        $obj = [System.IO.File]::ReadAllText($script:ukbtKomorebiJson) | ConvertFrom-Json
+        $obj.border_colours.stack | Should -Be '#112233'
+        (Get-Member -InputObject $obj.border_colours -Name 'single' -MemberType NoteProperty) | Should -BeNullOrEmpty
+    }
+}
+
+Describe "Apply-Theme -DryRun leaves ~/komorebi.json untouched" {
+    It "does not modify komorebi.json (the border-theming step never runs under -DryRun)" {
+        $komorebiJson = "$env:USERPROFILE\komorebi.json"
+        if (-not (Test-Path $komorebiJson)) {
+            Set-ItResult -Skipped -Because "~/komorebi.json does not exist on this machine"
+            return
+        }
+        $before = (Get-Item $komorebiJson).LastWriteTimeUtc
+        Apply-Theme -Image $script:probe -DryRun
+        (Get-Item $komorebiJson).LastWriteTimeUtc | Should -Be $before
     }
 }

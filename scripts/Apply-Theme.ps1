@@ -52,8 +52,12 @@ $script:Targets = @(
 
 function Measure-CssBraces {
     <#
-      Single-pass, string-aware brace counter for the yasb structural
-      checks in Test-StagedFile.
+      Single-pass, string-aware brace counter used by Test-StagedFile's
+      structural checks. F8: originally written for yasb's styles.css
+      structural check; that target was retired along with tacky-borders
+      (see CLAUDE.md's "The stack" table and "Window borders and gaps"
+      section), and this function's only caller today is the 'zebar'
+      branch of Test-StagedFile's switch, below.
 
       A regex-based comment stripper (`[regex]::Replace($text,
       '(?s)/\*.*?\*/', '')`, the first version of this fix) has no notion
@@ -163,18 +167,24 @@ function Test-StagedFile {
     <#
       Pre-move validation. Returns $true if the staged file looks usable.
 
-      yasb and tacky-borders were retired as theming targets (see CLAUDE.md,
-      "Retiring yasb") -- the -AcceptStructuralChange switch this function
-      used to accept (I7) existed ONLY to bypass yasb's rule-count/size
-      comparison against state/last-good/styles.css, which no longer exists
-      as a check at all now that the 'yasb' case is gone. Removed along with
-      it rather than left as dead, unreachable plumbing.
+      yasb and tacky-borders were retired as theming targets (see CLAUDE.md's
+      "The stack" table and "Window borders and gaps" section) -- the
+      -AcceptStructuralChange switch this function used to accept (I7)
+      existed ONLY to bypass yasb's rule-count/size comparison against
+      state/last-good/styles.css, which no longer exists as a check at all
+      now that the 'yasb' case is gone. Removed along with it rather than
+      left as dead, unreachable plumbing.
+
+      F5: -LastGoodDir was removed from this function's parameters -- it
+      existed only for that same retired yasb rule-count/size comparison
+      and had been left unreferenced (no caller ever passed it) since that
+      comparison was deleted. Update-LastGood has its own, unrelated,
+      still-live -LastGoodDir parameter -- don't confuse the two.
     #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$Name,
-        [Parameter(Mandatory)][string]$Path,
-        [string]$LastGoodDir = $script:LastGood
+        [Parameter(Mandatory)][string]$Path
     )
 
     $text = [System.IO.File]::ReadAllText($Path)
@@ -314,11 +324,21 @@ function New-PreApplySnapshot {
       Targets/PreApplyDir default to the real script-scope values but can
       be overridden for isolated testing, the same pattern
       Test-StagedFile/Update-LastGood use.
+
+      F2: also snapshots ~/komorebi.json here, even though it is NOT one of
+      $script:Targets (it has no Staged/rendered counterpart of its own --
+      Update-KomorebiBorderTheme mutates it directly, structurally, later
+      in the run). Before this, every real target had a pre-apply recovery
+      path except this one, hand-maintained file living outside any git
+      repo -- the most asymmetric gap the review found. KomorebiJsonPath
+      defaults to the real path but is overridable for isolated testing,
+      same as everything else here.
     #>
     [CmdletBinding()]
     param(
-        [array]$Targets     = $script:Targets,
-        [string]$PreApplyDir = $script:PreApply
+        [array]$Targets          = $script:Targets,
+        [string]$PreApplyDir     = $script:PreApply,
+        [string]$KomorebiJsonPath = "$env:USERPROFILE\komorebi.json"
     )
     if (Test-Path $PreApplyDir) { Remove-Item $PreApplyDir -Recurse -Force }
     New-Item -ItemType Directory -Force -Path $PreApplyDir | Out-Null
@@ -331,6 +351,9 @@ function New-PreApplySnapshot {
         # correctly no-ops for it too; same first-run limitation
         # state/last-good/-based rollback always had, not a regression.
     }
+    if (Test-Path $KomorebiJsonPath) {
+        Copy-Item $KomorebiJsonPath (Join-Path $PreApplyDir 'komorebi.json') -Force
+    }
 }
 
 function Restore-PreApplySnapshot {
@@ -338,16 +361,23 @@ function Restore-PreApplySnapshot {
       The other half of New-PreApplySnapshot -- restores every target's
       live path from the pre-apply snapshot. See New-PreApplySnapshot's
       comment for why this is a separate directory from state/last-good/.
+
+      F2: also restores ~/komorebi.json if a snapshot of it exists -- see
+      New-PreApplySnapshot's own comment for why it's handled here despite
+      not being one of $script:Targets.
     #>
     [CmdletBinding()]
     param(
-        [array]$Targets     = $script:Targets,
-        [string]$PreApplyDir = $script:PreApply
+        [array]$Targets          = $script:Targets,
+        [string]$PreApplyDir     = $script:PreApply,
+        [string]$KomorebiJsonPath = "$env:USERPROFILE\komorebi.json"
     )
     foreach ($t in $Targets) {
         $backup = Join-Path $PreApplyDir $t.Staged
         if (Test-Path $backup) { Copy-Item $backup $t.Live -Force }
     }
+    $komorebiBackup = Join-Path $PreApplyDir 'komorebi.json'
+    if (Test-Path $komorebiBackup) { Copy-Item $komorebiBackup $KomorebiJsonPath -Force }
 }
 
 function Copy-StagedToLive {
@@ -441,9 +471,15 @@ function Update-LastGood {
 
       Directories default to the real script-scope paths but can be
       overridden (StagingDir/LastGoodDir/LastGoodPrevDir/LastGoodNewDir),
-      the same pattern Test-StagedFile uses for -LastGoodDir, so this can
-      be exercised end-to-end against an isolated temp fixture in tests
-      without ever touching the real state/last-good/.
+      the same override-parameter pattern used throughout this file (see
+      New-PreApplySnapshot/Restore-PreApplySnapshot's Targets/PreApplyDir/
+      KomorebiJsonPath), so this can be exercised end-to-end against an
+      isolated temp fixture in tests without ever touching the real
+      state/last-good/. (F5: this docstring previously pointed at
+      Test-StagedFile's own -LastGoodDir parameter as "the same pattern" --
+      that parameter was unreferenced dead plumbing left over from yasb's
+      retired rule-count/size check and has been removed; this is a
+      different, still-live parameter on a different function.)
 
       I4: every Copy-Item/Rename-Item below now passes -ErrorAction Stop.
       Previously none of them did, all failures were non-terminating, and
@@ -688,6 +724,47 @@ function Set-KomorebiBorderColours {
       --window-kind values) -> "#RRGGBB" string. Only the keys present in
       $Colours are written; any kind not supplied is left as whatever it
       already was (or absent).
+
+      F3/F4: `$obj` must be a genuine JSON object before anything below
+      touches it. Two malformed-but-not-JSON-parse-error inputs were found
+      by review to slip past ConvertFrom-Json with no exception at all:
+      whitespace-only content and the literal `null`, both of which parse
+      to PowerShell `$null` -- NOT a parse failure. Left unchecked,
+      Get-Member/Add-Member against `$null` raise only NON-TERMINATING
+      errors that nothing here catches, `$obj | ConvertTo-Json` on `$null`
+      produces no output, and the final WriteAllText silently truncates
+      the file to 0 bytes with no exception anywhere in the chain --
+      verified locally: a 7-byte fixture became 0 bytes. A root-level JSON
+      ARRAY is the same class of bug from the other direction: it parses
+      fine to a non-null `Object[]`, but piping it into Add-Member/
+      Get-Member enumerates and mutates (or non-terminating-errors on)
+      EVERY element instead of the single container object this function
+      assumes it's holding. Both are the same missing "is this the object
+      I think it is?" check, so both are guarded together, immediately
+      after the parse and before anything else runs.
+
+      F2: the final write is also an ATOMIC replace (temp file + rename),
+      not an in-place WriteAllText. WriteAllText truncates the destination
+      before writing its new content -- an interrupt in that window
+      (Ctrl-C, crash, power loss) leaves a truncated komorebi.json with no
+      recovery path, since this file lives outside any git repo. Writing
+      to a sibling temp file first and replacing atomically means the
+      live file is either the old complete content or the new complete
+      content, never a partial write.
+
+      Uses `Move-Item -Force` for the rename rather than
+      `[System.IO.File]::Replace` (the more obvious .NET API for this):
+      `File.Replace` was tried first and reliably threw `ArgumentException:
+      The path is not of a legal form` on this machine, tracing (via the
+      inner exception) to `Path.NewNormalizePath`'s short-(8.3)-name
+      expansion step -- reproducible even for two freshly-written,
+      confirmed-`Test-Path`-true files in a plain, permission-normal
+      directory, so not a real path-legality problem, just that API's
+      short-name-expansion path failing in this environment. `Move-Item
+      -Force` (backed by Win32 `MoveFileEx` with replace-existing, not the
+      `ReplaceFile` API `File.Replace` uses) was verified to both replace
+      the destination's content correctly AND remove the source, and is
+      still a same-directory, same-volume, atomic rename either way.
     #>
     [CmdletBinding()]
     param(
@@ -698,6 +775,12 @@ function Set-KomorebiBorderColours {
     if (-not (Test-Path $Path)) { throw "Set-KomorebiBorderColours: komorebi.json not found at $Path" }
 
     $obj = [System.IO.File]::ReadAllText($Path) | ConvertFrom-Json
+    if ($null -eq $obj) {
+        throw "Set-KomorebiBorderColours: '$Path' parsed to `$null (empty, whitespace-only, or literal 'null' content) -- refusing to write, to avoid silently truncating the file"
+    }
+    if ($obj -isnot [System.Management.Automation.PSCustomObject]) {
+        throw "Set-KomorebiBorderColours: '$Path' does not have a JSON OBJECT at its root (got $($obj.GetType().Name)) -- refusing to mutate every element as if it were the settings container"
+    }
     if (-not (Get-Member -InputObject $obj -Name 'border_colours' -MemberType NoteProperty)) {
         $obj | Add-Member -NotePropertyName 'border_colours' -NotePropertyValue ([PSCustomObject]@{}) -Force
     }
@@ -719,7 +802,25 @@ function Set-KomorebiBorderColours {
     }
 
     $json = $obj | ConvertTo-Json -Depth 10
-    [System.IO.File]::WriteAllText($Path, $json, (New-Object System.Text.UTF8Encoding($false)))
+    if ([string]::IsNullOrEmpty($json)) {
+        # Unreachable given the guards above (both would already have thrown),
+        # kept as cheap defence in depth per the same finding -- ConvertTo-Json
+        # is the one remaining step between a validated $obj and the write.
+        throw "Set-KomorebiBorderColours: ConvertTo-Json produced no output for '$Path' -- refusing to write"
+    }
+
+    # F2: atomic replace -- write the new content to a sibling temp file, then
+    # rename it over the real path. Both files live in the same directory (so
+    # always the same volume), which makes the rename a single filesystem
+    # metadata update rather than a byte copy -- there is no window in which
+    # $Path exists but holds partial content.
+    $tmpPath = Join-Path (Split-Path $Path -Parent) ("$(Split-Path $Path -Leaf).tmp-$PID-$(Get-Random)")
+    [System.IO.File]::WriteAllText($tmpPath, $json, (New-Object System.Text.UTF8Encoding($false)))
+    try {
+        Move-Item -Path $tmpPath -Destination $Path -Force
+    } finally {
+        if (Test-Path $tmpPath) { Remove-Item $tmpPath -Force -ErrorAction SilentlyContinue }
+    }
 }
 
 function Update-KomorebiBorderTheme {
@@ -778,6 +879,26 @@ function Update-KomorebiBorderTheme {
     foreach ($kind in @($kindToHex.Keys)) {
         if (-not $kindToHex[$kind]) {
             Write-Warning "komorebi-colours.json is missing a value for '$kind' -- skipping it"
+            $kindToHex.Remove($kind)
+            continue
+        }
+        # F1: validate the hex format HERE, per-kind, before either the
+        # runtime loop or the persist call below ever sees it. Reproduced by
+        # the reviewer with a template edited to use matugen's own documented
+        # `.rgb` accessor instead of `.hex` for one role -- both are valid
+        # matugen output, but ConvertFrom-HexColor only accepts hex, and
+        # previously threw straight out of the runtime foreach with nothing
+        # to catch it: the exception escaped Update-KomorebiBorderTheme,
+        # escaped the unguarded call in Apply-Theme, and reached
+        # Switch-Wallpaper with no try/catch either -- one bad colour value
+        # could kill the whole run after three targets were already live and
+        # last-good had rotated. Reusing ConvertFrom-HexColor's own
+        # validation (rather than duplicating its regex here) means there is
+        # exactly one definition of "valid hex" in this file.
+        try {
+            [void](ConvertFrom-HexColor -Hex $kindToHex[$kind])
+        } catch {
+            Write-Warning "komorebi-colours.json has a malformed colour value for '$kind' ('$($kindToHex[$kind])') -- skipping it: $($_.Exception.Message)"
             $kindToHex.Remove($kind)
         }
     }
@@ -906,10 +1027,11 @@ function Apply-Theme {
     # NOTE: yasb/tacky-borders' post-copy log-based checks (Test-YasbLogFailure,
     # the tacky-borders.log grep, and the 8-second yasbc-reload settle wait
     # they needed) were removed along with those two targets -- see
-    # CLAUDE.md's "Retiring yasb" section. wezterm/starship/zebar have no
-    # equivalent post-copy signal; their pre-copy Test-StagedFile checks
-    # above (plus starship's real `starship prompt` validation) are the only
-    # gate for them, same as they always were.
+    # CLAUDE.md's "The stack" table and "Window borders and gaps" section.
+    # wezterm/starship/zebar have no equivalent post-copy signal; their
+    # pre-copy Test-StagedFile checks above (plus starship's real
+    # `starship prompt` validation) are the only gate for them, same as
+    # they always were.
 
     # Passed every pre-copy structural validation check: only NOW is it safe
     # to call this run's output "known good". Rotate two generations
@@ -977,8 +1099,18 @@ function Apply-Theme {
 
     # Update komorebi's window-border colours from this apply's palette.
     # Entirely fail-soft (see Update-KomorebiBorderTheme's own comment) --
-    # never affects this function's own Success/Failed result.
-    Update-KomorebiBorderTheme
+    # never affects this function's own Success/Failed result. F1: wrapped
+    # in try/catch as defence in depth on top of Update-KomorebiBorderTheme's
+    # own internal per-kind hex validation -- this call was previously
+    # unguarded, so ANY unanticipated exception from that function (not just
+    # the malformed-hex case its own validation now catches) would have
+    # escaped here, escaped Apply-Theme entirely, and reached
+    # Switch-Wallpaper.ps1, which has no try/catch of its own either.
+    try {
+        Update-KomorebiBorderTheme
+    } catch {
+        Write-Warning "Update-KomorebiBorderTheme threw unexpectedly: $($_.Exception.Message). Border colours were not themed this run, but the rest of the apply succeeded."
+    }
 
     return [PSCustomObject]@{ Success = $true; Failed = @() }
 }

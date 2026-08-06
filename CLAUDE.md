@@ -2,7 +2,7 @@
 
 One command extracts a Material You palette from the current Wallpaper Engine wallpaper and
 regenerates the colors of WezTerm, starship, the Zebar sidebar, and komorebi's own window-border
-colours. yasb and tacky-borders were **retired** as theming targets (see "Retiring yasb" below) --
+colours. yasb and tacky-borders were **retired** as theming targets (see "The stack" and "Window borders and gaps" below) --
 the Zebar bar (docked left) replaced yasb as the desktop's only bar, and komorebi's built-in window
 borders (`border`/`border_style`/`border_colours` in `~/komorebi.json`) now do the job the
 tacky-borders template was built for but never actually got to do (tacky-borders was never
@@ -16,8 +16,8 @@ building it — read it before changing anything here.
 | matugen (Rust, v4.1.0) | `~/.cargo/bin/matugen.exe`, installed via `cargo install matugen`. **Not on the default PATH of a fresh PowerShell process** — only this session's profile happens to prepend it. `Apply-Theme.ps1` defends against this itself (see below); any other caller needs the same guard or an explicit path. |
 | matugen config | `matugen/config.toml` (this repo) — points every template at a staging output under `state/staging/`, never at a live config |
 | matugen templates | `matugen/templates/*.{css,yaml,lua,toml,json}` (this repo) |
-| color mapping | `matugen/mapping.json` (this repo) — keyed by normalized Catppuccin literal, each value an `{ "expression": "<matugen expr>" }`. Historical: this mapping was built for `yasb.styles.css`, which is no longer a rendered/live target (see "Retiring yasb"); kept for the recovery procedure below. |
-| yasb (v2.0.5) | `C:\Program Files\yasb\yasbc.exe`, config at `~/.config/yasb/` (its own git repo) — **retired as a theming target** (see "Retiring yasb"). Still installed on disk; its process is no longer expected to be running, and `~/.config/yasb/` is never written to by this pipeline. |
+| color mapping | `matugen/mapping.json` (this repo) — keyed by normalized Catppuccin literal, each value an `{ "expression": "<matugen expr>" }`. Historical: this mapping was built for `yasb.styles.css`, which is no longer a rendered/live target (see the yasb row directly below); kept for the recovery procedure below. |
+| yasb (v2.0.5) | `C:\Program Files\yasb\yasbc.exe`, config at `~/.config/yasb/` (its own git repo) — **retired as a theming target**, replaced by the Zebar bar (docked left). Still installed on disk; its process is no longer expected to be running, and `~/.config/yasb/` is never written to by this pipeline. |
 | tacky-borders | config + log at `~/.config/tacky-borders/`, **not installed as an executable on this machine** (Task 1 finding, unchanged through Task 10) and **retired as a theming target** on top of that — komorebi's own borders replaced the job this template was built for. The template (`matugen/templates/tacky-borders.yaml`) is kept on disk, unwired from `matugen/config.toml` and from `$script:Targets`, in case it's ever wanted again. |
 | WezTerm | `C:\Program Files\WezTerm\wezterm.exe` — config at `~/.wezterm.lua`, **not under version control** (home directory is not a git repo); the pipeline's two required edits there are recorded in `docs/wezterm-integration.md` because of this |
 | starship | config at `~/.config/starship.toml` |
@@ -57,6 +57,21 @@ persistently: `border: true`, `border_style: "Rounded"`, `border_width: 4`, `bor
   komorebi restart (reboot, crash, `komorebic stop`/`start`) keeps the themed colours instead of
   reverting to whatever was last saved on disk. **This runs regardless of whether the runtime CLI
   call above succeeded** -- persistence and the live nudge are independent.
+- **Guarded and atomic** (fix wave after review): the parsed komorebi.json content is rejected with
+  a thrown exception -- caught by `Update-KomorebiBorderTheme`'s own try/catch, never escaping it --
+  if it parses to `$null` (empty/whitespace/literal `null`) or to anything other than a JSON object
+  (e.g. a root-level array), instead of silently truncating the file to 0 bytes the way an
+  unguarded `Get-Member`/`Add-Member`/`ConvertTo-Json`/`WriteAllText($path, $null)` chain did
+  before. The write itself is a temp-file-then-rename (`Move-Item -Force`, same directory/volume,
+  atomic) rather than an in-place `WriteAllText`, so an interrupt can never leave a truncated
+  `~/komorebi.json` on disk. `New-PreApplySnapshot`/`Restore-PreApplySnapshot` also snapshot
+  `~/komorebi.json` into `state/pre-apply/` (see "Pipeline flow" above), even though it isn't one of
+  `$script:Targets`, so it has a manual recovery path like every other target. Per-kind hex values
+  that fail to parse (e.g. a template edited to emit matugen's `.rgb` accessor instead of `.hex` for
+  one role) are warned about and skipped individually -- the other, well-formed kinds are still
+  themed and persisted, and `Update-KomorebiBorderTheme` never throws out to its caller over one bad
+  value. `Apply-Theme`'s own call to `Update-KomorebiBorderTheme` is additionally wrapped in
+  try/catch as defence in depth.
 
 ## Pipeline flow
 
@@ -69,11 +84,13 @@ Switch-Wallpaper.ps1
        -> matugen image <preview> --mode dark --type <scheme> --prefer saturation --config matugen/config.toml
        -> renders the 3 live targets (wezterm, starship, zebar) PLUS the non-target
           komorebi-colours.json into state/staging/ -- yasb/tacky-borders templates are no longer
-          in matugen/config.toml, so nothing renders for them at all (see "Retiring yasb")
+          in matugen/config.toml, so nothing renders for them at all (see "The stack" above)
        -> Remove-Bom + Test-StagedFile on every staged TARGET file (pre-copy, structural, per-target)
        -> abort here if any target fails -- nothing live has been touched yet
-       -> New-PreApplySnapshot: snapshot the CURRENTLY LIVE content of all 3 targets into
-          state/pre-apply/ (a directory SEPARATE from state/last-good/ -- see below)
+       -> New-PreApplySnapshot: snapshot the CURRENTLY LIVE content of all 3 targets, PLUS
+          ~/komorebi.json (F2 -- hand-maintained, outside any git repo, and not itself one of
+          $script:Targets), into state/pre-apply/ (a directory SEPARATE from state/last-good/ --
+          see below)
        -> state/last-good/ itself is NOT refreshed pre-copy -- it is only refreshed AFTER this
           run passes every pre-copy structural validation check, because a pre-copy refresh of
           last-good let an undetected-bad apply silently become the new "last-good" baseline on
