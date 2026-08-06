@@ -7,8 +7,15 @@
   /* Must match the widget's own window size (zpack.json's "corners" preset
      width/height). This is the radius of the quarter-circle cut-out below --
      it always reaches exactly to the window's far edges -- if the preset
-     size ever changes, change this too. */
-  --corner-size: 28px;
+     size ever changes, change this too.
+
+     Bumped 28 -> 36 (desktop-frame corner-radius follow-up, direct user
+     feedback comparing against a Caelestia reference screenshot: the arc
+     read as a tiny 28px nub next to the reference's generous, clearly
+     rounded curve). All four presets stay square (width == height ==
+     --corner-size) -- see the geometry comment below for why that square
+     invariant is what keeps the two straight-edge tangent points exact. */
+  --corner-size: 36px;
 }
 
 html,
@@ -34,7 +41,7 @@ body {
 
    Each corner widget sits in the gap between the bar/screen edge and the
    content region (see docs/zebar-bar.md's "Corner overlays" geometry note).
-   The fill is var(--surface) everywhere in that 28x28 window EXCEPT a
+   The fill is var(--surface) everywhere in that 36x36 window EXCEPT a
    quarter-circle of radius --corner-size centred on the window's own
    content-facing corner (the corner nearest the tiled window, i.e. the
    OPPOSITE corner from the one named in the body class -- a top-left
@@ -45,7 +52,21 @@ body {
    box: the other three corners of the window are all >= --corner-size away
    from it (the two adjacent ones are tangent at exactly --corner-size, the
    far one is corner-size*sqrt(2) away), so only one quarter of the circle's
-   full 360 degrees ever crosses the visible 28x28 area.
+   full 360 degrees ever crosses the visible 36x36 area.
+
+   The two LEFT corner widgets (top-left, bottom-left) are anchored flush
+   with the bar's own right edge (zpack.json offsetX: 52px, matching the
+   bar preset's own width) rather than inset a further 12px into the gap
+   like the two right corners still are -- direct user feedback: a visible
+   ~12x4px sliver of bare wallpaper was showing between the bar and the
+   arc, left over from removing the old bar-link stub widgets. Extending
+   the corner widget itself (not reintroducing a stub) closes it, because
+   the square's far corner (the solid-wedge tip, diagonally opposite the
+   content-facing corner above) now sits exactly on the bar's edge instead
+   of 12px away from it -- see docs/zebar-bar.md's "Corner overlays"
+   geometry note for the full before/after arithmetic and how the adjoining
+   edge strips were re-derived to stay contiguous with the new, larger
+   squares.
 
    The gradient's hard stop (transparent up to --corner-size, var(--surface)
    from one pixel past it) makes that boundary a crisp curve, not a fade --

@@ -9,23 +9,24 @@ import { classifyCorner } from '../../zebar/caelestia/corners/classify.js';
 // numbers make the test cases easy to sanity-check by eye.
 
 test('classifyCorner: a window near the physical top-left is "top-left"', () => {
-  // Actual zpack.json "top-left" preset placement: anchor top_left,
-  // offsetX 64px, offsetY 12px.
-  assert.strictEqual(classifyCorner(64, 12, 2560, 1440), 'top-left');
+  // Actual zpack.json "top-left" preset placement (post corner-radius fix,
+  // flush with the bar's own right edge): anchor top_left, offsetX 52px,
+  // offsetY 12px.
+  assert.strictEqual(classifyCorner(52, 12, 2560, 1440), 'top-left');
 });
 
 test('classifyCorner: a window near the physical top-right is "top-right"', () => {
-  // anchor top_right, offsetX 12px -> outer x = 2560 - 12 - 28 = 2520.
-  assert.strictEqual(classifyCorner(2520, 12, 2560, 1440), 'top-right');
+  // anchor top_right, offsetX -12px, width 36px -> outer x = 2560 - 12 - 36 = 2512.
+  assert.strictEqual(classifyCorner(2512, 12, 2560, 1440), 'top-right');
 });
 
 test('classifyCorner: a window near the physical bottom-left is "bottom-left"', () => {
-  // anchor bottom_left, offsetY 12px -> outer y = 1440 - 12 - 28 = 1400.
-  assert.strictEqual(classifyCorner(64, 1400, 2560, 1440), 'bottom-left');
+  // anchor bottom_left, offsetY -12px, height 36px -> outer y = 1440 - 12 - 36 = 1392.
+  assert.strictEqual(classifyCorner(52, 1392, 2560, 1440), 'bottom-left');
 });
 
 test('classifyCorner: a window near the physical bottom-right is "bottom-right"', () => {
-  assert.strictEqual(classifyCorner(2520, 1400, 2560, 1440), 'bottom-right');
+  assert.strictEqual(classifyCorner(2512, 1392, 2560, 1440), 'bottom-right');
 });
 
 test('classifyCorner: exactly at the midpoint rounds to bottom-right (strict "<" means a tie loses)', () => {

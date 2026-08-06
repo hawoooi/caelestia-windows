@@ -741,6 +741,71 @@ at each screen corner into the adjoining strip, with no cyan, no stroke outline,
 (bar-link removal, point 2 above) is visible as a thin sliver of wallpaper between the bar's own
 right edge and the corner wedge -- expected, not a defect.
 
+## Corner-radius + bar-junction gap fix (direct user feedback, third pass)
+
+Two more corrections against the shipped desktop frame, from direct user feedback comparing it
+side-by-side against a Caelestia reference screenshot: the "expected, not a defect" sliver noted
+just above turned out not to be acceptable after all once there was a reference to compare
+against, and the 28px radius read as a tiny nub next to the reference's generous, clearly rounded
+curve.
+
+1. **Radius: 28px -> 36px.** `corners.css`'s `--corner-size` and every `corners` preset's
+   `width`/`height` in `zpack.json` grew from 28 to 36 together (they must stay equal -- see
+   `corners.css`'s own geometry comment on why the square invariant is what keeps the arc's two
+   tangent points landing exactly on the box's far edges). 36 was picked from the user's own
+   suggested 24-40px range, mid-to-upper end, to read as "generous" without the corner box eating
+   too far into the 40px gap between the bar/screen edge and the tiled content region.
+2. **The two left corners now start flush with the bar, not 12px into the gap.** The `top-left`/
+   `bottom-left` presets' `offsetX` changed from `64px` (`bar_width(52) + 12px` inset, the same
+   convention every other corner still uses) to `52px` -- the bar's own right edge exactly. This
+   closes the ~12x4px sliver of bare wallpaper the previous "Dropped `bar-link-top`/
+   `bar-link-bottom`" correction (above) had left as an accepted trade-off. The fix is the widget
+   itself extending, per this task's explicit instruction, **not** a reintroduced bar-link stub --
+   the square's far corner (the solid-wedge tip diagonally opposite the content-facing corner) now
+   sits exactly on the bar's edge instead of 12px away from it, so the wedge's own fill closes the
+   gap rather than a separate rectangle bridging it. The two right corners (`top-right`/
+   `bottom-right`) keep their existing `-12px` inset -- the user's complaint was specifically about
+   the bar junction, not the general 12px gap convention used everywhere else (screen edge to
+   frame), so that convention was left alone on all three other sides.
+
+**Every `edges` preset was re-derived from the new corner geometry, not left alone.** Each
+corner's far tangent point (where the solid wedge fill tapers to zero width, the point every
+adjoining strip must start flush against) moved when the radius and the left corners' `offsetX`
+changed, so the strips would have shown a step or a gap against the old, now-stale tangent points
+otherwise:
+
+| Preset | Old rect (28px radius) | New rect (36px radius, left corners flush) |
+|---|---|---|
+| `top-left` corner | `(64,12)-(92,40)` | `(52,12)-(88,48)` |
+| `top-right` corner | `(2520,12)-(2548,40)` | `(2512,12)-(2548,48)` |
+| `bottom-left` corner | `(64,1400)-(92,1428)` | `(52,1392)-(88,1428)` |
+| `bottom-right` corner | `(2520,1400)-(2548,1428)` | `(2512,1392)-(2548,1428)` |
+| `top` edge | `(92,12)-(2520,16)` | `(88,12)-(2512,16)` |
+| `right` edge | `(2544,40)-(2548,1400)` | `(2544,48)-(2548,1392)` |
+| `bottom` edge | `(92,1424)-(2520,1428)` | `(88,1424)-(2512,1428)` |
+
+`offsetY`/height on the `top`/`bottom` edges and `offsetX`/width on the `right` edge are unchanged
+-- those axes never depended on the radius or the left-corner flush change (see the strip-vs-box
+tangent-point arithmetic worked through in the corresponding commit; the short version is the
+strip's own thickness axis is independent of the corner box's size, only its length/position along
+the frame is not).
+
+**Click-dead footprint (`WindowFromPoint` + `GetAncestor(GA_ROOT)`, same method corner-overlays
+and desktop-frame used, re-run against the new rects above, 5x5 grid per rect, 2560x1440 screen):**
+every sampled point across all four corners and three edges resolved to `zebar.exe`, none to a
+tiled window. Corners alone: `4 * 36*36` = 5,184px² (up from 3,136px²). Edges alone: `2424*4 +
+4*1344 + 2424*4` = 24,768px² (down slightly from 24,960px², since the strips got shorter as the
+corner boxes widened). Combined total: 29,952px² (up from 28,096px², a net growth of 1,856px²).
+`work_area_size` re-read before and after via `komorebic state`: `{left:52, top:0, right:2508,
+bottom:1440}`, unchanged -- `dockToEdge: { enabled: false }` still reserves nothing on any preset.
+
+**Visual result (screenshotted all four corners at 6-10x nearest-neighbour zoom, tight crop on the
+bar/top-left junction specifically):** the bar's dark column and the top-left corner's solid wedge
+are now pixel-continuous at x=52 for the corner's full height -- no wallpaper sliver at any sampled
+row. The curve itself is visibly larger and smoother than the old 28px nub, and all four corners
+still meet their adjoining top/right/bottom strip with no gap or thickness jump, mirrored
+correctly on the right-hand corners.
+
 ## Installing/uninstalling
 
 ```powershell

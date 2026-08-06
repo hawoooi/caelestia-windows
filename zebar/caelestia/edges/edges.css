@@ -27,12 +27,25 @@
    ../bar/) already forms the frame's left edge -- painting a second
    left-edge strip on top of it would be redundant. The two short
    "bar-link" stubs that used to bridge the ~12px gap between the bar's own
-   right edge and the two left corner widgets have been removed for the
-   same reason: the user only wants a rectangle fill on the three sides that
-   don't already have the bar covering them. That leaves a small (~12x4px)
-   unfilled gap at each left corner between the bar and the arc -- accepted
-   as the direct consequence of "you only need it for the top and bottom
-   and right sides", not an oversight. */
+   right edge and the two left corner widgets were removed for the same
+   reason (the user only wants a rectangle fill on the three sides that
+   don't already have the bar covering them) -- that left a ~12x4px sliver
+   of bare wallpaper at each left corner as an accepted side effect.
+
+   Corner-radius follow-up (direct user feedback, second pass): that sliver
+   turned out not to be accepted after all once compared side-by-side with
+   a reference screenshot -- "no gap anywhere" was the actual bar. Fixed by
+   widening the two LEFT corner widgets themselves (../corners/corners.css)
+   so they start flush at the bar's own right edge (x=52) instead of 12px
+   further in -- not by reintroducing a bar-link stub. Growing the corner
+   widgets' size (--corner-size 28 -> 36, same follow-up, "generous curve"
+   per the reference) moved where their far tangent corners land, so the
+   top/bottom strip presets below were re-anchored to those new tangent
+   points to stay contiguous (offsetX 92 -> 88, width 2428 -> 2424); the
+   right strip was re-anchored the same way against the two right corners'
+   new tangent points (offsetY 40 -> 48, height 1360 -> 1344). See
+   docs/zebar-bar.md's "Corner overlays" geometry note for the full
+   arithmetic. */
 
 html,
 body {
