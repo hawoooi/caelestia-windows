@@ -1,8 +1,14 @@
 # Wallpaper-driven theming pipeline
 
 Extracts a Material You palette from the current Wallpaper Engine wallpaper and regenerates the
-colors of yasb, tacky-borders (if installed), WezTerm and starship from it — one command, no
-per-app manual re-theming.
+colors of WezTerm, starship, and the Zebar sidebar, and themes komorebi's window-border colours —
+one command, no per-app manual re-theming.
+
+yasb and tacky-borders were retired as theming targets: the Zebar bar (docked left) is now the
+desktop's only bar, and komorebi's own built-in window borders do the job the tacky-borders
+template was built for (tacky-borders itself was never installed on this machine). Both templates
+are kept on disk, unwired, in case either is ever wanted again — see `CLAUDE.md`'s "The stack"
+table.
 
 See `CLAUDE.md` for the full architecture, the PowerShell/BOM constraints, and how to add a new
 theme target.
@@ -71,10 +77,10 @@ Reload after editing: `Get-Process whkd | Stop-Process -Force; Start-Process whk
 
 ## Zebar sidebar (Caelestia-style vertical bar)
 
-A second bar, docked to the left edge, **runs alongside yasb** (which stays docked at the top) —
-it's an addition, not a replacement. It's themed by the same `Apply-Theme`/`Switch-Wallpaper`
-commands above (zebar is a fifth pipeline target). See `docs/zebar-bar.md` for the full pack
-layout, gotchas, and the current known-incomplete media drawer.
+Docked to the left edge, and **the desktop's only bar** since yasb was retired (see `CLAUDE.md`'s
+"The stack" table). It's themed by the same `Apply-Theme`/`Switch-Wallpaper` commands above. See
+`docs/zebar-bar.md` for the full pack layout, gotchas, and the current known-incomplete media
+drawer.
 
 ```powershell
 . .\scripts\Install-Config.ps1
@@ -83,11 +89,19 @@ Install-Config          # junctions ~/.glzr/zebar/caelestia -> zebar/caelestia/,
 "C:\Program Files\glzr.io\Zebar\zebar.exe" start-widget-preset --pack caelestia --widget-name bar --preset default
 ```
 
-That last command blocks the calling shell (launch it via `Start-Process` from a script). As of
-this writing, WebView2 is in a broken rendering state on this development machine (see
-`docs/zebar-bar.md`'s troubleshooting section) — the bar holds its position and its komorebi
-work-area reservation correctly, but visual confirmation of the bar's content is pending a
-sign-out/reboot.
+That last command blocks the calling shell (launch it via `Start-Process` from a script). The
+WebView2 rendering issue noted in earlier revisions of this doc (see `docs/zebar-bar.md`'s
+troubleshooting section) is resolved on this machine as of the borders/yasb-retirement task —
+confirmed live via screenshot: the bar holds its position, its komorebi work-area reservation
+(`left: 52`), and renders its content correctly.
+
+## Window borders and gaps
+
+komorebi's window borders are enabled persistently in `~/komorebi.json` (`border: true`,
+`border_style: "Rounded"`, `border_width: 4`, `border_offset: 1`), alongside larger workspace/
+container padding (12px, up from 5px) for a Caelestia-style inset gap. `Apply-Theme` themes the
+border colours every run — see `CLAUDE.md`'s "Window borders and gaps" section for the full role
+mapping and the runtime-vs-persisted split.
 
 ### `alt + w` needs an active Wallpaper Engine playlist
 
