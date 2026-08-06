@@ -1,0 +1,136 @@
+:root {
+  --space-sm: 4px;  --space-md: 8px;  --space-lg: 14px;
+  --pad-lg: 12px;
+  --radius-sm: 8px; --radius-lg: 18px; --radius-full: 999px;
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --dur: 300ms;
+  --bar-w: 52px;
+  /* Native taskbar (Shell_TrayWnd) sits at y=1392-1440 on this machine, full
+     width, above zOrder: "normal" windows -- it occludes and intercepts
+     clicks on anything docked below it. Nudge the bottom of the strip up by
+     roughly the taskbar height so the last entry (power) stays clickable. */
+  --taskbar-h: 48px;
+}
+
+html, body { margin: 0; padding: 0; height: 100%; background: transparent; overflow: hidden; }
+
+/* Task 8 widened the widget window to 340px so an expanded media panel
+   could paint outside the 52px strip -- see drawer.js / entries/media.js.
+   That design was REVERTED before shipping (see docs/zebar-bar.md, "Why it
+   isn't wired up as a real, clickable feature"): live verification showed
+   dockToEdge's work-area reservation grows 1:1 with the window's actual
+   width, with no decoupling lever anywhere in the zpack schema, so the
+   288px delta became a genuine input-swallowing dead zone over whatever
+   was tiled underneath -- worse than not shipping the drawer at all.
+   zpack.json's preset width has shipped at 52px ever since (68e6df7); this
+   file's width below MUST match that, not the abandoned 340px design --
+   widening it back here to "fix" a mismatch would silently recreate the
+   dead zone Task 8 refused to ship. pointer-events: none while closed is
+   still load-bearing at 52px: without it the (now only 52px-wide) window
+   would swallow clicks meant for whatever's tiled at that edge. The
+   media-panel drawer content (drawer.js / entries/media.js) is
+   deliberately retained for the future path docs/zebar-bar.md describes
+   (a second, separate zpack widget with dockToEdge disabled) even though
+   it is unreachable by a real click in the shipped configuration. */
+body { width: 52px; }
+#bar { width: var(--bar-w); }
+body:not(.drawer-open) { pointer-events: none; }
+body:not(.drawer-open) #bar { pointer-events: auto; }
+
+#bar {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-md);
+  height: 100%;
+  padding: var(--pad-lg) 0 calc(var(--pad-lg) + var(--taskbar-h));
+  box-sizing: border-box;
+  background: var(--surface);
+  color: var(--on-surface);
+  font-family: "0xProto Nerd Font", monospace;
+  font-size: 12px;
+}
+
+.entry { display: flex; flex-direction: column; align-items: center; }
+.entry--spacer { flex: 1 1 auto; }
+
+.workspace {
+  width: 26px; height: 26px;
+  border: none; border-radius: var(--radius-sm);
+  background: transparent; color: var(--on-surface-variant);
+  font: inherit; cursor: pointer;
+}
+.workspace--focused { background: var(--primary); color: var(--on-primary); }
+.clock { line-height: 1.1; text-align: center; }
+.status-icons { display: flex; flex-direction: column; gap: var(--space-sm); }
+.power { background: transparent; border: none; color: var(--on-surface-variant); cursor: pointer; }
+
+.media, .active-window {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  max-height: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--on-surface-variant);
+}
+
+.media { view-transition-name: media-pill; cursor: pointer; }
+
+.media-panel {
+  display: none;
+  view-transition-name: media-panel;
+  background: var(--surface);
+  color: var(--on-surface);
+  border-radius: var(--radius-lg);
+  padding: var(--pad-lg);
+  margin-left: var(--space-md);
+  width: 260px;
+  /* Anchors the panel beside the 52px strip regardless of where it lives
+     in the DOM (it's appended to <body>, not nested in the rotated
+     `.media` pill -- see entries/media.js) and keeps it out of #bar's own
+     `align-items: center` flow, which would otherwise center- (and
+     half-clip-) a 260px box inside a 52px column. Not in the brief's
+     verbatim Step 3 snippet; added because that snippet alone doesn't
+     anchor the panel anywhere. */
+  position: fixed;
+  left: var(--bar-w);
+  top: var(--pad-lg);
+  box-sizing: border-box;
+}
+.drawer-open .media-panel { display: block; }
+
+.media-panel__art {
+  display: block;
+  width: 100%;
+  border-radius: var(--radius-sm);
+  margin-bottom: var(--space-md);
+}
+.media-panel__artist { color: var(--on-surface-variant); margin-bottom: var(--space-md); }
+.media-panel__transport { display: flex; gap: var(--space-sm); margin-bottom: var(--space-md); }
+.media-panel__transport button {
+  flex: 1 1 auto;
+  background: var(--primary);
+  color: var(--on-primary);
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: var(--space-sm) 0;
+  font: inherit;
+  cursor: pointer;
+}
+.media-panel__time { color: var(--on-surface-variant); font-size: 11px; }
+
+::view-transition-old(media-pill),
+::view-transition-new(media-pill),
+::view-transition-old(media-panel),
+::view-transition-new(media-panel) {
+  animation-duration: var(--dur);
+  animation-timing-function: var(--ease);
+}
+
+/* Task 7 left the vesktop ping chip with no accent (no red token exists in
+   theme.css, which is out of this task's scope -- it's matugen-generated
+   and not in the Task 8 file list). `var(--primary)` is the only accent
+   token available without expanding scope; not literally red, but gives
+   the pinged chip a themed, non-default color as yasb's version had. */
+.vesktop--pinged { color: var(--primary); font-weight: bold; }

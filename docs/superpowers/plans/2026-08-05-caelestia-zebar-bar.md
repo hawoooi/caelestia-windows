@@ -392,7 +392,7 @@ Schema and field names taken from the on-disk starter pack.
       "focused": false,
       "resizable": false,
       "transparent": true,
-      "includeFiles": ["bar/**"],
+      "includeFiles": ["*"],
       "caching": { "defaultDuration": 0, "rules": [] },
       "privileges": { "shellCommands": [] },
       "presets": [
@@ -412,7 +412,12 @@ Schema and field names taken from the on-disk starter pack.
 }
 ```
 
-`caching.defaultDuration` is **0**, not the starter's 604800 — a cached bar would not pick up regenerated `theme.css`.
+Two things here are load-bearing and were established the hard way in Task 1:
+
+- **`caching.defaultDuration` is 0**, not the starter's 604800 — a cached bar would not pick up a regenerated `theme.css`.
+- **`includeFiles` must be `["*"]`.** With a narrower glob the pack is found but the widget's `htmlPath` silently **404s**. This is documented nowhere in the schema or the starter template and cost Task 1 most of its investigation time. Do not "tidy" it to `["bar/**"]`.
+
+Also note: `--pack` takes a pack **ID**, never a filesystem path, and the pack must live directly under `~/.glzr/zebar`. That is why the junction exists.
 
 - [ ] **Step 2: Write `bar/style.css` — tokens and layout, ZERO colours**
 
@@ -903,6 +908,16 @@ register('power', () => {
 
 The power action is deliberately unwired until Task 1 Step 5's `shellCommands` finding is applied — a half-understood shutdown call is worse than none.
 
+**The bottom of the strip is occluded, and probably not clickable.** Task 3 measured the native taskbar (`Shell_TrayWnd`) at `y=1392–1440`, full width, sitting above `zOrder: "normal"` windows. So the power button will be both hidden and, more importantly, likely unable to receive clicks — the taskbar intercepts them.
+
+Decide this explicitly rather than discovering it after wiring the action:
+
+- **Nudge the interactive elements up** from the true bottom edge with a `padding-bottom` on `#bar` roughly equal to the taskbar height. Simplest, costs a little vertical space, works regardless of taskbar settings.
+- **`zOrder: "always_on_top"`** on the widget. Fixes clickability but puts the bar above *everything*, including fullscreen apps — likely worse.
+- **Rely on taskbar auto-hide.** The user has asked for that separately (see the spec's "Future phases"), but it is not implemented yet, so do not depend on it now.
+
+Take the first option unless something argues against it, and **verify the power button actually receives a click** — screenshot alone will not tell you, since a visible button can still be input-dead.
+
 - [ ] **Step 4: Run to verify tests pass**
 
 Expected: 6 passing (plus Task 4's 5).
@@ -1019,8 +1034,28 @@ register('media', () => {
 ```js
 import { register } from './registry.js';
 
+// Focus is flagged at the CONTAINER level, not per window. Verified against
+// zebar's index.d.ts at both 3.0.3 and 3.3.1: `KomorebiWindow` is
+// {id, class, exe, hwnd, title, role, subrole, icon_path} -- there is no
+// `isFocused` field at any version. Use `focusedWorkspace.focusedContainerIndex`
+// to pick the container, then the window within it.
+//
+// `focusedWindowIndex` below is NOT verified -- check index.d.ts for the real
+// name of the within-container index and correct it. Falling back to windows[0]
+// is right for the common single-window container.
 export function windowTitle(komorebi) {
-  return komorebi?.focusedWindow?.title ?? '';
+  const ws = komorebi?.focusedWorkspace;
+  const containers = ws?.tilingContainers;
+  if (!Array.isArray(containers)) return '';
+
+  const ci = ws.focusedContainerIndex;
+  const container = typeof ci === 'number' ? containers[ci] : undefined;
+  if (!container) return '';
+
+  const windows = container.windows ?? [];
+  const wi = container.focusedWindowIndex;
+  const win = typeof wi === 'number' ? windows[wi] : windows[0];
+  return win?.title ?? '';
 }
 
 register('activeWindow', () => {
@@ -1315,7 +1350,28 @@ Add a `'zebar'` case to `Test-StagedFile` reusing `Measure-CssBraces`, plus a ch
 
 Note this target is **inside the repo**, unlike the other four. That is intentional — the pack is tracked, and `theme.css` is a committed generated artifact, same as `styles.css` was for yasb.
 
-**Reload:** apply Task 1 Step 4's finding. If Zebar hot-reloads CSS, no reload step. If not, add one alongside the `yasbc reload` call.
+**Reload is REQUIRED, and the obvious command does not do it.**
+
+Task 1 established Zebar does **not** hot-reload CSS — a running widget still showed the old colour 14+ seconds after the stylesheet changed. Task 4 then established that `start-widget-preset` against an **already-running** widget of the same pack/widget/preset is a **no-op**: it neither reloads nor duplicates. So this alone does nothing:
+
+```powershell
+& "C:\Program Files\glzr.io\Zebar\zebar.exe" start-widget-preset --pack caelestia --widget-name bar --preset default
+```
+
+The widget only picks up a new `theme.css` after the **`zebar.exe` process is stopped and restarted**. So `Apply-Theme` needs, after the copy:
+
+```powershell
+Get-Process zebar -ErrorAction SilentlyContinue | Stop-Process -Force
+Start-Sleep -Milliseconds 500
+& "C:\Program Files\glzr.io\Zebar\zebar.exe" start-widget-preset --pack caelestia --widget-name bar --preset default
+```
+
+Two consequences to handle rather than discover:
+
+- **Killing `zebar.exe` kills every Zebar widget**, not just this bar. Harmless today (only this one runs), but note it — and check whether any other widget was running before assuming it is safe.
+- **The bar disappears for the restart interval.** Combined with yasb's 8-second settle, a wallpaper switch already has visible downtime; do not add more than needed.
+
+If a gentler reload exists (a Zebar CLI verb, a settings toggle, an IPC call), prefer it and say what you found — but do not assume one exists because it would be convenient.
 
 - [ ] **Step 5: Add `Install-Config` proper**
 

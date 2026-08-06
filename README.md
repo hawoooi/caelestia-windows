@@ -69,6 +69,26 @@ Two deliberate choices:
 
 Reload after editing: `Get-Process whkd | Stop-Process -Force; Start-Process whkd -WindowStyle Hidden`.
 
+## Zebar sidebar (Caelestia-style vertical bar)
+
+A second bar, docked to the left edge, **runs alongside yasb** (which stays docked at the top) —
+it's an addition, not a replacement. It's themed by the same `Apply-Theme`/`Switch-Wallpaper`
+commands above (zebar is a fifth pipeline target). See `docs/zebar-bar.md` for the full pack
+layout, gotchas, and the current known-incomplete media drawer.
+
+```powershell
+. .\scripts\Install-Config.ps1
+Install-Config          # junctions ~/.glzr/zebar/caelestia -> zebar/caelestia/, patches whkdrc
+
+"C:\Program Files\glzr.io\Zebar\zebar.exe" start-widget-preset --pack caelestia --widget-name bar --preset default
+```
+
+That last command blocks the calling shell (launch it via `Start-Process` from a script). As of
+this writing, WebView2 is in a broken rendering state on this development machine (see
+`docs/zebar-bar.md`'s troubleshooting section) — the bar holds its position and its komorebi
+work-area reservation correctly, but visual confirmation of the bar's content is pending a
+sign-out/reboot.
+
 ### `alt + w` needs an active Wallpaper Engine playlist
 
 `-control nextWallpaper` advances *within a playlist*. With no playlist active (WE's `config.json`

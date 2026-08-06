@@ -8,6 +8,14 @@ silently breaks with no trace of why unless someone finds this document. Reapply
 
 Both edits live in the same file, `C:\Users\PC\.wezterm.lua` (354 lines as of this writing).
 
+**Task 9 note:** `Install-Config` (`scripts/Install-Config.ps1`) patches marker-delimited blocks
+into a few user-owned dotfiles (currently `whkdrc`, for the two theming hotkeys), but `.wezterm.lua`
+is deliberately **not** one of its `$targets`. Both edits below are already applied and live, and
+re-patching a working 354-line config that this very session's terminal runs under -- just to prove
+`Set-PatchedBlock` also works on it -- risks breaking that terminal for no real benefit. This
+document is the manual-reapply path instead: if `.wezterm.lua` is ever restored from a backup,
+rebuilt from scratch, or hand-reverted, redo sections 1 and 2 below by hand.
+
 ## 1. The generated-scheme block
 
 Inserted **immediately after** `config.color_scheme = THEME` (line 99 in the current file). Exact

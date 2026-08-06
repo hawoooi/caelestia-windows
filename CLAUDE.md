@@ -1,8 +1,10 @@
 # Wallpaper-driven theming pipeline — working knowledge
 
 One command extracts a Material You palette from the current Wallpaper Engine wallpaper and
-regenerates the colors of yasb, tacky-borders, WezTerm and starship. This file is the working
-knowledge for this repo, captured while building it — read it before changing anything here.
+regenerates the colors of yasb, tacky-borders, WezTerm, starship and the Zebar sidebar (a fifth
+theming target added alongside a new Caelestia-style vertical bar — see `docs/zebar-bar.md`). This
+file is the working knowledge for this repo, captured while building it — read it before changing
+anything here.
 
 ## The stack
 
@@ -17,6 +19,7 @@ knowledge for this repo, captured while building it — read it before changing 
 | WezTerm | `C:\Program Files\WezTerm\wezterm.exe` — config at `~/.wezterm.lua`, **not under version control** (home directory is not a git repo); the pipeline's two required edits there are recorded in `docs/wezterm-integration.md` because of this |
 | starship | config at `~/.config/starship.toml` |
 | Wallpaper Engine | `C:\Program Files (x86)\Steam\steamapps\common\wallpaper_engine\` — `wallpaper32.exe` or `wallpaper64.exe` (whichever is the live process; both exist on disk, this machine runs `wallpaper32.exe`) |
+| Zebar (v3.3.1) | `C:\Program Files\glzr.io\Zebar\zebar.exe` — a second, vertical Caelestia-style bar docked left, alongside yasb (top). Pack source tracked at `zebar/caelestia/`, served to Zebar via a junction at `~/.glzr/zebar/caelestia`. Full detail: `docs/zebar-bar.md`. |
 | komorebi + whkd | `~/komorebi.json`, `~/.config/whkdrc` — the tiling WM driving the desktop (GlazeWM was replaced during this project's pre-flight; see `~/.config/yasb/CLAUDE.md`) |
 | Pester | 6.0.1 and 3.4.0 are both installed; **all tests in this repo are Pester 5+ syntax** (`Should -Be`, not `Should Be`) — `Import-Module Pester -MinimumVersion 5.0.0` before running the suite, or 3.4.0 loads by default and every test errors on syntax it doesn't recognize |
 
@@ -45,6 +48,10 @@ Switch-Wallpaper.ps1
           CSS/stylesheet-specific signal (narrowed from a blanket error|critical|invalid|could
           not be read grep, which matched unrelated widget noise and false-triggered rollback)
        -> tacky-borders log grep, but ONLY if the tacky-borders process is actually running
+       -> zebar reload: Stop-Process zebar (kills ALL running zebar widgets -- no per-widget
+          reload verb exists), wait 500ms, Start-Process (never inline -- start-widget-preset
+          blocks the caller) start-widget-preset --pack caelestia --widget-name bar --preset
+          default. Runs LAST, after every other check has passed -- see docs/zebar-bar.md
        -> on any post-copy failure: roll back every target from state/pre-apply/ (NOT
           state/last-good/ -- pre-apply holds what was actually live a moment ago, hand-edits
           included; last-good holds the last VALIDATED PIPELINE generation, which is a different

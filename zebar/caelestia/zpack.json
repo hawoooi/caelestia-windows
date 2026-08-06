@@ -1,0 +1,42 @@
+{
+  "$schema": "https://github.com/glzr-io/zebar/raw/v3.3.1/resources/zpack-schema.json",
+  "name": "caelestia",
+  "version": "0.1.0",
+  "description": "Caelestia-style vertical bar",
+  "tags": ["sidebar"],
+  "previewImages": [],
+  "repositoryUrl": "",
+  "widgets": [
+    {
+      "name": "bar",
+      "htmlPath": "./bar/index.html",
+      "zOrder": "normal",
+      "shownInTaskbar": false,
+      "focused": false,
+      "resizable": false,
+      "transparent": true,
+      "includeFiles": ["*"],
+      "caching": { "defaultDuration": 0, "rules": [] },
+      "privileges": {
+        "shellCommands": [
+          {
+            "program": "C:\\Users\\PC\\.config\\yasb\\scripts\\vesktop-unread.exe",
+            "argsRegex": "^$"
+          }
+        ]
+      },
+      "presets": [
+        {
+          "name": "default",
+          "anchor": "top_left",
+          "offsetX": "0px",
+          "offsetY": "0px",
+          "width": "52px",
+          "height": "100%",
+          "monitorSelection": { "type": "all" },
+          "dockToEdge": { "enabled": true, "edge": "left", "windowMargin": "0px" }
+        }
+      ]
+    }
+  ]
+}
