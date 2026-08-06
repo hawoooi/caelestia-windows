@@ -618,11 +618,28 @@ function Restart-ZebarWidgets {
     Get-Process zebar -ErrorAction SilentlyContinue | Stop-Process -Force
     Start-Sleep -Milliseconds $StartupWaitMs
 
+    # Zebar logs EVERY provider emission (cpu, memory, network, ...) to stdout at
+    # INFO level, several times a second. `-WindowStyle Hidden` does NOT detach a
+    # console app's stdout -- it inherits the caller's console -- so without
+    # redirection those emissions flood whatever terminal invoked Apply-Theme.
+    # Redirecting also gives Zebar a real log, which matters because its own
+    # errors.log never captures JS errors or shell-privilege denials.
+    $logDir = Join-Path $script:Root 'state\zebar-logs'
+    if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Force -Path $logDir | Out-Null }
+
     foreach ($c in $toStart) {
         $preset = if ($c.preset) { $c.preset } else { 'default' }
+
+        # One log pair per widget: PowerShell 5.1 throws if stdout and stderr
+        # are redirected to the same path, and two widgets sharing one file
+        # would interleave.
+        $slug    = (($c.pack + '-' + $c.widget) -replace '[^\w.\-]', '_')
+        $outLog  = Join-Path $logDir "$slug.out.log"
+        $errLog  = Join-Path $logDir "$slug.err.log"
+
         $proc = Start-Process -FilePath $ZebarExe -ArgumentList @(
             'start-widget-preset', '--pack', $c.pack, '--widget-name', $c.widget, '--preset', $preset
-        ) -WindowStyle Hidden -PassThru
+        ) -WindowStyle Hidden -PassThru -RedirectStandardOutput $outLog -RedirectStandardError $errLog
 
         # `start-widget-preset` blocks for as long as the widget window
         # stays open, so $proc can never be -Wait-ed on -- but a failed
@@ -630,7 +647,10 @@ function Restart-ZebarWidgets {
         # is the only way to tell "started fine" from "failed silently"
         # without hanging Apply-Theme for the widget's entire lifetime.
         Start-Sleep -Milliseconds $StartupWaitMs
-        if ($proc -and $proc.HasExited -and $proc.ExitCode -ne 0) {
+        # $proc.ExitCode can be $null even when HasExited reports true (seen live
+        # with redirected output). Without the explicit null check, `$null -ne 0`
+        # is TRUE and this warns on every successful start.
+        if ($proc -and $proc.HasExited -and $null -ne $proc.ExitCode -and $proc.ExitCode -ne 0) {
             Write-Warning "start-widget-preset failed for pack '$($c.pack)' widget '$($c.widget)' (exit code $($proc.ExitCode)) -- that widget's bar did NOT restart. Check the pack name and that it exists under ~/.glzr/zebar."
         }
     }
