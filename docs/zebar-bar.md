@@ -647,6 +647,100 @@ corner-overlays' existing `4*28*28` = 3,136px^2, all of it confirmed (via `Windo
 `GetAncestor(GA_ROOT)` sampled across every strip) to resolve to the zebar `edges` window itself,
 never to a tiled content window.
 
+## Desktop frame correction + fullscreen auto-hide (direct user feedback)
+
+Four corrections against the shipped desktop frame (corner-overlays + desktop-frame), from direct
+user feedback after looking at it live:
+
+1. **Colour: `var(--primary)` (cyan) -> `var(--surface)`, solid fill, no stroke.** Both
+   `corners.css` and `edges.css` used `var(--primary)` (the desktop-frame follow-up's bordered-arc
+   design added a `var(--primary)` stroke so the arc had a "line" to visually continue into the
+   edge strips, which were themselves a `var(--primary)` fill). The user wants the frame to read as
+   one continuous surface with the bar, not an accent-coloured outline -- both files now use
+   `var(--surface)` and there is no border/stroke anywhere; `corners.css`'s `--corner-border-width`
+   variable (only ever used by the stroke) is gone.
+2. **Dropped `bar-link-top`/`bar-link-bottom`.** The bar already forms the frame's left edge; only
+   top/right/bottom strips are wanted. Removed from `zpack.json`'s `edges` widget presets and from
+   `Install-Config.ps1`'s `$edgePresets`. This leaves a small (~12x4px) unfilled gap at each left
+   corner between the bar's own right edge and the corner arc -- the direct, accepted consequence of
+   "you only need it for the top and bottom and right sides", not an oversight. **`Install-Config`'s
+   non-Uninstall branch now explicitly prunes ALL existing `caelestia/edges` `startupConfigs`
+   entries before re-adding the current three** (`Remove-ZebarStartupConfig` then re-`Set-`), or the
+   two removed presets would have kept autostarting forever from a stale `settings.json` entry --
+   `Set-ZebarStartupConfig` alone only ever adds/updates a matching triple, it never removes one
+   that's no longer requested. Run live on this machine's real `~/.glzr/zebar/settings.json`; the
+   two stale entries are confirmed gone (re-read after running).
+3. **The arc: reverted to a true 90-degree quarter-circle cut-out, not the bordered-box "blob with a
+   stroke" the user was reacting to.** `corners.css` is back to (a corrected, re-explained version
+   of) its original corner-overlays construction: a `radial-gradient` hard-stopped at
+   `var(--corner-size)` from the widget's own content-facing corner -- transparent within that
+   radius, `var(--surface)` beyond it. Worked through the geometry by hand to confirm this is
+   genuinely a 90-degree sweep, not a semicircle: the circle's centre sits exactly at one corner of
+   the (square) widget, so only one quarter of its 360 degrees ever crosses the visible area at all
+   -- the two adjacent widget corners are exactly tangent to it, the far corner is
+   `corner_size*sqrt(2)` away and irrelevant. Because `--corner-size` (28px) equals the widget's own
+   side length, the transparent (hole) region actually covers the *majority* of the small widget
+   (~78.5% by area) and the solid `var(--surface)` fill is a small curved wedge hugging the true
+   outer screen corner -- this is not a bug, it's exactly "the solid region between the outer screen
+   corner and a quarter-circle cut-out, the inner edge curving away toward where windows sit" as
+   described. Verified both visually (screenshots below) and by direct pixel sampling
+   (`CopyFromScreen`) at the widget's own corner, its content-facing interior, and the adjoining edge
+   strip -- the wedge samples `#0F1416` (`--surface`, exact), the hole samples the wallpaper's own
+   colour underneath (not a stray fill), and there is zero `#87D1EA` (`--primary`) anywhere in the
+   frame.
+4. **Fullscreen auto-hide.** Zebar has no built-in fullscreen awareness -- re-confirmed against
+   `zebar.exe --help`, `zpack-schema.json` and `settings-schema.json`, same conclusion
+   corner-overlays' own "unmitigated risk" note already recorded. Detection is now self-implemented:
+   a small Win32 C# helper, `zebar/caelestia/tools/fullscreen-detect.cs` (compiled to
+   `fullscreen-detect.exe`, same `csc.exe` build step as `~/.config/yasb/scripts/vesktop-unread.cs`),
+   prints `1` when `GetForegroundWindow()`'s rect exactly equals `GetMonitorInfo`'s monitor bounds
+   for the monitor it's on, AND the foreground window's owning process isn't named `zebar` (excludes
+   every widget this pack runs -- bar, corner arcs, edge strips are all the same `zebar.exe`
+   process, confirmed live: starting all 8 widgets produced only ONE `zebar.exe` process, since only
+   the first-launched `start-widget-preset` call becomes the long-running Rocket-server/window-host
+   and every later call hands its window off to it and exits -- see the `Creating window widget-N`
+   log lines in `state/zebar-logs/caelestia-bar-default.out.log`). Prints nothing on any internal
+   error (fail soft) or when not fullscreen.
+
+   `zebar/caelestia/fullscreen.js` is the shared poller (`startFullscreenWatch(shell, onChange,
+   intervalMs)`, ~1s default -- faster than `vesktop.js`'s 5s poll, since visible desktop furniture
+   flickering wrong is more noticeable than an unread badge lagging), imported independently by
+   `bar/bar.js`, `corners/corners.js`, and a new `edges/edges.js` (edges previously had no JS at all
+   -- see `edges/index.html`). Each toggles its own `<body>`'s `fullscreen-hidden` class, which each
+   widget's own stylesheet turns into `display: none` on the content div. `zpack.json` gained a
+   `privileges.shellCommands` entry for the helper's exact path (`argsRegex: "^$"`, no arguments) on
+   all three widgets (`bar` already had a `privileges` block for `vesktop-unread.exe`/`komorebic`;
+   `corners`/`edges` gained their first `privileges` block for this). `isFullscreenState` (the pure
+   stdout-parsing predicate) and `startFullscreenWatch`'s fail-soft/no-shellExec paths are unit
+   tested (`tests/js/fullscreen.test.mjs`); the Win32 rect-matching logic inside the `.cs` helper
+   itself is not unit-testable from Node, so it was verified live instead, per this task's own
+   safety constraint against launching a real game/app fullscreen: a temporary borderless
+   `System.Windows.Forms.Form`, sized and positioned to exactly cover the primary monitor, created
+   and destroyed by a throwaway PowerShell script (never a real fullscreen app), confirmed the
+   helper prints `1` while that window is foreground and nothing otherwise. The full pack-level
+   behaviour was then confirmed live too, the same way: with the frame reloaded and running, pixel
+   samples of the corner wedge, the top edge strip, and the bar's own interior all read pure black
+   (i.e. fully transparent, showing straight through to the deliberately non-topmost test window
+   behind them) while the test window was foreground and exactly covered the monitor, and all three
+   read back to their normal `var(--surface)` colour within ~3s of the test window closing.
+
+   **Hiding the content is not the same as removing the window.** Every widget's window (bar,
+   4 corners, 3 edges) keeps existing, keeps its `zOrder: top_most`, and keeps whatever click-dead
+   footprint it already had (see corner-overlays' and desktop-frame's own footprint accounting
+   above) -- `display: none` on the inner content div makes an already-transparent window paint
+   nothing, it does not close the window, minimize it, or give it OS-level click-through (proven
+   impossible on this Zebar/WebView2 build already, see "Known-incomplete: the media drawer"). This
+   is stated plainly per this task's own instructions, not implied to be more than it is: a
+   fullscreened game still has a handful of small dead click zones sitting over it, just invisible
+   ones instead of a visible cyan/surface-coloured decal.
+
+**Visual result (screenshotted top-left and bottom-right corners at 4-6x nearest-neighbour zoom):**
+the frame now reads as one solid `var(--surface)` band curving through a clean quarter-circle wedge
+at each screen corner into the adjoining strip, with no cyan, no stroke outline, and no filled blob
+-- confirmed by both eye and direct pixel sampling. The intentional small gap at each left corner
+(bar-link removal, point 2 above) is visible as a thin sliver of wallpaper between the bar's own
+right edge and the corner wedge -- expected, not a defect.
+
 ## Installing/uninstalling
 
 ```powershell

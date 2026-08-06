@@ -251,19 +251,21 @@ Describe "Install-Config primitives" {
                 Should -Be 'bottom-left,bottom-right,top-left,top-right'
         }
 
-        It "Set-ZebarStartupConfig stores all five edges presets under the same Pack+Widget as distinct entries (desktop-frame)" {
+        It "Set-ZebarStartupConfig stores all three edges presets under the same Pack+Widget as distinct entries (desktop-frame)" {
             # Same widened-match-key story as the corners test above, for
-            # the "edges" widget's five presets (top/right/bottom/
-            # bar-link-top/bar-link-bottom).
+            # the "edges" widget's three presets (top/right/bottom -- the
+            # bar-link-top/bar-link-bottom stubs were removed per direct
+            # user feedback: the bar itself already forms the frame's left
+            # edge, so only top/right/bottom strips are wanted).
             $p = Join-Path $script:tmp "zs-multi-preset-edges.json"
-            foreach ($preset in @('top', 'right', 'bottom', 'bar-link-top', 'bar-link-bottom')) {
+            foreach ($preset in @('top', 'right', 'bottom')) {
                 Set-ZebarStartupConfig -Path $p -Pack 'caelestia' -Widget 'edges' -Preset $preset
             }
 
             $configs = Get-ZebarStartupConfigs -Path $p
-            $configs.Count | Should -Be 5
+            $configs.Count | Should -Be 3
             ($configs | Sort-Object preset | ForEach-Object { $_.preset }) -join ',' |
-                Should -Be 'bar-link-bottom,bar-link-top,bottom,right,top'
+                Should -Be 'bottom,right,top'
         }
 
         It "Set-ZebarStartupConfig is still idempotent per (Pack, Widget, Preset) triple" {
@@ -347,7 +349,7 @@ Describe "Install-Config primitives" {
             @($configs | Where-Object { $_.pack -eq 'caelestia' -and $_.widget -eq 'bar' }).Count | Should -Be 1
         }
 
-        It "Install-Config (non-Uninstall) registers all five caelestia/edges presets in ZebarSettingsPath's startupConfigs" {
+        It "Install-Config (non-Uninstall) registers all three caelestia/edges presets in ZebarSettingsPath's startupConfigs" {
             $settings = Join-Path $script:tmp "ic-zs-settings-edges.json"
             Install-Config `
                 -WhkdrcPath (Join-Path $script:tmp "ic-zs-whkdrc-edges.conf") `
@@ -358,9 +360,9 @@ Describe "Install-Config primitives" {
 
             $configs = Get-ZebarStartupConfigs -Path $settings
             $edges = @($configs | Where-Object { $_.pack -eq 'caelestia' -and $_.widget -eq 'edges' })
-            $edges.Count | Should -Be 5
+            $edges.Count | Should -Be 3
             ($edges | Sort-Object preset | ForEach-Object { $_.preset }) -join ',' |
-                Should -Be 'bar-link-bottom,bar-link-top,bottom,right,top'
+                Should -Be 'bottom,right,top'
             # bar's and corners' own entries must still be there too --
             # Install-Config registers all three widgets, not one instead
             # of the others.
@@ -368,11 +370,35 @@ Describe "Install-Config primitives" {
             @($configs | Where-Object { $_.pack -eq 'caelestia' -and $_.widget -eq 'corners' }).Count | Should -Be 4
         }
 
-        It "Install-Config -Uninstall removes all five caelestia/edges presets from ZebarSettingsPath's startupConfigs" {
+        It "Install-Config (non-Uninstall) prunes stale caelestia/edges presets no longer in the current list (desktop-frame bar-link removal)" {
+            # Simulates a settings.json left over from BEFORE the bar-link
+            # stubs were removed from $edgePresets -- Install-Config must
+            # prune them, not just add the current three and leave the two
+            # orphans behind forever (they'd keep autostarting nonexistent
+            # zpack.json presets after every reboot).
+            $settings = Join-Path $script:tmp "ic-zs-settings-edges-prune.json"
+            foreach ($preset in @('top', 'right', 'bottom', 'bar-link-top', 'bar-link-bottom')) {
+                Set-ZebarStartupConfig -Path $settings -Pack 'caelestia' -Widget 'edges' -Preset $preset
+            }
+
+            Install-Config `
+                -WhkdrcPath (Join-Path $script:tmp "ic-zs-whkdrc-edges-prune.conf") `
+                -JunctionLink (Join-Path $script:tmp "ic-zs-link-edges-prune") `
+                -JunctionTarget (New-Item -ItemType Directory -Force -Path (Join-Path $script:tmp "ic-zs-target-edges-prune")).FullName `
+                -BackupRoot (Join-Path $script:tmp "ic-zs-backup-edges-prune") `
+                -ZebarSettingsPath $settings
+
+            $configs = Get-ZebarStartupConfigs -Path $settings
+            $edges = @($configs | Where-Object { $_.pack -eq 'caelestia' -and $_.widget -eq 'edges' })
+            ($edges | Sort-Object preset | ForEach-Object { $_.preset }) -join ',' |
+                Should -Be 'bottom,right,top'
+        }
+
+        It "Install-Config -Uninstall removes all three caelestia/edges presets from ZebarSettingsPath's startupConfigs" {
             $settings = Join-Path $script:tmp "ic-zs-settings-edges-uninstall.json"
             Set-ZebarStartupConfig -Path $settings -Pack 'gunturdwiap.good-enough' -Widget 'main' -Preset 'default'
             Set-ZebarStartupConfig -Path $settings -Pack 'caelestia' -Widget 'bar' -Preset 'default'
-            foreach ($preset in @('top', 'right', 'bottom', 'bar-link-top', 'bar-link-bottom')) {
+            foreach ($preset in @('top', 'right', 'bottom')) {
                 Set-ZebarStartupConfig -Path $settings -Pack 'caelestia' -Widget 'edges' -Preset $preset
             }
 

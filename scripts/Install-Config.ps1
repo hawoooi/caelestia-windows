@@ -287,10 +287,22 @@ ctrl + alt + w                : Start-Process powershell -WindowStyle Hidden -Ar
     # gap I4 fixed for caelestia/bar itself.
     $cornerPresets = @('top-left', 'top-right', 'bottom-left', 'bottom-right')
 
-    # Desktop-frame follow-up: the "edges" widget (zpack.json) has five
-    # presets -- the same one-entry-per-preset requirement as corners above,
-    # for the same reason (same pack+widget, five different presets).
-    $edgePresets = @('top', 'right', 'bottom', 'bar-link-top', 'bar-link-bottom')
+    # Desktop-frame follow-up: the "edges" widget (zpack.json) has presets
+    # for the same one-entry-per-preset requirement as corners above, for
+    # the same reason (same pack+widget, multiple different presets).
+    #
+    # Direct user feedback (frame-correction pass): dropped the two
+    # "bar-link-top"/"bar-link-bottom" stubs -- the bar itself already forms
+    # the frame's left edge, so only top/right/bottom strips are wanted.
+    # This list shrank from five entries to three as a result; the
+    # non-DryRun branch below now explicitly PRUNES caelestia/edges'
+    # startupConfigs entries before re-registering the current list, or the
+    # two removed presets would linger in ~/.glzr/zebar/settings.json
+    # forever (Set-ZebarStartupConfig only adds/updates a matching
+    # Pack+Widget+Preset triple, it never removes an entry that's no longer
+    # in this list) and Zebar would keep trying to autostart widgets that no
+    # longer exist in zpack.json after every reboot.
+    $edgePresets = @('top', 'right', 'bottom')
 
     if ($DryRun) {
         # I1: the junction/settings.json steps below must ALSO be a no-op
@@ -314,7 +326,7 @@ ctrl + alt + w                : Start-Process powershell -WindowStyle Hidden -Ar
             "would create/verify junction $JunctionLink -> $JunctionTarget"
             "would add startupConfigs entry for caelestia/bar to $ZebarSettingsPath"
             "would add startupConfigs entries for caelestia/corners ($($cornerPresets -join ', ')) to $ZebarSettingsPath"
-            "would add startupConfigs entries for caelestia/edges ($($edgePresets -join ', ')) to $ZebarSettingsPath"
+            "would prune and re-add startupConfigs entries for caelestia/edges ($($edgePresets -join ', ')) in $ZebarSettingsPath -- any stale preset (e.g. the removed bar-link-top/bar-link-bottom) is removed first"
         }
         return
     }
@@ -332,6 +344,13 @@ ctrl + alt + w                : Start-Process powershell -WindowStyle Hidden -Ar
         foreach ($preset in $cornerPresets) {
             Set-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'corners' -Preset $preset
         }
+        # Prune ALL existing caelestia/edges entries first (Remove-ZebarStartupConfig
+        # matches by Pack+Widget only, not Preset -- see its own doc comment),
+        # then re-add exactly $edgePresets. Without this, a preset removed from
+        # $edgePresets (like bar-link-top/bar-link-bottom above) would keep
+        # re-autostarting forever from a stale settings.json entry, since
+        # Set-ZebarStartupConfig alone only ever adds/updates, never removes.
+        Remove-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'edges'
         foreach ($preset in $edgePresets) {
             Set-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'edges' -Preset $preset
         }

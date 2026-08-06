@@ -2,6 +2,7 @@ import * as zebar from './vendor/zebar.js';
 import { create } from './entries/registry.js';
 import './entries/index.js';                   // registers every entry type
 import { renderEntries, parseBarConfig } from './entries/render.js';
+import { startFullscreenWatch } from '../fullscreen.js';
 
 const providers = zebar.createProviderGroup({
   komorebi: { type: 'komorebi' },
@@ -41,3 +42,11 @@ function tick() {
 
 providers.onOutput(tick);
 tick();
+
+// User feedback: the bar (and the rest of the desktop frame -- corners.js,
+// edges/edges.js run the same watch independently, since each is a
+// separate widget window) should disappear along with the frame when
+// something goes fullscreen.
+startFullscreenWatch(ctx.shell, (isFullscreen) => {
+  document.body.classList.toggle('fullscreen-hidden', isFullscreen);
+});

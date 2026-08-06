@@ -26,6 +26,10 @@
           {
             "program": "C:\\Users\\PC\\scoop\\shims\\komorebic.exe",
             "argsRegex": "^focus-workspace \\d$"
+          },
+          {
+            "program": "C:\\Users\\PC\\Documents\\git\\setup\\zebar\\caelestia\\tools\\fullscreen-detect.exe",
+            "argsRegex": "^$"
           }
         ]
       },
@@ -52,6 +56,14 @@
       "transparent": true,
       "includeFiles": ["*"],
       "caching": { "defaultDuration": 0, "rules": [] },
+      "privileges": {
+        "shellCommands": [
+          {
+            "program": "C:\\Users\\PC\\Documents\\git\\setup\\zebar\\caelestia\\tools\\fullscreen-detect.exe",
+            "argsRegex": "^$"
+          }
+        ]
+      },
       "presets": [
         {
           "name": "top-left",
@@ -105,6 +117,14 @@
       "transparent": true,
       "includeFiles": ["*"],
       "caching": { "defaultDuration": 0, "rules": [] },
+      "privileges": {
+        "shellCommands": [
+          {
+            "program": "C:\\Users\\PC\\Documents\\git\\setup\\zebar\\caelestia\\tools\\fullscreen-detect.exe",
+            "argsRegex": "^$"
+          }
+        ]
+      },
       "presets": [
         {
           "name": "top",
@@ -132,26 +152,6 @@
           "offsetX": "92px",
           "offsetY": "1424px",
           "width": "2428px",
-          "height": "4px",
-          "monitorSelection": { "type": "all" },
-          "dockToEdge": { "enabled": false }
-        },
-        {
-          "name": "bar-link-top",
-          "anchor": "top_left",
-          "offsetX": "52px",
-          "offsetY": "36px",
-          "width": "12px",
-          "height": "4px",
-          "monitorSelection": { "type": "all" },
-          "dockToEdge": { "enabled": false }
-        },
-        {
-          "name": "bar-link-bottom",
-          "anchor": "top_left",
-          "offsetX": "52px",
-          "offsetY": "1400px",
-          "width": "12px",
           "height": "4px",
           "monitorSelection": { "type": "all" },
           "dockToEdge": { "enabled": false }

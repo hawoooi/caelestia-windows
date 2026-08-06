@@ -43,6 +43,13 @@ body { width: 52px; }
 body:not(.drawer-open) { pointer-events: none; }
 body:not(.drawer-open) #bar { pointer-events: auto; }
 
+/* Fullscreen auto-hide (see ./bar.js and ../fullscreen.js): toggled on
+   <body> by the shared poller when a real fullscreen window is detected.
+   Hides the bar's painted content only -- the 52px window keeps existing
+   and keeps its dockToEdge work-area reservation; see docs/zebar-bar.md
+   for why a content-only hide is the accepted trade-off here. */
+body.fullscreen-hidden #bar { display: none; }
+
 #bar {
   display: flex;
   flex-direction: column;
