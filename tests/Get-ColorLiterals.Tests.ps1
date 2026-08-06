@@ -76,7 +76,11 @@ Describe "The zebar bar's zero-color-literal invariant (I5)" {
         # pack that is SUPPOSED to have them (it's the matugen-generated
         # palette style.css's var(--...) tokens point at), so if this ever
         # returned 0 it would mean Get-ColorLiterals itself silently broke,
-        # not that theme.css became clean.
-        @(Get-ColorLiterals -Path $script:themeCss).Count | Should -Be 7
+        # not that theme.css became clean. 8, not 7, as of change 1
+        # (lower-cluster restyle): --surface-container-high was added
+        # (matugen/templates/zebar.theme.css) for the hover/press circle
+        # behind actually-clickable lower-bar items (see style.css's
+        # .bar-btn:hover/:active).
+        @(Get-ColorLiterals -Path $script:themeCss).Count | Should -Be 8
     }
 }

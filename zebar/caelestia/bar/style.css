@@ -11,6 +11,17 @@
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
   --dur: 300ms;
   --bar-w: 52px;
+  /* Change 1 (lower-cluster restyle): glyphs were reading ~14px against a
+     16px base font -- bumped to a fixed, explicit 18px so wifi/volume/
+     vesktop/power/layout-toggle glyphs all share one deliberate size
+     regardless of a given glyph's own font metrics. --icon-box is the
+     passive (non-clickable) glyph's centring box (status-icons, vesktop);
+     --hit-size is the larger circular hover/press target used ONLY by
+     elements with a real click handler (power, layout-toggle) -- see the
+     .bar-btn rule below for why that distinction matters. */
+  --icon-size: 18px;
+  --icon-box: 28px;
+  --hit-size: 32px;
   /* Native taskbar (Shell_TrayWnd) sits at y=1392-1440 on this machine, full
      width, above zOrder: "normal" windows -- it occludes and intercepts
      clicks on anything docked below it. Nudge the bottom of the strip up by
@@ -74,16 +85,47 @@ body.fullscreen-hidden #bar { display: none; }
   font: inherit; cursor: pointer;
 }
 .workspace--focused { background: var(--primary); color: var(--on-primary); }
-.clock { line-height: 1.1; text-align: center; font-size: 0.85em; }
 
-/* Bar-polish item 2: statusIcons previously rendered the wifi/volume PUA
-   glyphs and the battery percentage as plain, unstyled divs -- no shared
-   size, no vertical rhythm, no centring. `__glyph` fixes the icon glyphs to
-   a shared square box (consistent size + centring regardless of the
-   individual glyph's natural metrics); `__battery` is deliberately smaller
-   text rather than another icon-sized box, since it's a 2-3 character
-   percentage, not a single glyph -- sizing it like a glyph box left visibly
-   uneven rhythm against the icons above it. */
+/* Change 1: clock keeps its stacked HH-over-MM form but gets tabular/lining
+   figures (digits share one fixed width, so "23"->"22" never jitters the
+   column) and more visual weight (600) than the icons beneath it (which
+   stay at the default 400), per the brief's explicit ask. */
+.clock {
+  line-height: 1.15;
+  text-align: center;
+  font-size: 0.95em;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+/* Change 1 (lower-cluster restyle): Caelestia groups related lower-bar
+   items onto ONE continuous elevated surface, not one boxed chip per icon
+   -- the user explicitly rejected the "yasb-style separate chips" reading
+   twice. `.status-cluster` is that one shared pill: statusIcons (wifi,
+   volume) and vesktop are rendered as two nested entries INSIDE it (see
+   entries/statusCluster.js, which composes the existing, still separately
+   registered/unit-tested statusIcons.js and vesktop.js factories rather
+   than duplicating their logic) so they read as one grouped surface.
+   `power` deliberately stays OUTSIDE this container, per the brief -- its
+   own separate circular button at the very bottom. */
+.status-cluster {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-md) var(--space-sm);
+  background: var(--surface-container);
+  border-radius: var(--radius-full);
+}
+
+/* statusIcons previously rendered the wifi/volume PUA glyphs and the
+   battery percentage as plain, unstyled divs -- no shared size, no
+   vertical rhythm, no centring. `__glyph` fixes the icon glyphs to a
+   shared square box (consistent size + centring regardless of the
+   individual glyph's natural metrics, now at --icon-size/--icon-box rather
+   than the original undersized 24px/inherited-16px); `__battery` is
+   deliberately smaller text rather than another icon-sized box, since it's
+   a 2-3 character percentage, not a single glyph. */
 .status-icons {
   display: flex;
   flex-direction: column;
@@ -94,8 +136,9 @@ body.fullscreen-hidden #bar { display: none; }
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: var(--icon-box);
+  height: var(--icon-box);
+  font-size: var(--icon-size);
   line-height: 1;
 }
 .status-icons__battery {
@@ -103,7 +146,48 @@ body.fullscreen-hidden #bar { display: none; }
   line-height: 1;
   text-align: center;
 }
-.power { background: transparent; border: none; color: var(--on-surface-variant); cursor: pointer; font-size: 1em; }
+
+/* vesktop's own box now matches statusIcons' glyph sizing so the two read
+   as one consistent rhythm inside the shared .status-cluster pill (it used
+   to be an unstyled div, sized by nothing but its own text). Unpinged, its
+   `el.style.display = 'none'` (entries/vesktop.js) removes it from the
+   cluster's flex layout entirely -- no empty gap reserved for it. */
+.vesktop {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--icon-box);
+  min-height: var(--icon-box);
+  font-size: var(--icon-size);
+  line-height: 1;
+}
+.vesktop--pinged { color: var(--primary); font-weight: 700; }
+
+/* Change 1 / change 3: the ONE shared clickable-affordance style in this
+   file. Applied ONLY to elements with a real click handler --
+   entries/power.js (confirm() dialog) and entries/layoutToggle.js
+   (change-layout, change 3) -- never to statusIcons/vesktop, which have no
+   click handler at all. The user has complained before that bar buttons do
+   nothing on click; giving a hover/press affordance to something inert
+   would be the same lie in the other direction, so nothing here reaches an
+   element that isn't actually wired. */
+.bar-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--hit-size);
+  height: var(--hit-size);
+  border: none;
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--on-surface-variant);
+  font: inherit;
+  font-size: var(--icon-size);
+  cursor: pointer;
+  transition: background var(--dur) var(--ease), transform var(--dur) var(--ease);
+}
+.bar-btn:hover { background: var(--surface-container-high); }
+.bar-btn:active { background: var(--surface-container-high); transform: scale(0.92); }
 
 .media, .active-window {
   writing-mode: vertical-rl;
@@ -167,10 +251,3 @@ body.fullscreen-hidden #bar { display: none; }
   animation-duration: var(--dur);
   animation-timing-function: var(--ease);
 }
-
-/* Task 7 left the vesktop ping chip with no accent (no red token exists in
-   theme.css, which is out of this task's scope -- it's matugen-generated
-   and not in the Task 8 file list). `var(--primary)` is the only accent
-   token available without expanding scope; not literally red, but gives
-   the pinged chip a themed, non-default color as yasb's version had. */
-.vesktop--pinged { color: var(--primary); font-weight: bold; }

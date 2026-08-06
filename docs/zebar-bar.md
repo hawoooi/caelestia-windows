@@ -39,8 +39,11 @@ zebar/caelestia/
     entries/
       registry.js              -- register/create/knownTypes/clear
       index.js                 -- imports every entry module, registering its type
-      logo.js, workspaces.js, activeWindow.js, media.js, clock.js,
-      statusIcons.js, vesktop.js, power.js
+      logo.js, workspaces.js, layoutToggle.js, activeWindow.js, media.js, clock.js,
+      statusIcons.js, vesktop.js, statusCluster.js, power.js
+      -- layoutToggle.js and statusCluster.js added by the lower-cluster
+         restyle / tiling-layout-control pass -- see "Lower-cluster restyle,
+         app-name-only activeWindow, tiling-layout control" below.
     vendor/
       zebar.js                 -- vendored, bundled zebar@3.3.1 (no CDN, no bare imports)
 ```
@@ -409,13 +412,15 @@ Trade-offs to plan for if this is picked up:
   visually/functionally verified while WebView2 is broken on this machine (see below), and a
   privilege-allowlist change is exactly the kind of edit that's cheap to get subtly wrong (see the
   `power` warning immediately below).
-- **`--outline` and `--surface-container` are generated but unused.** `matugen/templates/
-  zebar.theme.css` renders all seven properties into `theme.css`; `style.css` only ever references
-  `--surface`, `--on-surface`, `--on-surface-variant`, `--primary`, `--on-primary` (M4). Not
-  necessarily wrong — the layout may simply not need a second background tier or an outline color
-  yet — but recorded so a future pass doesn't assume they're wired up somewhere non-obvious, and so
-  removing them from the template isn't done under the mistaken belief that they're dead weight
-  with no future use in mind.
+- **`--outline` is generated but unused; `--surface-container`/`--surface-container-high` are now
+  both wired (M4, updated).** `--surface-container` backs the lower-cluster's `.status-cluster`
+  pill (see below); `--surface-container-high` was added specifically for the hover/press circle
+  behind actually-clickable lower-bar items (`.bar-btn:hover`/`:active` in `style.css`) — eight
+  properties now render into `theme.css` (`matugen/templates/zebar.theme.css`), not seven; the
+  zero-color-literal test's non-vacuousness check (`tests\Get-ColorLiterals.Tests.ps1`) was updated
+  from 7 to 8 accordingly. `--outline` alone remains unused — recorded so a future pass doesn't
+  assume it's wired up somewhere non-obvious, and so removing it isn't done under the mistaken
+  belief it has no future use in mind.
 
 **Wiring `power.js` for real, when that's picked up:** it currently only does
 `console.warn('power action not yet wired')` behind a `confirm()` guard — no `shellExec` call
@@ -1204,3 +1209,147 @@ bug shipped with nothing able to exercise the function against a throwaway fixtu
 real machine. `tests\InstallConfig.Tests.ps1` now runs `Install-Config` itself (all four
 DryRun/Uninstall combinations) against isolated temp fixtures, not just its `Set-PatchedBlock`/
 `Set-ManagedJunction` primitives.
+
+## Lower-cluster restyle, app-name-only activeWindow, tiling-layout control
+
+Three related changes on `feat/corner-overlays`, none of which touch `corners/`, `edges/`,
+`zpack.json`'s frame presets, or `Set-FrameGeometry.ps1` (that work is finished and out of scope
+here).
+
+### 1. Lower bar cluster (`clock`/`statusCluster`/`power`)
+
+The lower half previously rendered `clock`, `statusIcons`, and `vesktop` as three independent bare
+entries with no shared container, at a glyph size (~14px, inherited from `#bar`'s 16px font) that
+read as undersized on a 52px-wide bar. The user twice rejected a "pills" reading that meant
+per-icon boxed chips (yasb's own visual language) — what Caelestia actually does is group related
+items onto ONE elevated rounded surface.
+
+- **`entries/statusCluster.js`** (new) composes the *existing*, still separately registered and
+  unit-tested `statusIcons`/`vesktop` factories via `registry.js`'s own `create()` — it does not
+  duplicate `statusIconParts()`/`pingState()`. `bar.config.json`'s `statusIcons`/`vesktop` entries
+  were replaced with one `statusCluster` entry; `power` stays a separate top-level entry, per the
+  brief ("power stays visually separate at the very bottom, as its own circular button").
+- **`.status-cluster`** (`style.css`): `background: var(--surface-container)`,
+  `border-radius: var(--radius-full)` (999px), uniform `gap`/`padding` from the existing spacing
+  tokens. `--icon-size` (18px), `--icon-box` (28px, the passive glyph box), and `--hit-size` (32px,
+  the clickable circular hit/hover target) were added to the existing `:root` token block rather
+  than inlining new magic numbers.
+- **`.bar-btn`**: the one shared clickable-affordance class (circular `var(--surface-container-high)`
+  hover background, `transform: scale(0.92)` on `:active`). Applied ONLY to `power` (already had a
+  real click handler — a `confirm()` dialog) and the new `layoutToggle` (below, real `change-layout`
+  click handler) — never to `statusIcons`/`vesktop`, which have no click handler at all. The user has
+  complained before that bar buttons do nothing on click; the same principle in reverse — a hover
+  affordance on something inert — was avoided deliberately.
+- **`--surface-container-high`** did not previously exist in `theme.css` — added to
+  `matugen/templates/zebar.theme.css` (`{{colors.surface_container_high.default.hex}}`, the same
+  matugen role already used, retired, in `matugen/mapping.json` for yasb) and regenerated via a real
+  `Apply-Theme` run (colors otherwise unchanged: same probe image, same palette). `theme.css` now
+  renders 8 custom properties, not 7 — `tests\Get-ColorLiterals.Tests.ps1`'s non-vacuousness check
+  was updated to match (see "Known-minor gaps" above).
+- **Clock**: `font-variant-numeric: tabular-nums lining-nums` (digits share one fixed width, so
+  "23"→"22" never jitters the stacked HH/MM column) and `font-weight: 600`, deliberately heavier than
+  the icons' default 400.
+
+### 2. `activeWindow`: app name only, derived from `exe`
+
+Previously rendered the focused window's full `title`, which routinely overflowed the 52px vertical
+strip's 240px max-height column mid-string (the observed case: `imation movie "Before you`, a
+fragment of a much longer real title).
+
+`entries/activeWindow.js`'s container/focus-selection logic — `focusedWorkspace.focusedContainerIndex`
+→ that container's `windows[0]` (there is no per-window focus flag or within-container focused-index
+field anywhere in zebar's own `KomorebiWindow`/`KomorebiContainer` types at 3.3.1, see this file's
+existing "The komorebi provider's window-focus shape" section above) — is **unchanged**, renamed
+`focusedWindow()` and returning the window object instead of its title string, so `appName()` can
+read whichever field it needs. `KomorebiWindow.exe: string | null` was confirmed directly against
+`zebar@3.3.1`'s own shipped `dist/index.d.ts` (not assumed, and not the same npm package the
+`isFocused` mistake elsewhere in this pack came from guessing against) and against a live
+`komorebic state` capture taken during this task, which showed real, populated `exe` values on every
+window (`wezterm-gui.exe`, `vesktop.exe`, `chrome.exe`, `explorer.exe`, `foobar2000.exe`).
+
+`appName(exe)` (`entries/activeWindow.js`): strips a trailing `.exe` (case-insensitively), maps the
+lower-cased result through a small alias table (`wezterm-gui`→WezTerm, `code`→VS Code,
+`explorer`→Explorer, `chrome`→Chrome, `msedge`→Edge), and falls back to the stripped name unchanged
+when there's no alias — never to the window title, which the function's own signature (`exe` only,
+no `title` parameter) makes structurally impossible, not just a runtime choice. A 14-character
+backstop truncation (`…` suffix) guards a genuinely long, unaliased exe name, independent of
+`.active-window`'s existing CSS `text-overflow: ellipsis` (which, in a fixed-max-height vertical
+writing-mode column, clips wherever the box ends rather than guaranteeing a visible ellipsis — the
+exact mechanism behind the original mid-string-fragment bug).
+
+### 3. Tiling-layout control (`layoutToggle`)
+
+A new bar entry (`entries/layoutToggle.js`), placed on the bar itself between `workspaces` and
+`activeWindow` in `bar.config.json` (`["logo","workspaces","layoutToggle","activeWindow",...]`),
+per the user's explicit requirement that this be a bar control, not a hotkey or menu.
+
+**Design: a button cycling a curated 4-layout list** (`LAYOUT_CYCLE = ['bsp', 'columns', 'rows',
+'grid']`), read against the real current layout from the komorebi provider's own workspace object
+(`out.komorebi.focusedWorkspace.layout`) on every tick — never tracked in local state — so the
+button's glyph stays correct even when the layout was last changed by hotkey. The click handler
+independently re-reads `ctx.providers.outputMap` at click time (not a value captured in `update()`'s
+closure), so it can never act on a stale layout either.
+
+**`columns` needed a live check, not an assumption.** It is confirmed present on this machine's real
+`komorebic.exe` (`change-layout --help` lists it, distinct from `bsp`), but it is **not** one of the
+eight strings zebar's own `KomorebiLayout` TypeScript union declares at 3.3.1 (`bsp | vertical_stack
+| horizontal_stack | ultrawide_vertical_stack | rows | grid | right_main_vertical_stack | custom`) —
+checked directly against the same shipped `dist/index.d.ts` used for `exe` above, the type source
+that already once caught a real bug in this pack (the `isFocused` field that never existed — see
+"The komorebi provider's window-focus shape"). Live-tested during this task, cautiously and with the
+end state restored: `change-layout bsp|columns|rows|grid|vertical-stack` were each run in turn
+against the real `komorebic.exe`, with `komorebic state` re-read after each to confirm komorebi
+itself accepted and reported the change, `zebar`'s `errors.log` checked for new lines (none), and
+the running bar screenshotted mid-sequence (workspaces/active-window/media/clock all still
+rendering) to confirm the live provider subscription wasn't disrupted. Ended back on `bsp`, per this
+task's own safety constraint. Given the CLI-side round-trip is confirmed safe but what the *provider*
+reports back for a `Columns` workspace is not (most likely `custom`, per the union above, but never
+directly observed), `currentLayout()`'s `PROVIDER_TO_CYCLE` map only translates the three provider
+strings that ARE in the confirmed union (`bsp`/`rows`/`grid`); an unrecognized report — including,
+most likely, `columns` itself — degrades to `null` → the fallback glyph (`▧`), never a guessed-wrong
+specific one. This is a deliberate asymmetry (the CLI command list and the provider-read map are not
+mirror images of each other) and is commented as such in `layoutToggle.js`, not left implicit.
+
+**Privilege widening (`zpack.json`, `bar` widget only):** the existing `komorebic.exe` allowlist
+entry's `argsRegex` widened from `^focus-workspace \d$` to
+`^(focus-workspace \d|change-layout (bsp|columns|rows|grid))$` — an anchored alternation covering
+exactly `focus-workspace <digit>` (pre-existing, `workspaces.js`) and `change-layout` with exactly
+the four curated values (new, `layoutToggle.js`), and nothing else — no `flip-layout`, no
+`vertical-stack`/`horizontal-stack`/other layouts this button never calls, no catch-all.
+
+Styled consistently with change 1: `layout-toggle bar-btn` (same circular hover/press affordance).
+Hides with the rest of the bar on fullscreen automatically, with no extra code — it is just another
+child of `#bar`, and `body.fullscreen-hidden #bar { display: none; }` (pre-existing, see "Nerd Font
+glyphs"/fullscreen-auto-hide sections above) hides the whole bar including every entry inside it.
+
+### Verification notes
+
+Both `node --test` (70 tests, up from 53 — new coverage for `appName`, `focusedWindow`,
+`LAYOUT_CYCLE`/`currentLayout`/`nextLayout`/`layoutGlyph`/`changeLayoutCommand` in
+`tests/js/entries.test.mjs`) and the Pester suite (156 tests, unchanged count — one assertion value
+updated from 7 to 8) were run green after every change. `statusCluster`'s DOM composition (no pure
+branching logic of its own worth a `node --test` case, consistent with how `spacer`'s equally
+trivial factory in `entries/index.js` is untested) was instead exercised directly against a minimal
+hand-rolled `document.createElement` stub during this task (not committed — a throwaway
+verification script), confirming it appends exactly the `statusIcons`/`vesktop` children and that
+`update()` forwards to both.
+
+**Live on-screen visual confirmation of this pass could not be completed.** Restarting the bar to
+load the new files (unavoidable — Zebar has no hot reload, see "Starting, stopping, and reloading"
+above) triggered a recurrence of the environmental WebView2 problem this file already documents
+under "Troubleshooting: WebView2 renders nothing" — the bar (and the rest of the pack: corners,
+edges) opened and its process stayed responsive, but nothing painted (confirmed transparent, not
+just dark: repeated screenshots of the bar's screen region showed the animated wallpaper cycling
+underneath, at multiple different animation frames, with zero opaque content at any sampled moment).
+This specific occurrence also showed a concrete proximate cause not previously recorded in this
+file: `state/zebar-logs/caelestia-bar-default.out.log` logged `Asset server failed during runtime:
+Bind(Os { code: 10048, kind: AddrInUse, ... })` on every fresh restart attempted during this task,
+and `Get-NetTCPConnection -LocalPort 6124` kept showing that port held (`Listen`/`CloseWait`/
+`Established`) by a PID that `Get-Process`/`tasklist` both confirm no longer exists — a stuck
+kernel-level socket outliving its owning process, unrelated to anything in this pack's own files
+(confirmed via a direct Node.js harness — see the task's own final report — that every changed/new
+entry constructs, updates, and renders the exact expected DOM classes/text/glyphs in isolation).
+Per this file's own prior findings, this class of issue is known to require a user sign-out or a
+full reboot to clear, neither of which this task's safety constraints permit performing
+unilaterally — recommended next step, same as previously recorded here: next time it's convenient,
+sign out or reboot, then re-screenshot the bar's lower half to confirm the restyle visually.
