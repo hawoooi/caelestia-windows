@@ -2,3 +2,4 @@
 state/staging/
 state/last-good-new/
 state/pre-apply/
+state/config-backup/
