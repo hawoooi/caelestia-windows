@@ -558,6 +558,95 @@ extreme screen corners), not input-swallowing, since the corner widgets' click-d
 confirmed tiny and off any window — but this is a real, unmitigated risk worth knowing about before
 relying on this bar setup during a match.
 
+## Desktop frame (edge strips)
+
+`corner-overlays` follow-up: the four corner arc widgets render correctly on their own (confirmed
+by screenshot), but nothing connected them -- they read as four floating wedges rather than a
+frame. Two changes closed that gap, both on top of the same "top_most, `dockToEdge: { enabled:
+false }`, small click-dead footprint" approach corner-overlays already established.
+
+**The arcs gained an actual stroke first.** The original per-corner rule was a single
+`radial-gradient` fading `var(--surface)` to transparent -- a filled wedge, not a bordered line, so
+there was no consistent-width "line" for a straight edge to visually continue. `corners.css` now
+sizes each corner's `#corner::before` to `corner-size + corner-border-width` and gives it a real
+`border: ... solid var(--primary)` with the corner radius set to the box's own full size (so the
+whole box becomes curve, no straight run left inside the 28x28 window) -- the browser's own
+border+radius renderer keeps that stroke a true constant `--corner-border-width` (4px, matching
+`komorebi.json`'s own `border_width`) the entire way to the widget's edge, unlike a radial-gradient
+ring, which was tried first and empirically confirmed to taper to a point well before reaching the
+widget's own tangent corners (a radial gradient has no ring-width control independent of how much
+of the box the circle sweeps through). `--corner-size` itself (the transparent hole's reach) is
+unchanged -- see `corners.css`'s own comment block for the exact radius arithmetic that keeps the
+fill/stroke/hole all on one shared curve.
+
+**Then a fifth widget, `edges`, fills the straight runs between the arcs.** Unlike `corners/` (one
+shared HTML/CSS/JS, four presets that classify their own corner at runtime because all four are
+geometrically identical modulo rotation), every `edges` preset is already a different, fixed shape
+-- there is nothing left to decide at runtime, so `edges/index.html`/`edges.css` has no JS at all:
+each window's entire visible area is just a flat `var(--primary)` fill at whatever width/height
+zpack.json gave that preset.
+
+**Why the left edge is only two 12px stubs, not a fourth long strip.** The bar (`caelestia/bar`,
+52px wide) already forms the frame's left edge visually -- a parallel vertical strip along the
+bar's own right edge would be redundant. What the bar does NOT cover is the ~12px gap between its
+own right edge (x=52) and each of the two left corner widgets (which start at x=64, by the same
+"comfortably inside the 40px gap" margin corner-overlays used for every corner). Two short
+`bar-link-*` presets close exactly that gap, one per left corner; the top, right and bottom edges
+have no such gap to close (their neighboring corners already reach flush to the strip).
+
+**Geometry, measured on this machine's 2560x1440 screen (`GetWindowRect`, not calculated from
+`komorebic state`'s work area alone -- see below for why):**
+
+| Preset | Rect (screen px) | Connects |
+|---|---|---|
+| `top` | `(92,12)-(2520,16)` | top-left arc <-> top-right arc |
+| `right` | `(2544,40)-(2548,1400)` | top-right arc <-> bottom-right arc |
+| `bottom` | `(92,1424)-(2520,1428)` | bottom-left arc <-> bottom-right arc |
+| `bar-link-top` | `(52,36)-(64,40)` | bar's right edge <-> top-left arc |
+| `bar-link-bottom` | `(52,1400)-(64,1404)` | bar's right edge <-> bottom-left arc |
+
+Every strip is `--corner-border-width` (4px) thick, matching the arc stroke. All five use anchor
+`top_left` with a purely positive `offsetX`/`offsetY` pair -- deliberately sidestepping the signed-
+offset gotcha corner-overlays hit (see below), since a `top_left`-anchored offset is always the
+window's literal absolute screen position, in both axes, regardless of which edge of the screen the
+strip ends up nearest to.
+
+The 92/2520/12/1424/etc. constants above are the corner widgets' own already-placed edges (`64+28`,
+`2520`, `12+4`, `1428-4`, ...) rather than anything independently derived from
+`default_workspace_padding`/`default_container_padding`; corner-overlays' own placement was already
+verified against real tiled-window rects (`docs/zebar-bar.md`'s pre-existing "Geometry" note under
+Corner overlays), so anchoring the new strips to the corners' own measured `GetWindowRect` output
+(via a P/Invoke `EnumWindows`/`GetWindowRect` probe, not hand-derived from the work-area rect) is
+one fewer place these numbers could drift from what's actually on screen. `work_area_size` was
+re-read before and after (`{left:52, top:0, right:2508, bottom:1440}`, unchanged in both) to
+confirm `dockToEdge: { enabled: false }` really does reserve nothing for all five new presets, the
+same check corner-overlays ran for its four.
+
+**Visual result (screenshotted at 6x-16x nearest-neighbour zoom, all four corners plus both
+junctions at the top-left corner individually):** the arc and the strip it meets share the same
+color, thickness and screen row/column with no visible gap, jog, or thickness change at any of the
+six junctions (four corner-to-long-strip, two corner-to-bar-link) -- confirmed by direct pixel
+inspection, not just eyeballing (`--surface` `#0f1416` and `--primary` `#87d1ea` both sampled
+exactly at their expected coordinates before the strips existed, to confirm the arc's own fill/hole
+geometry first). One minor artifact: a single stray lighter pixel is visible just above the
+bottom-left corner's arc in a wide screenshot crop, consistent with WebView2/compositor antialiasing
+at a window-to-window seam rather than a geometry error -- it did not reappear in the tight
+zoomed-in junction crops and is not treated as a defect.
+
+**Registration.** Like `corners`, every `edges` preset needs its own `startupConfigs` entry (same
+`pack`+`widget`, five different `preset` values) or it will not survive a reboot --
+`Install-Config`'s `$edgePresets` list and `Remove-ZebarStartupConfig`'s existing
+match-by-`pack`+`widget` (already widget-granular, not preset-granular, from corner-overlays) cover
+this the same way they cover `corners`.
+
+**Same unmitigated risks as corner-overlays, now covering slightly more screen area.** `top_most`
+z-order with no fullscreen-aware auto-hide (worst case is a thin cosmetic line across the top,
+right, bottom, or two small stubs near the bar, not input-swallowing); click-dead footprint grows by
+the five strips' combined area (`2428*4 + 4*1360 + 2428*4 + 12*4 + 12*4` = 24,960px^2) on top of
+corner-overlays' existing `4*28*28` = 3,136px^2, all of it confirmed (via `WindowFromPoint` +
+`GetAncestor(GA_ROOT)` sampled across every strip) to resolve to the zebar `edges` window itself,
+never to a tiled content window.
+
 ## Installing/uninstalling
 
 ```powershell

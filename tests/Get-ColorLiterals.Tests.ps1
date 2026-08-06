@@ -51,6 +51,11 @@ Describe "The zebar bar's zero-color-literal invariant (I5)" {
         # radial-gradient corner mask) must come from theme.css, never a
         # literal.
         $script:cornersCss = "$PSScriptRoot\..\zebar\caelestia\corners\corners.css"
+        # Desktop-frame follow-up: edges.css is a third structural
+        # stylesheet (the "edges" widget in zpack.json) under the exact
+        # same invariant -- its only colour, the frame-line fill, must come
+        # from theme.css's var(--primary), never a literal.
+        $script:edgesCss   = "$PSScriptRoot\..\zebar\caelestia\edges\edges.css"
     }
 
     It "style.css contains zero colour literals" {
@@ -59,6 +64,10 @@ Describe "The zebar bar's zero-color-literal invariant (I5)" {
 
     It "corners.css contains zero colour literals" {
         @(Get-ColorLiterals -Path $script:cornersCss).Count | Should -Be 0
+    }
+
+    It "edges.css contains zero colour literals" {
+        @(Get-ColorLiterals -Path $script:edgesCss).Count | Should -Be 0
     }
 
     It "is non-vacuous: theme.css (which legitimately hardcodes the matugen palette) returns a nonzero count" {

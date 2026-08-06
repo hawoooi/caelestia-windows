@@ -287,6 +287,11 @@ ctrl + alt + w                : Start-Process powershell -WindowStyle Hidden -Ar
     # gap I4 fixed for caelestia/bar itself.
     $cornerPresets = @('top-left', 'top-right', 'bottom-left', 'bottom-right')
 
+    # Desktop-frame follow-up: the "edges" widget (zpack.json) has five
+    # presets -- the same one-entry-per-preset requirement as corners above,
+    # for the same reason (same pack+widget, five different presets).
+    $edgePresets = @('top', 'right', 'bottom', 'bar-link-top', 'bar-link-bottom')
+
     if ($DryRun) {
         # I1: the junction/settings.json steps below must ALSO be a no-op
         # under -DryRun, for BOTH the install and the uninstall direction.
@@ -304,10 +309,12 @@ ctrl + alt + w                : Start-Process powershell -WindowStyle Hidden -Ar
             "would remove junction $JunctionLink"
             "would remove startupConfigs entry for caelestia/bar from $ZebarSettingsPath"
             "would remove startupConfigs entries for caelestia/corners (all presets) from $ZebarSettingsPath"
+            "would remove startupConfigs entries for caelestia/edges (all presets) from $ZebarSettingsPath"
         } else {
             "would create/verify junction $JunctionLink -> $JunctionTarget"
             "would add startupConfigs entry for caelestia/bar to $ZebarSettingsPath"
             "would add startupConfigs entries for caelestia/corners ($($cornerPresets -join ', ')) to $ZebarSettingsPath"
+            "would add startupConfigs entries for caelestia/edges ($($edgePresets -join ', ')) to $ZebarSettingsPath"
         }
         return
     }
@@ -318,11 +325,15 @@ ctrl + alt + w                : Start-Process powershell -WindowStyle Hidden -Ar
         }
         Remove-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'bar'
         Remove-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'corners'
+        Remove-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'edges'
     } else {
         Set-ManagedJunction -LinkPath $JunctionLink -TargetPath $JunctionTarget | Out-Null
         Set-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'bar' -Preset 'default'
         foreach ($preset in $cornerPresets) {
             Set-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'corners' -Preset $preset
+        }
+        foreach ($preset in $edgePresets) {
+            Set-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'edges' -Preset $preset
         }
     }
 }

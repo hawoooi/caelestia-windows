@@ -1,0 +1,34 @@
+/* Structure/layout only -- zero colour literals, same invariant as
+   ../bar/style.css and ../corners/corners.css. Enforced by
+   tests/Get-ColorLiterals.Tests.ps1.
+
+   "Desktop frame" follow-up to corner-overlays: the four corner arc
+   widgets (../corners/) render correctly on their own, but with nothing
+   between them they read as four floating wedges instead of one frame.
+   This "edges" widget fills that gap with thin straight lines.
+
+   Unlike corners/ (one shared HTML/CSS/JS, four presets that classify
+   their OWN corner at runtime via classify.js, because all four are
+   geometrically identical modulo a rotation), every "edges" preset here
+   is already a different shape (a long horizontal bar, a long vertical
+   bar, a short 12px stub) -- zpack.json's per-preset width/height already
+   captures 100% of what makes each one different, so there is nothing
+   left to decide at runtime. Each window's entire visible area is just a
+   flat var(--primary) fill, at the same width Zebar gave the window --
+   no JS, no classification, no orientation logic. */
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+}
+
+#edge {
+  width: 100%;
+  height: 100%;
+  background: var(--primary);
+}

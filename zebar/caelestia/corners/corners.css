@@ -5,10 +5,15 @@
 
 :root {
   /* Must match the widget's own window size (zpack.json's "corners" preset
-     width/height). The radial-gradient radius below is keyed off this same
-     value so the transparent quarter-circle always reaches exactly to the
-     window's far edges -- if the preset size ever changes, change this too. */
+     width/height). --corner-size is the radius of the transparent quarter
+     circle -- it always reaches exactly to the window's far edges -- if the
+     preset size ever changes, change this too. */
   --corner-size: 28px;
+
+  /* Must match komorebi.json's top-level "border_width": 4 (read-only, see
+     CLAUDE.md) so the arch's stroke reads as the same line weight as the
+     real window border it's visually continuing, not a thinner/thicker one. */
+  --corner-border-width: 4px;
 }
 
 html,
@@ -24,49 +29,110 @@ body {
 #corner {
   width: 100%;
   height: 100%;
+  position: relative;
 }
 
-/* Each corner paints var(--surface) into the gap between the bar/screen
-   edge and the content region, fading via a radial-gradient quarter-circle
-   into full transparency at the corner nearest the content -- the standard
-   "rounded corner mask" trick. Which of these four rules applies is decided
-   at runtime by corners.js (classifyCorner), which reads this window's own
-   on-screen position rather than trusting a hardcoded preset->corner map,
-   so a geometry change can never leave a widget painting the wrong corner
-   silently. The gradient's "at <x> <y>" keyword pair is always the corner
-   of #corner nearest the bar/screen edge -- i.e. the OPPOSITE corner from
-   the one named in the class (a top-left widget's outer corner is its own
-   bottom-right, since the widget sits between the bar/screen edge and the
-   content, with its innermost corner touching the content). */
+/* Border stroke (corner-overlays follow-up -- "arches render properly but
+   we are missing the border"): komorebi draws a real border around a tiled
+   window's own rounded edge, but that border necessarily stops where the
+   window itself ends -- there is no window filling this widget's small gap
+   area, so nothing draws a border through it, and the arch used to read as
+   a solid filled wedge with the border line stopping dead at the window
+   edge.
 
-body.corner--top-left #corner {
-  background: radial-gradient(
-    circle at bottom right,
-    transparent var(--corner-size),
-    var(--surface) calc(var(--corner-size) + 1px)
-  );
+   A first attempt kept the original radial-gradient fill and inserted a
+   var(--primary) ring at the transparent/filled boundary. That produces a
+   ring of genuinely constant RADIAL width, but a radial-gradient ring only
+   has that width where the full ring cross-section fits inside the 28x28
+   box -- near the two ends of the arc (where it's tangent to the widget's
+   own straight edges) the box itself runs out before the ring's outer edge
+   does, so the visible stroke tapers away to a point well short of the
+   widget's own edge instead of staying border-width thick all the way to
+   it. Confirmed empirically (pixel-sampled a live screenshot): the ring
+   was visibly full-width at the 45-degree midpoint of the arc but had
+   already thinned to nothing several pixels before reaching either
+   tangent point. A gradient can't fix this -- there's no ring-width
+   control independent of "how much of the box the circle sweeps through."
+
+   Fix: an actual bordered, rounded box instead of a gradient. Each rule
+   below sizes #corner's pseudo-element to corner-size + border-width and
+   pins its content-facing corner to the SAME point the gradient used to
+   center on (still driven by --corner-size, so the transparent arch itself
+   is byte-for-byte unchanged -- see the radius arithmetic below). Only the
+   two sides adjoining that corner get a border, with the radius on that
+   corner set to the box's own full size, so the entire side becomes curve
+   (zero straight run) and the browser's own border+border-radius renderer
+   -- which keeps a constant-width border through a rounded corner by
+   construction, unlike a radial-gradient ring -- draws it at a true
+   constant var(--corner-border-width) the whole way to the widget's edge,
+   where it gets cut off by the window's own bounds rather than tapering.
+
+   The box's own top-left corner (in body.corner--top-left's case) sits
+   4px (one --corner-border-width) beyond the visible viewport in both
+   directions; body's overflow:hidden clips that off, which is why the box
+   is sized/positioned via `right/bottom:0` + a size larger than 100%
+   rather than just `inset:0`.
+
+   The radius arithmetic that keeps fill, stroke and the untouched
+   transparent hole all on one shared curve (no second shape to drift out
+   of sync at a different corner or a different --corner-size/
+   --corner-border-width value):
+     outer curve radius   = corner-size + border-width  (the box's own size)
+     inner curve radius   = outer radius - border-width = corner-size
+                             (exactly the original gradient's transparent
+                             boundary -- CSS derives a rounded border's
+                             inner curve as outer-radius minus border-width,
+                             so this falls out of the arithmetic rather than
+                             needing to be pinned separately)
+     0            .. corner-size                 : transparent (untouched --
+                                                     nothing painted here)
+     corner-size  .. corner-size + border-width   : var(--primary), constant
+                                                     width (the stroke)
+     beyond       .. box edge                     : var(--surface) (unchanged
+                                                     fill, the box's own
+                                                     un-rounded far corner) */
+
+body.corner--top-left #corner::before,
+body.corner--top-right #corner::before,
+body.corner--bottom-left #corner::before,
+body.corner--bottom-right #corner::before {
+  content: "";
+  position: absolute;
+  width: calc(var(--corner-size) + var(--corner-border-width));
+  height: calc(var(--corner-size) + var(--corner-border-width));
+  background: var(--surface);
+  border: 0 solid var(--primary);
+  border-width: 0;
 }
 
-body.corner--top-right #corner {
-  background: radial-gradient(
-    circle at bottom left,
-    transparent var(--corner-size),
-    var(--surface) calc(var(--corner-size) + 1px)
-  );
+body.corner--top-left #corner::before {
+  right: 0;
+  bottom: 0;
+  border-right-width: var(--corner-border-width);
+  border-bottom-width: var(--corner-border-width);
+  border-bottom-right-radius: calc(var(--corner-size) + var(--corner-border-width));
 }
 
-body.corner--bottom-left #corner {
-  background: radial-gradient(
-    circle at top right,
-    transparent var(--corner-size),
-    var(--surface) calc(var(--corner-size) + 1px)
-  );
+body.corner--top-right #corner::before {
+  left: 0;
+  bottom: 0;
+  border-left-width: var(--corner-border-width);
+  border-bottom-width: var(--corner-border-width);
+  border-bottom-left-radius: calc(var(--corner-size) + var(--corner-border-width));
 }
 
-body.corner--bottom-right #corner {
-  background: radial-gradient(
-    circle at top left,
-    transparent var(--corner-size),
-    var(--surface) calc(var(--corner-size) + 1px)
-  );
+body.corner--bottom-left #corner::before {
+  right: 0;
+  top: 0;
+  border-right-width: var(--corner-border-width);
+  border-top-width: var(--corner-border-width);
+  border-top-right-radius: calc(var(--corner-size) + var(--corner-border-width));
+}
+
+body.corner--bottom-right #corner::before {
+  left: 0;
+  top: 0;
+  border-left-width: var(--corner-border-width);
+  border-top-width: var(--corner-border-width);
+  border-top-left-radius: calc(var(--corner-size) + var(--corner-border-width));
 }
