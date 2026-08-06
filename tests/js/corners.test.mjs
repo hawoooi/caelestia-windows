@@ -11,7 +11,11 @@ import { classifyCorner } from '../../zebar/caelestia/corners/classify.js';
 test('classifyCorner: a window near the physical top-left is "top-left"', () => {
   // Actual zpack.json "top-left" preset placement (post flush-to-edge fix,
   // frame-flush with both the bar's own right edge and the screen top):
-  // anchor top_left, offsetX 52px, offsetY 0px.
+  // anchor top_left, offsetX 52px, offsetY 0px. classifyCorner only ever
+  // looks at x/y, never width/height, so this assertion is unaffected by
+  // the "no left band" pass (fifth pass) shrinking this preset's own width
+  // from 44px to 24px -- see corners.css's :root comment for why the left
+  // corners are narrower than the right ones now.
   assert.strictEqual(classifyCorner(52, 0, 2560, 1440), 'top-left');
 });
 
@@ -25,7 +29,10 @@ test('classifyCorner: a window near the physical top-right is "top-right"', () =
 
 test('classifyCorner: a window near the physical bottom-left is "bottom-left"', () => {
   // anchor top_left, offsetX 52px, offsetY 1396px, height 44px -> outer y
-  // = 1396, which is 1440 - 44 (flush with the screen's bottom edge).
+  // = 1396, which is 1440 - 44 (flush with the screen's bottom edge). Width
+  // is 24px (not 44px like the right corners -- see the top-left test's
+  // own comment), but classifyCorner never reads width, so that has no
+  // bearing on this assertion.
   assert.strictEqual(classifyCorner(52, 1396, 2560, 1440), 'bottom-left');
 });
 

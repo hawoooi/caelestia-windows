@@ -926,6 +926,77 @@ design, almost entirely in the (previously mostly-empty, now much thicker) edge 
 the corners -- the corners' own overlap with actual window interiors remains close to zero, measured
 live, not just assumed.
 
+## No left band on the left corners (fifth pass, direct user feedback)
+
+The previous pass's 44x44 left corner widgets (`corners/top-left`, `corners/bottom-left`) painted
+`var(--surface)` across their FULL 44px width whenever a point fell outside the `--corner-radius`
+(24px) hole -- including the left 20px of the widget, which sits directly on top of the bar (the
+bar's own right edge is at x=52, flush with the corner widget's left edge). The user's explicit
+instruction is that the bar itself forms the left side of the frame, so that left-hand paint was
+never wanted at all: for `y` in the arc's own top/bottom band range it produced a redundant strip
+sitting on top of the bar (harmless, since bar and frame are the same colour), but for `y` past the
+band -- inside the widget's own 24px-radius arc region but still left of where the arc's transparent
+hole reached the widget's own left edge -- that same solid paint continued for the widget's full
+44px height range down to `y=44`, then stopped dead, because nothing below the widget (no left edge
+strip exists, by design -- see `edges.css`) continued it. The visible result was a rectangular
+step: dark extending out to `x=72` (52 + 20) for `y` in `[20,44]`, snapping back to `x=52` for
+`y>44` -- confirmed by eye in a 5x zoomed screenshot of the top-left corner, not just by pixel
+sampling (a corrupted-but-clean-looking earlier pass in this project's history is the reason this
+task insisted on actually looking at the image, not just sampling colour at a few points).
+
+**The fix is a single-axis width change, nothing else.** `corners/top-left` and
+`corners/bottom-left` shrink from 44px to `--corner-radius` (24px) wide in `zpack.json` -- exactly
+zero left-band term, not just a smaller one -- while staying 44px (`--frame-band + --corner-radius`)
+tall, since their top-or-bottom band is real and unaffected. `corners.css`'s gradient rules
+(`at bottom right` / `at top right`) are percentage-based against the widget's own box, so they
+re-center on the new, narrower box automatically; no CSS values changed, only the widget dimensions
+in `zpack.json`. `edges/top` and `edges/bottom` re-anchor to the left corners' new, closer tangent
+point: `offsetX` 96 -> 76, width 2420 -> 2440 (the two right-hand-corner-facing numbers -- `right`
+edge and every corner preset's own `offsetY`/height -- are unchanged, since none of those depend on
+the left corners' width).
+
+**Geometry (measured live via `GetWindowRect` against every running `caelestia` widget process,
+2560x1440 screen, all anchor `top_left` with positive absolute offsets, `dockToEdge: { enabled:
+false }` on every preset):**
+
+| Preset | Rect (screen px, `GetWindowRect`) | width x height |
+|---|---|---|
+| `corners/top-left` | `(52,0)-(76,44)` | 24x44 |
+| `corners/top-right` | `(2516,0)-(2560,44)` | 44x44 |
+| `corners/bottom-left` | `(52,1396)-(76,1440)` | 24x44 |
+| `corners/bottom-right` | `(2516,1396)-(2560,1440)` | 44x44 |
+| `edges/top` | `(76,0)-(2516,20)` | 2440x20 |
+| `edges/right` | `(2540,44)-(2560,1396)` | 20x1352 |
+| `edges/bottom` | `(76,1420)-(2516,1440)` | 2440x20 |
+
+`corners/top-left`'s right edge (76) is `edges/top`'s left edge; `edges/top`'s right edge (2516) is
+`corners/top-right`'s left edge; same pattern bottom and on the right-hand side -- all seven line up
+with no gap or overlap. `corners/top-left`'s and `corners/bottom-left`'s own LEFT edge is x=52 for
+their full height, flush with the bar's right edge, with no widening below y=44 or above y=1396 --
+the bar itself (x in `[0,52]`, full screen height) is what makes x=52 continuous outside the corner
+widgets' own y-ranges, same as it always was; nothing about this pass changes the bar. `komorebic
+state`'s `work_area_size` was re-read before and after: `{left:52, top:0, right:2508, bottom:1440}`,
+unchanged.
+
+**Click-dead footprint, recomputed:**
+
+- Corners: `2 * 24*44 + 2 * 44*44` = 2,112 + 3,872 = 5,984px² (down from 7,744px², since the two
+  left corners each shed 20*44 = 880px²).
+- Edges: `2440*20 * 2 + 20*1352` = 97,600 + 27,040 = 124,640px² (up from 123,840px², since `top`/
+  `bottom` each gained 20*20 = 400px² of length to stay flush against the narrower left corners).
+- **Total: 130,624px²**, down from the previous pass's 131,584px² -- a net decrease of 960px²
+  (2,112+3,872 corners lost 1,760px² combined, edges gained 800px² combined, net -960). This pass
+  is a shape fix, not primarily a footprint change -- the small net decrease is incidental, not the
+  point of the fix.
+
+**Visual result (screenshotted top-left and bottom-left corners at 5x nearest-neighbour zoom,
+crops `x:0-140,y:0-110` and `x:0-140,y:1330-1440`):** the step is gone -- the dark frame now reads
+as one continuous edge: solid from the physical screen top/bottom edge, curving smoothly through a
+90-degree arc, then straight down (or up) the bar's own right edge at x=52 with no jog, notch, or
+discontinuity at the corner-to-bar junction, top or bottom. The two right corners are visually
+unchanged (still 44x44, still keep their right-hand band) and were re-checked at the same zoom to
+confirm this pass didn't disturb them.
+
 ## Installing/uninstalling
 
 ```powershell

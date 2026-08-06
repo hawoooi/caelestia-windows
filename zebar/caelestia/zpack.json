@@ -70,7 +70,7 @@
           "anchor": "top_left",
           "offsetX": "52px",
           "offsetY": "0px",
-          "width": "44px",
+          "width": "24px",
           "height": "44px",
           "monitorSelection": { "type": "all" },
           "dockToEdge": { "enabled": false }
@@ -90,7 +90,7 @@
           "anchor": "top_left",
           "offsetX": "52px",
           "offsetY": "1396px",
-          "width": "44px",
+          "width": "24px",
           "height": "44px",
           "monitorSelection": { "type": "all" },
           "dockToEdge": { "enabled": false }
@@ -129,9 +129,9 @@
         {
           "name": "top",
           "anchor": "top_left",
-          "offsetX": "96px",
+          "offsetX": "76px",
           "offsetY": "0px",
-          "width": "2420px",
+          "width": "2440px",
           "height": "20px",
           "monitorSelection": { "type": "all" },
           "dockToEdge": { "enabled": false }
@@ -149,9 +149,9 @@
         {
           "name": "bottom",
           "anchor": "top_left",
-          "offsetX": "96px",
+          "offsetX": "76px",
           "offsetY": "1420px",
-          "width": "2420px",
+          "width": "2440px",
           "height": "20px",
           "monitorSelection": { "type": "all" },
           "dockToEdge": { "enabled": false }

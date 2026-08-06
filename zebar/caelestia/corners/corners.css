@@ -18,11 +18,26 @@
   /* Content corner radius -- how tightly the frame curves into the tiled
      content region. Independent of --frame-band; tune this alone to
      change how rounded the corner feels without touching the band
-     thickness. Each corner widget's own window size in zpack.json is
-     --frame-band + --corner-radius (44px = 20 + 24) on both axes -- if
-     either variable changes, the corresponding preset's width/height in
-     ../zpack.json must change to match, or the arc's tangent points will
-     no longer land on the widget's own edges. */
+     thickness.
+
+     Widget sizing is NOT uniform across all four corners, because the bar
+     (../bar/, 52px wide) already forms the frame's entire left edge -- see
+     ../edges/edges.css's own comment on why there is no left edge strip.
+     A left corner therefore has no left band to paint at all, only a top-
+     or-bottom band plus the arc:
+
+       - top-right / bottom-right: --frame-band + --corner-radius (44px =
+         20 + 24) on BOTH axes -- these still have a real band on their two
+         screen-facing sides (top-or-bottom AND right).
+       - top-left / bottom-left: --corner-radius (24px) WIDE (no left-band
+         term at all -- width == radius exactly, since there is zero band
+         to add) x --frame-band + --corner-radius (44px) TALL (top/bottom
+         still needs its own band).
+
+     If --frame-band or --corner-radius changes, every corner preset's
+     width/height in ../zpack.json must change to match using the formulas
+     above, or the arc's tangent points will no longer land on the
+     widget's own edges. */
   --corner-radius: 24px;
 }
 
@@ -95,7 +110,35 @@ body {
    the hole's size relative to the widget (fixed --corner-radius, not
    "fills the whole widget") changed. See docs/zebar-bar.md's "Frame
    flush-to-edge correction" section for the full geometry table and the
-   click-dead-footprint measurement this pass took. */
+   click-dead-footprint measurement this pass took.
+
+   No left band, left corners (fifth pass, direct user feedback): the
+   "three separate pieces" equivalence above assumed a --frame-band term on
+   BOTH non-content-facing axes -- true for top-right/bottom-right, which
+   keep their 44x44 (--frame-band + --corner-radius on both axes) footprint
+   and a real right-hand band. It was never true for top-left/bottom-left:
+   the bar (../bar/, 52px wide) already IS the frame's left edge (see
+   ../edges/edges.css's own comment), so painting a left band on top of it
+   was redundant paint sitting where the bar already covers the pixels --
+   except the widget's own window was still 44px wide, so that redundant
+   band extended 20px past the bar's own right edge (x=52) into what should
+   have been open content, producing a visible rectangular step where the
+   band suddenly retreated back to x=52 below the widget (see
+   docs/zebar-bar.md's account of this defect and its fix). The fix is
+   entirely in ../zpack.json: top-left/bottom-left shrank from 44px wide to
+   --corner-radius (24px) wide -- i.e. the left-band term is now exactly
+   zero, not just small -- while staying --frame-band + --corner-radius
+   (44px) tall, since the top/bottom band on those two corners is real and
+   unaffected. The gradient rules below did not need to change at all: `at
+   bottom right` / `at top right` are percentage-based (100% of the box's
+   own width/height), so centring on the widget's own content-facing corner
+   still lands in the right place automatically once the box is narrower --
+   only ../zpack.json's width needed editing. The three-piece equivalence
+   above still holds for left corners, it just degenerates to TWO pieces
+   (no left-or-right band term at all): a --frame-band x --corner-radius
+   top-or-bottom band plus the --corner-radius x --corner-radius arc box --
+   because the band's own thickness away from the content-facing corner
+   along the (now-absent) left axis is zero, not --frame-band. */
 
 body.corner--top-left #corner {
   background: radial-gradient(

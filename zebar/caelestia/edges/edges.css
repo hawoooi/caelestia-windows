@@ -32,35 +32,32 @@
    don't already have the bar covering them) -- that left a ~12x4px sliver
    of bare wallpaper at each left corner as an accepted side effect.
 
-   Corner-radius follow-up (direct user feedback, second pass): that sliver
-   turned out not to be accepted after all once compared side-by-side with
-   a reference screenshot -- "no gap anywhere" was the actual bar. Fixed by
-   widening the two LEFT corner widgets themselves (../corners/corners.css)
-   so they start flush at the bar's own right edge (x=52) instead of 12px
-   further in -- not by reintroducing a bar-link stub. Growing the corner
-   widgets' size (--corner-size 28 -> 36, same follow-up, "generous curve"
-   per the reference) moved where their far tangent corners land, so the
-   top/bottom strip presets below were re-anchored to those new tangent
-   points to stay contiguous (offsetX 92 -> 88, width 2428 -> 2424); the
-   right strip was re-anchored the same way against the two right corners'
-   new tangent points (offsetY 40 -> 48, height 1360 -> 1344). See
-   docs/zebar-bar.md's "Corner overlays" geometry note for the full
-   arithmetic.
-
    Flush-to-edge correction (direct user feedback, fourth pass): all three
    strips are now --frame-band (20px, matching komorebi's own
    default_workspace_padding/default_container_padding -- see
    ../corners/corners.css's :root comment) thick instead of the old 4px
-   hairline, and flush against the corner widgets' new, larger 44x44
-   footprint (../zpack.json's "corners" presets) -- see docs/zebar-bar.md's
-   "Frame flush-to-edge correction" section for the current geometry table
-   and rationale (band thickness == komorebi padding, closing the 12px
-   band of bare wallpaper that used to show outside the old inset frame).
-   The historical offsets/widths quoted just above (92/88/2428/2424/etc.)
-   are the PRIOR pass's numbers, kept as a record of how this file's
-   geometry has moved over time -- they are not the current values; read
-   them alongside their own paragraph's "before" framing, not as current
-   truth. */
+   hairline, and flush against the corner widgets' larger footprint
+   (../zpack.json's "corners" presets) -- see docs/zebar-bar.md's "Frame
+   flush-to-edge correction" section for that pass's geometry table and
+   rationale (band thickness == komorebi padding, closing the 12px band of
+   bare wallpaper that used to show outside the old inset frame).
+
+   No left band, left corners (fifth pass, direct user feedback): the top
+   and bottom strips re-anchor again in this pass, not because their own
+   thickness changed but because the two LEFT corner widgets they meet
+   (../corners/corners.css) got narrower -- 44px -> 24px wide, dropping the
+   redundant left-band paint those two corners used to draw on top of the
+   bar (see corners.css's own comment on this pass for why that redundant
+   band was there and what it broke). A narrower left corner moves its own
+   right-hand tangent point inward, so `top`/`bottom`'s offsetX moved 96 ->
+   76 and width grew 2420 -> 2440 to stay flush against it -- offsetY/
+   height on `top`/`bottom` and every axis on `right` are unchanged, since
+   none of those depend on the left corners' width. See docs/zebar-bar.md's
+   geometry table (current as of this pass) for the full live-measured
+   rects; this comment intentionally does not restate historical
+   superseded numbers inline -- a comment quoting stale offsets reads as
+   current and is worse than no comment at all (lesson from this same pass,
+   see its own commit message). */
 
 html,
 body {
