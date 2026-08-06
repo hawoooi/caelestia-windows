@@ -1334,6 +1334,179 @@ hand-rolled `document.createElement` stub during this task (not committed — a 
 verification script), confirming it appends exactly the `statusIcons`/`vesktop` children and that
 `update()` forwards to both.
 
+## Left-frame removal, arcs moved in, equal four-sided gap (seventh pass, direct user feedback)
+
+Direct user feedback against the sixth pass's shipped frame ("the elements on this have an extra
+space from the border on the side makes everything feel uncentered" / "is it possible to remove
+the extra border on the left and move the arcs in?"). Root cause: the bar is 52px and its own
+contents are centred within that 52px, but the sixth pass's `edges/left` band (8px, at screen
+`x 52..60`) is the same `--surface` colour as the bar, so the eye reads a 60px-wide surface with
+the bar's contents sitting 4px left of that wider surface's own centre. Deleting the band makes the
+visual surface and the content box the same 52px again, fixing the off-centre read structurally.
+
+**`edges/left` is gone.** Not hidden, not zero-sized -- the preset itself no longer exists in
+`zebar/caelestia/zpack.json`, in `~/.glzr/zebar/settings.json`'s `startupConfigs` (pruned by
+`Install-Config`'s existing prune-then-re-add pattern, `$edgePresets` shrunk back to
+`@('top', 'right', 'bottom')`), or in `Set-FrameGeometry.ps1`'s own `Get-FrameGeometryTable`, which
+now returns exactly seven rows, not eight (`Set-FrameZpackGeometry` also gained real pruning: any
+preset already in `zpack.json` on a widget the table touches, whose name is no longer in the table,
+is now deleted -- previously the function could only update-in-place or append, never remove, which
+would have left a stale `edges/left` behind forever on a machine that already had one).
+
+**The two LEFT corner widgets shrink from `T+R` (24px) to `R` (16px) wide**, staying `T+R` (24px)
+tall -- the fifth pass's "no left band" shape, reapplied at this pass's own thinner `T=8`/`R=16`
+values rather than the fifth pass's old `T=20`/`R=24` ones. The two RIGHT corners and `edges/right`
+are completely unchanged. The gradient paint rule in `corners.css` needed **zero changes** -- `at
+bottom right`/`at top right` are percentage-based against each widget's own box, so a narrower box
+re-centres the same hard-stopped-circle math automatically (worked through by hand: for the
+narrower left corner, the same fixed-radius circle still produces a clean `--frame-band`-thick top
+(or bottom) band followed by a `--corner-radius`-tall arc region, never a distorted ellipse -- see
+`corners.css`'s own `:root` comment for the full account).
+
+**Geometry (screen 2560x1440, `T=8`, `R=16`, `C=T+R=24`, bar width `B=52`), computed by
+`Set-FrameGeometry.ps1`'s `Get-FrameGeometryTable` and confirmed live via `GetWindowRect` against
+every running `caelestia` widget process after a full restart:**
+
+| Preset | OffsetX | OffsetY | Width | Height |
+|---|---|---|---|---|
+| `corners/top-left` | 52px | 0px | **16px** | 24px |
+| `corners/top-right` | 2536px | 0px | 24px | 24px |
+| `corners/bottom-left` | 52px | 1416px | **16px** | 24px |
+| `corners/bottom-right` | 2536px | 1416px | 24px | 24px |
+| `edges/top` | **68px** | 0px | **2468px** | 8px |
+| `edges/bottom` | **68px** | 1432px | **2468px** | 8px |
+| `edges/right` | 2552px | 24px | 8px | 1392px |
+
+`edges/top`/`edges/bottom`'s new formula: `OffsetX = B + R` (68 = 52 + 16, the left corner's own
+narrower right edge), `Width = (W - C) - (B + R)` (2468 = 2536 - 68, flush against the right
+corner's own left edge). Confirmed live: `komorebic state`'s `work_area_size` re-read before and
+after this pass's restart, `{left:52, top:0, right:2508, bottom:1440}`, unchanged -- none of this
+touches the bar's own `dockToEdge` reservation.
+
+### The work-area-offset trick -- and why it did NOT ship
+
+Without a left band, the left gap (bar's right edge at x=52 to a tiled window's own outer edge) is
+komorebi's **full** `default_workspace_padding + default_container_padding` (16px at this pass's
+values), while the other three sides each still lose their own `--frame-band` (8px) out of that same
+16px budget, leaving an 8px gap -- reintroducing the exact "left gap wider than the other three"
+complaint the sixth pass was built to fix. To make all four gaps 8px without a left band, tiled
+content would need to start at screen `x=60` (52 + 8), which means komorebi's **work area left**
+needs to become **44** (60 minus the 16px padding budget) -- 8px *less* than the bar's 52px
+`dockToEdge` reservation, i.e. the work area needs to extend 8px further left than the bar's own
+right edge.
+
+Both candidate mechanisms for this were tried live, in order, per this pass's own instructions, and
+**both failed** -- this pass ships with the honest, unequal result, not a faked one:
+
+1. **`komorebic global-work-area-offset -- -8 0 0 0`** (the `--` is required -- without it clap
+   parses `-8` as an unrecognized flag, `error: unexpected argument '-8' found`). This command
+   exits `0` with no error for a negative left value, but produces **no observable effect
+   whatsoever**: `komorebic state`'s `global_work_area_offset` field never appears in the output at
+   all (not `null`, simply absent from the JSON), `monitors[0].work_area_size` stayed exactly
+   `{left:52, ..., right:2508, ...}` before and after (re-checked after an explicit `komorebic
+   retile` too, in case the value only takes effect on the next retile -- no change), and a REAL
+   tiled window's rect (`wezterm-gui`, a genuine already-tiled window on this desktop, read via a
+   `GetWindowRect` P/Invoke probe, not `komorebic state`'s own window list) stayed at the identical
+   `x=65` (its content start, `work area left 52 + padding 8 + komorebi's own 5px border decoration`
+   -- see the sixth pass's own account of this same 13px-vs-8px discrepancy) both before and after
+   the command. Conclusion: on this komorebi build (schema `v0.1.41`), a negative
+   `global-work-area-offset` is silently accepted syntactically but not applied to tiling --
+   whether that's clamping to zero, a no-op for negative values specifically, or something else was
+   not distinguishable from the outside, but the practical result is the same: **no effect**, not
+   "ignored with an error" and not "applied as requested". The command was reset to `0 0 0 0`
+   afterward to leave no dangling half-applied state.
+2. **Zebar `dockToEdge.windowMargin: "-8px"` on the bar's own `default` preset.** This DID change
+   `komorebic state`'s `work_area_size` (`left` dropped from 52 to 44, exactly as hoped) -- but it
+   also shrank the bar's own **visible OS window** from 52px to 36px wide (confirmed via
+   `GetWindowRect` against the actual `Zebar - caelestia / bar` window, not just the AppBar
+   reservation), i.e. a negative `windowMargin` is not a pure "reservation minus N" lever -- it
+   subtracts from the widget's own rendered width too, at what looks like double the requested
+   magnitude (52 - 2*8 = 36). This is the same class of failure this file's own "Known-incomplete:
+   the media drawer" section already recorded for a much larger negative margin (which collapsed
+   the bar to zero width) -- confirmed again here at a small, otherwise-plausible-looking `-8px`.
+   Shipping this would have violated this task's own explicit "bar width stays 52px" constraint, so
+   it was reverted (`windowMargin` back to `"0px"`) immediately after the measurement.
+
+**Result: the left gap ships at 16px, the other three at 8px -- a real, unequal, and openly stated
+trade-off, not a bug that slipped through.** `Set-FrameGeometry.ps1` and this doc both record it
+plainly rather than quietly rounding the discrepancy away. If a future pass wants to close this
+gap, the two ideas above are now known dead ends on this komorebi/Zebar build; the remaining
+untried lever is a THIRD, even-smaller left corner/edge band sized to exactly `16 - 8 = 8px`
+narrower than the current content-hole inset, i.e. reintroducing a thin `edges/left` at the width
+needed to visually crop the extra 8px of wallpaper rather than trying to move komorebi's own work
+area boundary at all -- not attempted here because the user's own instruction was specifically "no
+extra border on the left", which a re-added (even thinner) left band would reintroduce.
+
+### Vendored Font Awesome icons
+
+Every ad-hoc glyph in the bar (Nerd Font Private-Use-Area codepoints rendered through the system
+"0xProto Nerd Font", and a handful of raw Unicode symbols) was replaced with real Font Awesome Free
+6.x icons, vendored locally under `zebar/caelestia/bar/vendor/fontawesome/` -- webfonts plus a local
+`@font-face` (`fontawesome.css`), no CDN, matching this pack's existing offline-first stance (the
+same rationale `zebar.js` itself is vendored for -- see "The vendored zebar bundle" above).
+
+**Licence.** Font Awesome Free is dual/triple-licensed: icons under CC BY 4.0 (attribution
+required), fonts under SIL OFL 1.1, and any code (none of which is used here -- no JS/SVG kit, no
+build step) under MIT. `zebar/caelestia/bar/vendor/fontawesome/LICENSE.txt` is the licence text
+vendored verbatim from the same `6.x` release the webfonts came from
+(`github.com/FortAwesome/Font-Awesome`); this doc's own attribution: icons are Font Awesome Free by
+Fontawesome, https://fontawesome.com, licensed under CC BY 4.0 (icons), SIL OFL 1.1 (fonts), MIT
+(code). Only the **Free** tier was used -- no Pro icon, no Pro webfont file, nothing requiring a
+licence this user doesn't hold.
+
+**Two separate webfonts, two separate `font-family` names** -- `fontawesome.css`'s own `:root`-
+adjacent comment explains why these can't be merged: `fa-solid-900.woff2` backs "Font Awesome 6
+Free" (weight 900, every icon except one), `fa-brands-400.woff2` backs "Font Awesome 6 Brands"
+(weight 400, brand marks only -- Discord, for vesktop). Requesting a brand glyph through the Solid
+font (or vice versa) silently renders nothing, the same class of "looks fine until you actually
+look" bug this repo's Nerd-Font-PUA history already had once (see "Nerd Font glyphs" above) -- every
+codepoint below was written as a literal `\uXXXX` JS escape and read back after writing, per that
+same established discipline, not pasted as a raw character.
+
+| Bar element | Icon | Codepoint | Font |
+|---|---|---|---|
+| wifi, connected | `wifi` | U+F1EB | Solid |
+| wifi, disconnected | `plug-circle-xmark` | U+E560 | Solid |
+| volume, muted (0) | `volume-off` | U+F026 | Solid |
+| volume, low (1-50) | `volume-low` | U+F027 | Solid |
+| volume, high (51-100) | `volume-high` | U+F028 | Solid |
+| power button | `power-off` | U+F011 | Solid |
+| layout toggle -- bsp | `diagram-project` | U+F542 | Solid |
+| layout toggle -- columns | `table-columns` | U+F0DB | Solid |
+| layout toggle -- rows | `bars` | U+F0C9 | Solid |
+| layout toggle -- grid | `table-cells` | U+F00A | Solid |
+| layout toggle -- unrecognized/fallback | `border-all` | U+F84C | Solid |
+| vesktop unread mark | `discord` | U+F392 | Brands |
+| logo | `diamond` | U+F219 | Solid |
+| media transport -- previous | `backward-step` | U+F048 | Solid |
+| media transport -- play | `play` | U+F04B | Solid |
+| media transport -- pause | `pause` | U+F04C | Solid |
+| media transport -- next | `forward-step` | U+F051 | Solid |
+
+Font Awesome Free 6.x has no dedicated "wifi-slash"/"wifi-off" solid glyph (confirmed against Font
+Awesome's own `metadata/icons.json` for the `6.x` release, not guessed) -- `plug-circle-xmark`
+stands in for "disconnected", the same idea the old Nerd-Font mapping used (a different,
+non-wifi-specific "broken connection" glyph) but now a real, confirmed-present Free icon rather
+than a codepoint carried over from an old Nerd-Font-as-FA4.7 mapping. Volume gained a real
+three-tier muted/low/high split (`entries/statusIcons.js`'s `volumeGlyph`) driven by the actual
+level, replacing the previous binary "some sound vs. off" check.
+
+`entries/vesktop.js` previously rendered ONLY the unread count as plain text, with no icon at all --
+it now renders a Discord mark beside the count (two child `<span>`s, `.vesktop__icon`/
+`.vesktop__count`, not a single text node, since the two pieces need different font-families).
+
+Sizing stays consistent with the bar-polish pass's ~18px (`--icon-size`) target and every icon stays
+optically centred in the 52px strip -- `.logo` and `.media-panel__transport button` gained explicit
+`font-size: var(--icon-size)` rules (previously unstyled/inherited), `.vesktop` changed from a
+single centred glyph box to a small flex row holding the two new children.
+
+`tests\Get-ColorLiterals.Tests.ps1` gained a fourth file under the zero-colour-literal check
+(`fontawesome.css` -- `@font-face` declarations and a shared font-metrics reset only, no fills of
+its own). `node --test` gained two new cases for `volumeGlyph`'s three-tier boundary behaviour;
+every other icon-bearing entry (`logo.js`, `power.js`, `vesktop.js`, `media.js`'s transport buttons)
+has no pure branching logic of its own worth a node test, consistent with how `statusCluster`'s DOM
+composition and `spacer`'s trivial factory are already untested elsewhere in this file.
+
 **Live on-screen visual confirmation of this pass could not be completed.** Restarting the bar to
 load the new files (unavoidable — Zebar has no hot reload, see "Starting, stopping, and reloading"
 above) triggered a recurrence of the environmental WebView2 problem this file already documents

@@ -94,7 +94,7 @@
                                             "anchor":  "top_left",
                                             "offsetX":  "52px",
                                             "offsetY":  "0px",
-                                            "width":  "24px",
+                                            "width":  "16px",
                                             "height":  "24px",
                                             "monitorSelection":  {
                                                                      "type":  "all"
@@ -122,7 +122,7 @@
                                             "anchor":  "top_left",
                                             "offsetX":  "52px",
                                             "offsetY":  "1416px",
-                                            "width":  "24px",
+                                            "width":  "16px",
                                             "height":  "24px",
                                             "monitorSelection":  {
                                                                      "type":  "all"
@@ -176,9 +176,9 @@
                                         {
                                             "name":  "top",
                                             "anchor":  "top_left",
-                                            "offsetX":  "76px",
+                                            "offsetX":  "68px",
                                             "offsetY":  "0px",
-                                            "width":  "2460px",
+                                            "width":  "2468px",
                                             "height":  "8px",
                                             "monitorSelection":  {
                                                                      "type":  "all"
@@ -204,24 +204,10 @@
                                         {
                                             "name":  "bottom",
                                             "anchor":  "top_left",
-                                            "offsetX":  "76px",
+                                            "offsetX":  "68px",
                                             "offsetY":  "1432px",
-                                            "width":  "2460px",
+                                            "width":  "2468px",
                                             "height":  "8px",
-                                            "monitorSelection":  {
-                                                                     "type":  "all"
-                                                                 },
-                                            "dockToEdge":  {
-                                                               "enabled":  false
-                                                           }
-                                        },
-                                        {
-                                            "name":  "left",
-                                            "anchor":  "top_left",
-                                            "offsetX":  "52px",
-                                            "offsetY":  "24px",
-                                            "width":  "8px",
-                                            "height":  "1392px",
                                             "monitorSelection":  {
                                                                      "type":  "all"
                                                                  },

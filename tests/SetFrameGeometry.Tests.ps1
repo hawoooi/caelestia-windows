@@ -16,21 +16,25 @@ Describe "ConvertFrom-PxString" {
 }
 
 Describe "Get-FrameGeometryTable (pure computation)" {
-    It "matches this task's own target table exactly for T=8, R=16, bar=52px, screen=2560x1440" {
+    It "matches this task's own target table exactly for T=8, R=16, bar=52px, screen=2560x1440 (no edges/left)" {
         $table = Get-FrameGeometryTable -Thickness 8 -Radius 16 -BarWidth 52 -ScreenWidth 2560 -ScreenHeight 1440
 
+        # Left-frame-removal pass: edges/left is GONE (seven presets, not
+        # eight); the two left corners are R (16) wide, not C (24) --
+        # everything else (right corners, edges/right) is unchanged from
+        # the previous (sixth) pass.
         $expected = @{
-            'corners/top-left'     = @{ X = 52;   Y = 0;    W = 24; H = 24 }
+            'corners/top-left'     = @{ X = 52;   Y = 0;    W = 16; H = 24 }
             'corners/top-right'    = @{ X = 2536; Y = 0;    W = 24; H = 24 }
-            'corners/bottom-left'  = @{ X = 52;   Y = 1416; W = 24; H = 24 }
+            'corners/bottom-left'  = @{ X = 52;   Y = 1416; W = 16; H = 24 }
             'corners/bottom-right' = @{ X = 2536; Y = 1416; W = 24; H = 24 }
-            'edges/top'             = @{ X = 76;   Y = 0;    W = 2460; H = 8 }
-            'edges/bottom'          = @{ X = 76;   Y = 1432; W = 2460; H = 8 }
-            'edges/left'            = @{ X = 52;   Y = 24;   W = 8;    H = 1392 }
+            'edges/top'             = @{ X = 68;   Y = 0;    W = 2468; H = 8 }
+            'edges/bottom'          = @{ X = 68;   Y = 1432; W = 2468; H = 8 }
             'edges/right'           = @{ X = 2552; Y = 24;   W = 8;    H = 1392 }
         }
 
-        $table.Count | Should -Be 8
+        $table.Count | Should -Be 7
+        ($table | Where-Object { $_.Widget -eq 'edges' -and $_.Preset -eq 'left' }) | Should -BeNullOrEmpty
         foreach ($row in $table) {
             $key = "$($row.Widget)/$($row.Preset)"
             $expected.ContainsKey($key) | Should -BeTrue -Because "unexpected preset $key"
@@ -42,14 +46,32 @@ Describe "Get-FrameGeometryTable (pure computation)" {
         }
     }
 
-    It "keeps corner widgets square (width == height == thickness + radius) for every corner, including the left ones" {
+    It "keeps the two RIGHT corner widgets square (width == height == thickness + radius)" {
         $table = Get-FrameGeometryTable -Thickness 5 -Radius 12 -BarWidth 40 -ScreenWidth 1920 -ScreenHeight 1080
-        $corners = $table | Where-Object { $_.Widget -eq 'corners' }
-        $corners.Count | Should -Be 4
-        foreach ($c in $corners) {
+        $rightCorners = $table | Where-Object { $_.Widget -eq 'corners' -and $_.Preset -match 'right' }
+        $rightCorners.Count | Should -Be 2
+        foreach ($c in $rightCorners) {
             $c.Width  | Should -Be 17
             $c.Height | Should -Be 17
         }
+    }
+
+    It "makes the two LEFT corner widgets radius-wide (not thickness+radius) but thickness+radius tall" {
+        $table = Get-FrameGeometryTable -Thickness 5 -Radius 12 -BarWidth 40 -ScreenWidth 1920 -ScreenHeight 1080
+        $leftCorners = $table | Where-Object { $_.Widget -eq 'corners' -and $_.Preset -match 'left' }
+        $leftCorners.Count | Should -Be 2
+        foreach ($c in $leftCorners) {
+            $c.Width  | Should -Be 12
+            $c.Height | Should -Be 17
+            $c.OffsetX | Should -Be 40 -Because "left corners stay flush with the bar's own right edge"
+        }
+    }
+
+    It "anchors edges/top and edges/bottom flush against the left corners' own (narrower) right edge" {
+        $table = Get-FrameGeometryTable -Thickness 8 -Radius 16 -BarWidth 52 -ScreenWidth 2560 -ScreenHeight 1440
+        $topLeftCorner = $table | Where-Object { $_.Widget -eq 'corners' -and $_.Preset -eq 'top-left' }
+        $topEdge = $table | Where-Object { $_.Widget -eq 'edges' -and $_.Preset -eq 'top' }
+        $topEdge.OffsetX | Should -Be ($topLeftCorner.OffsetX + $topLeftCorner.Width)
     }
 }
 
@@ -94,8 +116,12 @@ Describe "Set-FrameGeometry -DryRun" {
         $summary.CornerSize | Should -Be 24
         $summary.WorkspacePadding | Should -Be 8
         $summary.ContainerPadding | Should -Be 8
+        $summary.Table.Count | Should -Be 7
+        ($summary.Table | Where-Object { $_.Widget -eq 'edges' -and $_.Preset -eq 'left' }) | Should -BeNullOrEmpty
         ($summary.Table | Where-Object { $_.Widget -eq 'corners' -and $_.Preset -eq 'top-left' }).OffsetX | Should -Be 52
-        ($summary.Table | Where-Object { $_.Widget -eq 'edges' -and $_.Preset -eq 'left' }).Width | Should -Be 8
+        ($summary.Table | Where-Object { $_.Widget -eq 'corners' -and $_.Preset -eq 'top-left' }).Width | Should -Be 16
+        ($summary.Table | Where-Object { $_.Widget -eq 'edges' -and $_.Preset -eq 'top' }).OffsetX | Should -Be 68
+        ($summary.Table | Where-Object { $_.Widget -eq 'edges' -and $_.Preset -eq 'top' }).Width | Should -Be 2468
     }
 
     It "writes nothing to zpack.json, either CSS file, or komorebi.json" {
@@ -145,7 +171,13 @@ Describe "Set-FrameZpackGeometry" {
         $corners = $obj.widgets | Where-Object { $_.name -eq 'corners' }
         $tl = $corners.presets | Where-Object { $_.name -eq 'top-left' }
         $tl.offsetX | Should -Be '52px'
-        $tl.width   | Should -Be '14px'
+        # Left-frame-removal pass: top-left is now R (10) wide, C (14) tall
+        # -- not the uniform C x C square every corner used to be.
+        $tl.width   | Should -Be '10px'
+        $tl.height  | Should -Be '14px'
+        $tr = $corners.presets | Where-Object { $_.name -eq 'top-right' }
+        $tr.width   | Should -Be '14px'
+        $tr.height  | Should -Be '14px'
         # Unrelated fields survive untouched.
         $corners.zOrder | Should -Be 'top_most'
         $corners.privileges.shellCommands.Count | Should -Be 1
@@ -153,22 +185,49 @@ Describe "Set-FrameZpackGeometry" {
         $bar.presets[0].width | Should -Be '52px'
     }
 
-    It "appends a preset that doesn't exist yet instead of silently skipping it" {
-        # Simulate a pre-this-task zpack.json with no edges/left preset.
+    It "prunes a stale preset that's no longer in the table (e.g. a leftover edges/left from an older checkout)" {
+        # Simulate an OLDER zpack.json (predating the left-frame-removal
+        # pass) that still HAS an edges/left preset.
         $obj = [System.IO.File]::ReadAllText($script:zpackFixture) | ConvertFrom-Json
         $edges = $obj.widgets | Where-Object { $_.name -eq 'edges' }
-        $edges.presets = @($edges.presets | Where-Object { $_.name -ne 'left' })
+        $stale = [PSCustomObject]@{
+            name = 'left'; anchor = 'top_left'
+            offsetX = '52px'; offsetY = '24px'; width = '8px'; height = '1392px'
+            monitorSelection = [PSCustomObject]@{ type = 'all' }
+            dockToEdge = [PSCustomObject]@{ enabled = $false }
+        }
+        $edges.presets = @($edges.presets) + @($stale)
+        [System.IO.File]::WriteAllText($script:zpackFixture, ($obj | ConvertTo-Json -Depth 10), (New-Object System.Text.UTF8Encoding($false)))
+        ((($obj.widgets | Where-Object { $_.name -eq 'edges' }).presets).name) | Should -Contain 'left'
+
+        # Today's table (no edges/left row at all) must PRUNE it away, not
+        # just leave it alone because it isn't a positional match.
+        $table = Get-FrameGeometryTable -Thickness 8 -Radius 16 -BarWidth 52 -ScreenWidth 2560 -ScreenHeight 1440
+        Set-FrameZpackGeometry -Path $script:zpackFixture -Table $table
+
+        $obj2 = [System.IO.File]::ReadAllText($script:zpackFixture) | ConvertFrom-Json
+        $edges2 = $obj2.widgets | Where-Object { $_.name -eq 'edges' }
+        ($edges2.presets | Where-Object { $_.name -eq 'left' }) | Should -BeNullOrEmpty
+        ($edges2.presets.name | Sort-Object) -join ',' | Should -Be 'bottom,right,top'
+    }
+
+    It "appends a preset that doesn't exist yet instead of silently skipping it" {
+        # Simulate an older zpack.json missing a preset the current table
+        # expects (top-right, picked arbitrarily -- any corner works).
+        $obj = [System.IO.File]::ReadAllText($script:zpackFixture) | ConvertFrom-Json
+        $corners = $obj.widgets | Where-Object { $_.name -eq 'corners' }
+        $corners.presets = @($corners.presets | Where-Object { $_.name -ne 'top-right' })
         [System.IO.File]::WriteAllText($script:zpackFixture, ($obj | ConvertTo-Json -Depth 10), (New-Object System.Text.UTF8Encoding($false)))
 
         $table = Get-FrameGeometryTable -Thickness 8 -Radius 16 -BarWidth 52 -ScreenWidth 2560 -ScreenHeight 1440
         Set-FrameZpackGeometry -Path $script:zpackFixture -Table $table
 
         $obj2 = [System.IO.File]::ReadAllText($script:zpackFixture) | ConvertFrom-Json
-        $edges2 = $obj2.widgets | Where-Object { $_.name -eq 'edges' }
-        $left = $edges2.presets | Where-Object { $_.name -eq 'left' }
-        $left | Should -Not -BeNullOrEmpty
-        $left.offsetX | Should -Be '52px'
-        $left.dockToEdge.enabled | Should -Be $false
+        $corners2 = $obj2.widgets | Where-Object { $_.name -eq 'corners' }
+        $tr = $corners2.presets | Where-Object { $_.name -eq 'top-right' }
+        $tr | Should -Not -BeNullOrEmpty
+        $tr.offsetX | Should -Be '2536px'
+        $tr.dockToEdge.enabled | Should -Be $false
     }
 }
 
@@ -260,7 +319,7 @@ Describe "Set-FrameGeometry (non-DryRun, fixtures only, live komorebi calls mock
         Mock Update-KomorebiFramePaddingLive {}
     }
 
-    It "writes all eight presets into zpack.json" {
+    It "writes all seven presets into zpack.json, with no edges/left" {
         Set-FrameGeometry -Thickness 8 -GapRatio 1.0 -Radius 16 `
             -ZpackPath $script:zpackFixture -CornersCssPath $script:cornersFixture -EdgesCssPath $script:edgesFixture `
             -KomorebiJsonPath $script:komorebiFixture -BackupRoot $script:backupRoot `
@@ -268,8 +327,10 @@ Describe "Set-FrameGeometry (non-DryRun, fixtures only, live komorebi calls mock
 
         $obj = [System.IO.File]::ReadAllText($script:zpackFixture) | ConvertFrom-Json
         $edges = ($obj.widgets | Where-Object { $_.name -eq 'edges' }).presets
-        ($edges | Where-Object { $_.name -eq 'left' }).width | Should -Be '8px'
-        ($edges.name | Sort-Object) -join ',' | Should -Be 'bottom,left,right,top'
+        ($edges | Where-Object { $_.name -eq 'left' }) | Should -BeNullOrEmpty
+        ($edges.name | Sort-Object) -join ',' | Should -Be 'bottom,right,top'
+        $corners = ($obj.widgets | Where-Object { $_.name -eq 'corners' }).presets
+        ($corners | Where-Object { $_.name -eq 'top-left' }).width | Should -Be '16px'
     }
 
     It "updates both CSS files' --frame-band, and corners.css's --corner-radius" {

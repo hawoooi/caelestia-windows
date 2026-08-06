@@ -44,6 +44,25 @@
      longer land on the widget's own edges -- use
      ../../scripts/Set-FrameGeometry.ps1 rather than hand-editing these. */
   --corner-radius: 16px;
+
+  /* Left-frame-removal pass (direct user feedback -- "extra space from the
+     border on the side... remove the extra border on the left and move
+     the arcs in"): the `edges/left` band is GONE again (see
+     ../edges/edges.css's own comment) and the two LEFT corner widgets
+     (top-left/bottom-left) are back to being --corner-radius (16px) WIDE
+     ONLY, not --frame-band + --corner-radius (24px) -- the fifth pass's
+     "no left-band term" shape, but at this pass's own thinner T=8/R=16
+     values rather than the fifth pass's T=20/R=24. They stay
+     --frame-band + --corner-radius (24px) TALL on the other axis, since
+     their top-or-bottom band is real and unaffected -- only the width
+     term specific to a left-hand band is gone. The gradient rules below
+     are UNCHANGED (`at bottom right` / `at top right` are percentage-based
+     against each widget's own box, not fixed pixel values, so a narrower
+     box re-centres the same math automatically -- see the fifth pass's
+     own account in docs/zebar-bar.md for the full proof this still
+     produces a clean top-band + arc-box split, not a distorted ellipse).
+     The two RIGHT corners (top-right/bottom-right) are unaffected -- still
+     --frame-band + --corner-radius square on both axes. */
 }
 
 html,

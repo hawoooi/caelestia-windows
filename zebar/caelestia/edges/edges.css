@@ -79,7 +79,21 @@
    fifth pass applies here too -- current numbers live in
    docs/zebar-bar.md's own geometry table and in
    ../../scripts/Set-FrameGeometry.ps1 (the one place that computes and
-   writes them), not restated here. */
+   writes them), not restated here.
+
+   Left-frame-removal pass (direct user feedback -- "remove the extra
+   border on the left and move the arcs in"): the "left" preset added by
+   the sixth pass is REMOVED again -- ../zpack.json's "edges" widget is
+   back to exactly three presets (top/right/bottom), and
+   ../../scripts/Set-FrameGeometry.ps1's own Get-FrameGeometryTable no
+   longer emits a row for it at all (not just an unused one -- the preset
+   itself is pruned from zpack.json on the next Set-FrameGeometry run, see
+   Set-FrameZpackGeometry's own updated doc comment). The bar (52px) is
+   once again the frame's entire left edge, same as the fifth pass; only
+   the left CORNER widgets (../corners/corners.css) carry the "no left
+   band" shape this time, at this pass's own thinner T=8/R=16 values. Kept
+   as history, not restated as current numbers -- see this pass's own
+   docs/zebar-bar.md entry and Set-FrameGeometry.ps1's own table. */
 
 :root {
   /* Documentation/parity property only -- NOT read by #edge below (each

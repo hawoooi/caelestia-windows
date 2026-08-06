@@ -56,6 +56,13 @@ Describe "The zebar bar's zero-color-literal invariant (I5)" {
         # same invariant -- its only colour, the frame-line fill, must come
         # from theme.css's var(--primary), never a literal.
         $script:edgesCss   = "$PSScriptRoot\..\zebar\caelestia\edges\edges.css"
+        # Task 3 (Font Awesome icons): fontawesome.css is a fourth
+        # structural stylesheet -- @font-face declarations and a shared
+        # font-metrics reset only, no fills of its own -- bound by the same
+        # invariant: icon colour always comes from whatever element applies
+        # the font, inheriting `color` from a var(--...) rule elsewhere,
+        # never a literal set in this file.
+        $script:fontawesomeCss = "$PSScriptRoot\..\zebar\caelestia\bar\vendor\fontawesome\fontawesome.css"
     }
 
     It "style.css contains zero colour literals" {
@@ -68,6 +75,10 @@ Describe "The zebar bar's zero-color-literal invariant (I5)" {
 
     It "edges.css contains zero colour literals" {
         @(Get-ColorLiterals -Path $script:edgesCss).Count | Should -Be 0
+    }
+
+    It "fontawesome.css contains zero colour literals" {
+        @(Get-ColorLiterals -Path $script:fontawesomeCss).Count | Should -Be 0
     }
 
     It "is non-vacuous: theme.css (which legitimately hardcodes the matugen palette) returns a nonzero count" {

@@ -303,15 +303,16 @@ ctrl + alt + w                : Start-Process powershell -WindowStyle Hidden -Ar
     # in this list) and Zebar would keep trying to autostart widgets that no
     # longer exist in zpack.json after every reboot.
     #
-    # Thinner-frame/equal-gaps pass: "left" re-added. The bar no longer
-    # stands in for the frame's left band on its own -- see
-    # zebar/caelestia/edges/edges.css's :root-adjacent comment -- so the
-    # "edges" widget gained a real "left" preset in zpack.json alongside
-    # top/right/bottom, and it needs the exact same startupConfigs
-    # registration as its three siblings or it won't survive a reboot
-    # either. The prune-then-re-add pattern above already generalizes to
-    # this without any further change.
-    $edgePresets = @('top', 'right', 'bottom', 'left')
+    # Thinner-frame/equal-gaps pass: "left" re-added, then REMOVED again by
+    # the left-frame-removal pass below -- the bar (52px) is once again the
+    # frame's entire left edge (see zebar/caelestia/edges/edges.css's
+    # :root-adjacent comment), so "edges" is back to exactly top/right/
+    # bottom. The prune-then-re-add pattern below already handles this: it
+    # removes ALL existing caelestia/edges entries (including a stale
+    # "left" left over from the thinner-frame pass) before re-adding
+    # exactly the three names in this list, with no further change needed
+    # here beyond shrinking the list itself.
+    $edgePresets = @('top', 'right', 'bottom')
 
     if ($DryRun) {
         # I1: the junction/settings.json steps below must ALSO be a no-op

@@ -350,7 +350,7 @@ Describe "Install-Config primitives" {
             @($configs | Where-Object { $_.pack -eq 'caelestia' -and $_.widget -eq 'bar' }).Count | Should -Be 1
         }
 
-        It "Install-Config (non-Uninstall) registers all four caelestia/edges presets in ZebarSettingsPath's startupConfigs" {
+        It "Install-Config (non-Uninstall) registers all three caelestia/edges presets in ZebarSettingsPath's startupConfigs" {
             $settings = Join-Path $script:tmp "ic-zs-settings-edges.json"
             Install-Config `
                 -WhkdrcPath (Join-Path $script:tmp "ic-zs-whkdrc-edges.conf") `
@@ -361,13 +361,14 @@ Describe "Install-Config primitives" {
 
             $configs = Get-ZebarStartupConfigs -Path $settings
             $edges = @($configs | Where-Object { $_.pack -eq 'caelestia' -and $_.widget -eq 'edges' })
-            # Thinner-frame/equal-gaps pass: "left" joined top/right/bottom
-            # -- the bar no longer stands in for the frame's left band on
-            # its own (see zebar/caelestia/edges/edges.css), so a fourth
-            # preset was added to $edgePresets.
-            $edges.Count | Should -Be 4
+            # Left-frame-removal pass: "left" (added by the thinner-frame/
+            # equal-gaps pass) is REMOVED again -- the bar (52px) is once
+            # more the frame's entire left edge (see
+            # zebar/caelestia/edges/edges.css), so $edgePresets shrank back
+            # to exactly top/right/bottom.
+            $edges.Count | Should -Be 3
             ($edges | Sort-Object preset | ForEach-Object { $_.preset }) -join ',' |
-                Should -Be 'bottom,left,right,top'
+                Should -Be 'bottom,right,top'
             # bar's and corners' own entries must still be there too --
             # Install-Config registers all three widgets, not one instead
             # of the others.
@@ -375,14 +376,15 @@ Describe "Install-Config primitives" {
             @($configs | Where-Object { $_.pack -eq 'caelestia' -and $_.widget -eq 'corners' }).Count | Should -Be 4
         }
 
-        It "Install-Config (non-Uninstall) prunes stale caelestia/edges presets no longer in the current list (desktop-frame bar-link removal)" {
-            # Simulates a settings.json left over from BEFORE the bar-link
-            # stubs were removed from $edgePresets -- Install-Config must
-            # prune them, not just add the current presets and leave the
-            # orphans behind forever (they'd keep autostarting nonexistent
-            # zpack.json presets after every reboot).
+        It "Install-Config (non-Uninstall) prunes stale caelestia/edges presets no longer in the current list (left-frame-removal pass)" {
+            # Simulates a settings.json left over from BEFORE "left" was
+            # removed from $edgePresets (and, further back, from before the
+            # bar-link stubs were removed) -- Install-Config must prune
+            # every one of them, not just add the current presets and leave
+            # the orphans behind forever (they'd keep autostarting
+            # nonexistent zpack.json presets after every reboot).
             $settings = Join-Path $script:tmp "ic-zs-settings-edges-prune.json"
-            foreach ($preset in @('top', 'right', 'bottom', 'bar-link-top', 'bar-link-bottom')) {
+            foreach ($preset in @('top', 'right', 'bottom', 'left', 'bar-link-top', 'bar-link-bottom')) {
                 Set-ZebarStartupConfig -Path $settings -Pack 'caelestia' -Widget 'edges' -Preset $preset
             }
 
@@ -396,7 +398,7 @@ Describe "Install-Config primitives" {
             $configs = Get-ZebarStartupConfigs -Path $settings
             $edges = @($configs | Where-Object { $_.pack -eq 'caelestia' -and $_.widget -eq 'edges' })
             ($edges | Sort-Object preset | ForEach-Object { $_.preset }) -join ',' |
-                Should -Be 'bottom,left,right,top'
+                Should -Be 'bottom,right,top'
         }
 
         It "Install-Config -Uninstall removes all four caelestia/edges presets from ZebarSettingsPath's startupConfigs" {

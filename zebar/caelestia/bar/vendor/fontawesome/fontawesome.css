@@ -1,0 +1,71 @@
+/* Vendored Font Awesome Free webfonts -- local @font-face only, no CDN.
+   Task 3 (feat/corner-overlays follow-up): replace every ad-hoc glyph in
+   this bar (Nerd Font PUA codepoints, raw Unicode symbols) with real Font
+   Awesome Free icons, shipped offline so the widget never depends on a
+   network request to render an icon (matching this pack's existing
+   buildless, offline-first stance -- see docs/zebar-bar.md's "vendored
+   zebar bundle" section for the same rationale applied to zebar.js itself).
+
+   Source: Font Awesome Free 6.x (https://fontawesome.com/), the "6.x"
+   branch of https://github.com/FortAwesome/Font-Awesome, webfonts only --
+   no JS/SVG framework, no Pro icons, no CDN reference anywhere in this
+   pack. Licence: icons CC BY 4.0, fonts SIL OFL 1.1, code MIT -- see
+   ./LICENSE.txt (vendored verbatim from the same release) for the full
+   text and attribution requirement. Two font families are used, each
+   backing exactly one weight/style, matching how Font Awesome Free itself
+   ships them -- do not merge these into one @font-face, the two webfont
+   files are not interchangeable subsets of the same design:
+
+     - "Font Awesome 6 Free", weight 900 (solid) -- every icon in this bar
+       except vesktop's Discord mark (wifi, volume, power, layout-toggle,
+       logo, media transport controls).
+     - "Font Awesome 6 Brands", weight 400 (regular, brands is only ever
+       shipped at one weight) -- vesktop's Discord glyph. Brand icons are a
+       visually distinct set (no solid/regular/light variants) with their
+       own dedicated webfont; requesting a brand glyph through the Solid
+       font (or vice versa) silently renders nothing; a wrong empty box is
+       exactly the class of bug the Nerd Font PUA history in this repo
+       already had once (see ../../fullscreen.js/vesktop.js's own history
+       and CLAUDE.md's "Nerd Font glyphs" note) -- keeping the two font
+       families and their codepoints straight matters.
+
+   Zero colour literals below (this file's own contribution to the
+   project-wide invariant every stylesheet in this pack is held to --
+   tests\Get-ColorLiterals.Tests.ps1): icon colour always comes from
+   whichever element applies a Font Awesome font-family, inheriting
+   `color` from style.css's own var(--...) rules. This file only ever sets
+   font metrics, never a colour. */
+
+@font-face {
+  font-family: "Font Awesome 6 Free";
+  font-style: normal;
+  font-weight: 900;
+  font-display: block;
+  src: url("./webfonts/fa-solid-900.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Font Awesome 6 Brands";
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+  src: url("./webfonts/fa-brands-400.woff2") format("woff2");
+}
+
+/* Shared reset every icon-bearing element in style.css opts into via one of
+   the two classes below, instead of repeating font-feature/ligature resets
+   at every call site. Deliberately does NOT set font-size/width/height/
+   color -- those stay owned by style.css's own per-element rules
+   (--icon-size, --icon-box, --hit-size, and whatever `color` the element
+   already inherits), so this file only ever contributes the *font*, never
+   layout or palette. */
+.fa-solid,
+.fa-brands {
+  font-style: normal;
+  font-variant: normal;
+  line-height: 1;
+  text-rendering: auto;
+  -webkit-font-smoothing: antialiased;
+}
+.fa-solid { font-family: "Font Awesome 6 Free"; font-weight: 900; }
+.fa-brands { font-family: "Font Awesome 6 Brands"; font-weight: 400; }

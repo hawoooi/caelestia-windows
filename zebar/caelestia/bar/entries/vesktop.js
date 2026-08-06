@@ -16,15 +16,34 @@ const HELPER = 'C:\\Users\\PC\\.config\\yasb\\scripts\\vesktop-unread.exe';
 // wires `ctx.shell = zebar.shellExec ? zebar : null`, i.e. `shell` IS the
 // zebar module, so the call is `shell.shellExec(HELPER, [])`, not
 // `shell.exec(HELPER, [])`.
+//
+// Task 3 (Font Awesome icons): this entry used to render ONLY the unread
+// count as plain text, no icon at all -- there was nothing to "replace"
+// glyph-wise, just a bare number. It now renders a real Discord mark
+// (\uF392, "Discord") beside the count. Discord is a Font Awesome Free
+// BRAND icon, not a solid icon -- brand glyphs live in a completely
+// separate webfont/font-family ("Font Awesome 6 Brands", see
+// ../vendor/fontawesome/fontawesome.css's own doc comment for why these
+// can't be merged into one @font-face) from every other icon in this bar,
+// so the icon span gets `fa-brands`, never `fa-solid`. Written as a literal
+// \uXXXX escape and read back after writing, per CLAUDE.md's "Nerd Font
+// glyphs" discipline (raw pasted PUA glyphs have previously been silently
+// dropped to empty strings by tooling between drafting and the file write).
 register('vesktop', ({ shell }) => {
   const el = document.createElement('div');
   el.className = 'vesktop';
+  const icon = document.createElement('span');
+  icon.className = 'vesktop__icon fa-brands';
+  icon.textContent = '\uF392';
+  const count = document.createElement('span');
+  count.className = 'vesktop__count';
+  el.append(icon, count);
 
   async function poll() {
     try {
       const { stdout } = await shell.shellExec(HELPER, []);
       const s = pingState(stdout);
-      el.textContent = s.pinged ? String(s.count) : '';
+      count.textContent = s.pinged ? String(s.count) : '';
       el.classList.toggle('vesktop--pinged', s.pinged);
       el.style.display = s.pinged ? '' : 'none';
     } catch (e) {

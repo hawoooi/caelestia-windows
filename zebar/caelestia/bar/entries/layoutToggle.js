@@ -25,13 +25,26 @@ import { register } from './registry.js';
 // that's never been directly observed.
 export const LAYOUT_CYCLE = ['bsp', 'columns', 'rows', 'grid'];
 
+// Task 3 (Font Awesome icons): these were raw Unicode box-drawing glyphs
+// (BMP characters, survived typed raw -- see logo.js's own note) with no
+// real relationship to Font Awesome. Now real Font Awesome Free 6.x Solid
+// icons chosen for their layout-shape resemblance, confirmed present in
+// Font Awesome's own metadata/icons.json for the 6.x release: \uF542
+// (diagram-project, "Diagram Project" -- a branching tree/split shape for
+// bsp, komorebi's own binary-space-partition layout), \uF0DB
+// (table-columns, "Table Columns" -- vertical columns), \uF0C9 (bars,
+// "Bars" -- three stacked horizontal bars, a literal "rows" shape),
+// \uF00A (table-cells, "Table Cells" -- an even grid). FALLBACK_GLYPH
+// (\uF84C, border-all, "Border All" -- a generic bordered-box "unknown
+// layout" mark) is used for any provider report outside the curated four,
+// per the module comment above.
 const LAYOUT_GLYPHS = {
-  bsp: '◨',
-  columns: '▥',
-  rows: '▤',
-  grid: '▦',
+  bsp: '\uF542',
+  columns: '\uF0DB',
+  rows: '\uF0C9',
+  grid: '\uF00A',
 };
-const FALLBACK_GLYPH = '▧';
+const FALLBACK_GLYPH = '\uF84C';
 
 // What the CLI's `change-layout` argument spells vs. what the PROVIDER
 // reports back in `focusedWorkspace.layout` are two different spellings
@@ -81,7 +94,10 @@ register('layoutToggle', ({ shell, providers }) => {
   // 'bar-btn' (style.css): the one shared clickable-affordance style,
   // applied here because this button has a real click handler below --
   // styled consistently with change 1's power button, per the brief.
-  el.className = 'layout-toggle bar-btn';
+  // 'fa-solid' (Task 3): every LAYOUT_GLYPHS/FALLBACK_GLYPH codepoint above
+  // is a Font Awesome Free Solid glyph, rendered through the locally
+  // vendored webfont.
+  el.className = 'layout-toggle bar-btn fa-solid';
 
   el.addEventListener('click', () => {
     if (!shell) {

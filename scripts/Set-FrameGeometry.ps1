@@ -37,27 +37,39 @@ function ConvertFrom-PxString {
 function Get-FrameGeometryTable {
     <#
       Pure computation, no I/O -- returns the same shape both -DryRun and a
-      real run print/act on, so there is exactly one place the eight
+      real run print/act on, so there is exactly one place the seven
       presets' geometry is derived (matches the task's own tunability goal:
       "adjust the thickness later without hand-editing four files" implies
       also not hand-deriving the arithmetic four different ways in this
       script).
 
+      Left-frame-removal pass (direct user feedback -- "the elements on
+      this have an extra space from the border on the side... remove the
+      extra border on the left and move the arcs in"): the `edges/left`
+      preset (sixth pass) is GONE -- there are now only SEVEN presets, not
+      eight. The bar's own right edge (x = B) is once again the content
+      hole's left edge, and the two left corner widgets shed their own
+      left-band term (they go back to being R wide, not T+R -- the same
+      "no left band, narrow left corners" shape the fifth pass used,
+      combined with THIS pass's own thinner T=8/R=16 values, not the fifth
+      pass's old T=20/R=24 ones). The two right corners and the right edge
+      are completely unaffected by any of this -- their own formulas below
+      are untouched from the previous (sixth) pass.
+
       Formulas (screen WxH, bar width B, thickness T, radius R, corner size
       C = T + R):
 
-        corners/top-left     = (B,          0,          C, C)
+        corners/top-left     = (B,          0,          R, C)
         corners/top-right    = (W-C,        0,          C, C)
-        corners/bottom-left  = (B,          H-C,        C, C)
+        corners/bottom-left  = (B,          H-C,        R, C)
         corners/bottom-right = (W-C,        H-C,        C, C)
-        edges/top             = (B+C,        0,   W-2C-B, T)
-        edges/bottom          = (B+C,        H-T, W-2C-B, T)
-        edges/left             = (B,          C,          T, H-2C)
+        edges/top             = (B+R,        0,   (W-C)-(B+R), T)
+        edges/bottom          = (B+R,        H-T, (W-C)-(B+R), T)
         edges/right            = (W-T,        C,          T, H-2C)
 
       Verified against this task's own target table (T=8, R=16, B=52,
-      W=2560, H=1440 -> C=24): every one of the eight rows below matches
-      exactly.
+      W=2560, H=1440 -> C=24): every one of the seven rows below matches
+      exactly (edges/top: offsetX=68, width=2468).
     #>
     [CmdletBinding()]
     param(
@@ -76,13 +88,12 @@ function Get-FrameGeometryTable {
     $C = $T + $R
 
     return @(
-        [PSCustomObject]@{ Widget = 'corners'; Preset = 'top-left';     OffsetX = $B;       OffsetY = 0;        Width = $C;         Height = $C }
+        [PSCustomObject]@{ Widget = 'corners'; Preset = 'top-left';     OffsetX = $B;       OffsetY = 0;        Width = $R;         Height = $C }
         [PSCustomObject]@{ Widget = 'corners'; Preset = 'top-right';    OffsetX = $W - $C;  OffsetY = 0;        Width = $C;         Height = $C }
-        [PSCustomObject]@{ Widget = 'corners'; Preset = 'bottom-left';  OffsetX = $B;       OffsetY = $H - $C;  Width = $C;         Height = $C }
+        [PSCustomObject]@{ Widget = 'corners'; Preset = 'bottom-left';  OffsetX = $B;       OffsetY = $H - $C;  Width = $R;         Height = $C }
         [PSCustomObject]@{ Widget = 'corners'; Preset = 'bottom-right'; OffsetX = $W - $C;  OffsetY = $H - $C;  Width = $C;         Height = $C }
-        [PSCustomObject]@{ Widget = 'edges';   Preset = 'top';          OffsetX = $B + $C;  OffsetY = 0;        Width = $W - 2*$C - $B; Height = $T }
-        [PSCustomObject]@{ Widget = 'edges';   Preset = 'bottom';       OffsetX = $B + $C;  OffsetY = $H - $T;  Width = $W - 2*$C - $B; Height = $T }
-        [PSCustomObject]@{ Widget = 'edges';   Preset = 'left';         OffsetX = $B;       OffsetY = $C;       Width = $T;         Height = $H - 2*$C }
+        [PSCustomObject]@{ Widget = 'edges';   Preset = 'top';          OffsetX = $B + $R;  OffsetY = 0;        Width = ($W - $C) - ($B + $R); Height = $T }
+        [PSCustomObject]@{ Widget = 'edges';   Preset = 'bottom';       OffsetX = $B + $R;  OffsetY = $H - $T;  Width = ($W - $C) - ($B + $R); Height = $T }
         [PSCustomObject]@{ Widget = 'edges';   Preset = 'right';        OffsetX = $W - $T;  OffsetY = $C;       Width = $T;         Height = $H - 2*$C }
     )
 }
@@ -96,9 +107,18 @@ function Set-FrameZpackGeometry {
       "bar" widget entirely, ...), matching only by widget name + preset
       name and rewriting exactly offsetX/offsetY/width/height on each match.
       A preset name in $Table with no matching entry in the live file is
-      APPENDED (this is how a first run adds "edges/left", which does not
-      exist yet on a repo checked out before this task) rather than
-      silently ignored.
+      APPENDED (this is how a first run adds a brand-new preset that does
+      not exist yet on an older checkout) rather than silently ignored.
+
+      Left-frame-removal pass: $Table is now the SOLE source of truth for
+      which presets should exist on the 'corners'/'edges' widgets --
+      any preset already in the live file, on a widget this Table touches,
+      whose name does NOT appear in $Table for that widget is REMOVED
+      (this is how "edges/left", present in an older zpack.json, actually
+      goes away rather than lingering as stale dead geometry forever).
+      Safe to do unconditionally because every preset on 'corners'/'edges'
+      is exclusively managed by this script -- there is no hand-authored
+      preset on either widget this pruning could accidentally delete.
     #>
     [CmdletBinding()]
     param(
@@ -122,9 +142,9 @@ function Set-FrameZpackGeometry {
             $preset.width   = "$($row.Width)px"
             $preset.height  = "$($row.Height)px"
         } else {
-            # New preset (e.g. "edges/left" the first time this runs against
-            # a pre-existing zpack.json) -- append with the same shape every
-            # other corners/edges preset already uses.
+            # New preset (e.g. a first run against an older zpack.json
+            # missing a preset this pass introduced) -- append with the
+            # same shape every other corners/edges preset already uses.
             $newPreset = [PSCustomObject]@{
                 name              = $row.Preset
                 anchor            = 'top_left'
@@ -137,6 +157,17 @@ function Set-FrameZpackGeometry {
             }
             $widget.presets = @($widget.presets) + @($newPreset)
         }
+    }
+
+    # Prune: for every widget $Table actually touches, drop any preset NOT
+    # named in $Table for that widget (e.g. a stale "left" left over from
+    # zpack.json predating this pass's edges/left removal).
+    $widgetNames = $Table | ForEach-Object { $_.Widget } | Select-Object -Unique
+    foreach ($widgetName in $widgetNames) {
+        $widget = $obj.widgets | Where-Object { $_.name -eq $widgetName } | Select-Object -First 1
+        if (-not $widget) { continue }
+        $wanted = @($Table | Where-Object { $_.Widget -eq $widgetName } | ForEach-Object { $_.Preset })
+        $widget.presets = @($widget.presets | Where-Object { $wanted -contains $_.name })
     }
 
     $json = $obj | ConvertTo-Json -Depth 10

@@ -78,6 +78,17 @@ body.fullscreen-hidden #bar { display: none; }
 .entry { display: flex; flex-direction: column; align-items: center; }
 .entry--spacer { flex: 1 1 auto; }
 
+/* Task 3 (Font Awesome icons): the logo previously had no dedicated rule
+   at all -- it rendered at #bar's inherited 16px monospace size, since a
+   raw Unicode diamond needs no icon-font sizing to look right. Now that
+   it's a Font Awesome glyph (entries/logo.js, `fa-solid`), it gets the
+   same --icon-size every other icon in this bar uses, so it doesn't look
+   mismatched against the icons below it. */
+.logo {
+  font-size: var(--icon-size);
+  line-height: 1;
+}
+
 .workspace {
   width: 30px; height: 30px;
   border: none; border-radius: var(--radius-sm);
@@ -151,14 +162,31 @@ body.fullscreen-hidden #bar { display: none; }
    as one consistent rhythm inside the shared .status-cluster pill (it used
    to be an unstyled div, sized by nothing but its own text). Unpinged, its
    `el.style.display = 'none'` (entries/vesktop.js) removes it from the
-   cluster's flex layout entirely -- no empty gap reserved for it. */
+   cluster's flex layout entirely -- no empty gap reserved for it.
+
+   Task 3 (Font Awesome icons): this used to be a single text node (just
+   the unread count, no icon). It's now two children -- a Discord mark
+   (`.vesktop__icon`, `fa-brands`) and the count (`.vesktop__count`, plain
+   text, same smaller-text treatment `.status-icons__battery` already
+   uses) -- laid out in a row instead of centring one string, so `.vesktop`
+   grows from a fixed icon-box square to a row that can hold both without
+   clipping either. */
 .vesktop {
   display: flex;
+  flex-direction: row;
   align-items: center;
   justify-content: center;
-  width: var(--icon-box);
+  gap: var(--space-sm);
+  min-width: var(--icon-box);
   min-height: var(--icon-box);
+  line-height: 1;
+}
+.vesktop__icon {
   font-size: var(--icon-size);
+  line-height: 1;
+}
+.vesktop__count {
+  font-size: 0.7em;
   line-height: 1;
 }
 .vesktop--pinged { color: var(--primary); font-weight: 700; }
@@ -240,6 +268,11 @@ body.fullscreen-hidden #bar { display: none; }
   border-radius: var(--radius-sm);
   padding: var(--space-sm) 0;
   font: inherit;
+  /* Task 3 (Font Awesome icons): these buttons render a Font Awesome glyph
+     (`fa-solid`, entries/media.js) now, not plain-text symbols -- pin an
+     explicit icon size instead of inheriting the panel's body text size,
+     consistent with every other icon in this bar. */
+  font-size: var(--icon-size);
   cursor: pointer;
 }
 .media-panel__time { color: var(--on-surface-variant); font-size: 11px; }
