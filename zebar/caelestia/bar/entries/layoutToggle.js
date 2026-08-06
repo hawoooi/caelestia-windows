@@ -17,12 +17,9 @@ import { register } from './registry.js';
 // vertical_stack | horizontal_stack | ultrawide_vertical_stack | rows |
 // grid | right_main_vertical_stack | custom. So while the CLI call itself
 // is confirmed safe (tested live, above), what the PROVIDER reports back
-// for a workspace whose layout is 'Columns' is unconfirmed -- most likely
-// it lands in the 'custom' bucket. PROVIDER_TO_CYCLE below only maps the
-// three cycle values that ARE in the confirmed union (bsp/rows/grid);
-// 'columns' (and every other unrecognized/'custom' report) falls through
-// to FALLBACK_GLYPH rather than guessing a specific glyph for a shape
-// that's never been directly observed.
+// for a workspace whose layout is 'Columns' needed confirming too -- see
+// PROVIDER_TO_CYCLE's own comment below for what that turned out to be,
+// read live via CDP against the running widget, not inferred from the CLI.
 export const LAYOUT_CYCLE = ['bsp', 'columns', 'rows', 'grid'];
 
 // Task 3 (Font Awesome icons): these were raw Unicode box-drawing glyphs
@@ -46,27 +43,70 @@ const LAYOUT_GLYPHS = {
 };
 const FALLBACK_GLYPH = '\uF84C';
 
-// What the CLI's `change-layout` argument spells vs. what the PROVIDER
-// reports back in `focusedWorkspace.layout` are two different spellings
-// (kebab-case CLI argument vs. snake_case provider string) -- the same gap
-// workspaces.js already documents between komorebic's zero-indexed
-// `focus-workspace` target and the workspace *name* the buttons display.
+// Task 2 (feat/corner-overlays follow-up): normalises a provider-reported
+// layout string before comparison -- lower-cases it and strips '-'/'_' so
+// 'BSP', 'bsp', 'Bsp', 'right-main-vertical-stack' and
+// 'right_main_vertical_stack' all compare equal. This was added
+// defensively, in the same spirit as this file's own "already been bitten
+// twice by assuming a provider field's shape" history (the invented
+// `isFocused` field; this same gap). It turned out NOT to be live for
+// bsp/rows/grid on this machine's actual zebar@3.3.1 build -- see
+// PROVIDER_TO_CYCLE's own comment immediately below for what WAS found
+// live -- but a future zebar/komorebi version silently changing that
+// casing convention (the way `komorebic state`'s own raw CLI JSON already
+// reports the unrelated field `layout.Default` as "BSP", capitalised)
+// shouldn't be able to reintroduce this exact bug a third time.
+export function normalizeLayoutString(reported) {
+  return String(reported).toLowerCase().replace(/[-_]/g, '');
+}
+
+// What the ZEBAR PROVIDER itself puts in `focusedWorkspace.layout` was read
+// LIVE (this task) via a CDP session attached to the running widget --
+// window.__zebarDebugProviders.outputMap.komorebi.focusedWorkspace.layout,
+// not inferred from `komorebic state`'s own CLI JSON, which is a
+// differently-shaped, differently-cased field entirely (`layout: { Default:
+// "BSP" }`, capitalised and nested under a variant tag -- confirmed by
+// running `komorebic state` alongside the same CDP session). The provider's
+// own field turned out to already be a flat, lower-case string matching
+// zebar's KomorebiLayout TS union: `change-layout bsp` -> `"bsp"`,
+// `change-layout rows` -> `"rows"`, `change-layout grid` -> `"grid"` --
+// i.e. the CLI-vs-provider casing gap this module used to warn about was
+// NOT the operative bug for these three; `currentLayout` already resolved
+// 'bsp' correctly before this task's fix, and the observed tofu (see
+// docs/zebar-bar.md) was entirely the separate `.bar-btn`/`.fa-solid` CSS
+// cascade bug fixed in style.css, not a mapping miss.
+//
+// `change-layout columns` -> read back as exactly `"custom"` -- confirmed
+// live, not the guess the pre-fix comment made. 'custom' is the SAME bucket
+// every other layout outside zebar's confirmed 8-value union also falls
+// into (vertical_stack, horizontal_stack, ultrawide_vertical_stack,
+// right_main_vertical_stack all report their own literal names -- only
+// 'columns' isn't a recognized union member at all, so it's the one CLI
+// value that collapses to 'custom'). Mapping 'custom' -> 'columns' here is
+// therefore a deliberate simplification, not a precise inverse of the CLI:
+// 'columns' is the only 'custom'-bucket layout THIS BUTTON can ever set, so
+// in normal use (only ever changed via this button, never a hotkey to one
+// of the other custom-bucket layouts) the mapping is correct. If a layout
+// is changed to e.g. vertical_stack by some other means, this button will
+// show the columns glyph for it too -- a known, documented imprecision
+// rather than a silent one, same as the fallback-glyph gap this file has
+// always disclosed for anything else outside the curated four.
 const PROVIDER_TO_CYCLE = {
   bsp: 'bsp',
   rows: 'rows',
   grid: 'grid',
+  custom: 'columns',
 };
 
 // Reads the CURRENT layout from the komorebi provider's own workspace
 // object -- never tracked in local state -- so the button stays correct
 // even when the layout was last changed by hotkey rather than this button.
 // Returns one of LAYOUT_CYCLE's own values, or null when the provider
-// hasn't reported yet or reports something outside the curated cycle
-// (including, most likely, 'columns' itself -- see the module comment).
+// hasn't reported yet or reports something outside the curated cycle.
 export function currentLayout(komorebi) {
   const reported = komorebi?.focusedWorkspace?.layout;
   if (typeof reported !== 'string') return null;
-  return PROVIDER_TO_CYCLE[reported] ?? null;
+  return PROVIDER_TO_CYCLE[normalizeLayoutString(reported)] ?? null;
 }
 
 export function layoutGlyph(cycleKey) {

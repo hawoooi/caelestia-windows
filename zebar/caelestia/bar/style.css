@@ -209,7 +209,25 @@ body.fullscreen-hidden #bar { display: none; }
   border-radius: var(--radius-full);
   background: transparent;
   color: var(--on-surface-variant);
-  font: inherit;
+  /* Font Awesome fix (Task 1, feat/corner-overlays follow-up): this used to
+     be `font: inherit;` (a shorthand reset of EVERY font sub-property,
+     including font-family/font-weight, to whatever the immediate parent
+     computes) followed by a font-size override. Both of this class's real
+     consumers (power.js, layoutToggle.js) always pair `bar-btn` with
+     `fa-solid`, and `.fa-solid` (fontawesome.css) has the SAME specificity
+     (one class selector) -- a tie the shorthand won on source order alone
+     (style.css loads after fontawesome.css), silently resetting
+     font-family back to #bar's inherited "0xProto Nerd Font" and
+     font-weight back to 400. Confirmed live via CDP against the running
+     widget: getComputedStyle(.layout-toggle).fontFamily read
+     '"0xProto Nerd Font", monospace' with this rule in place, not
+     '"Font Awesome 6 Free"'. Every codepoint this bar uses through
+     `fa-solid`/`fa-brands` needed the FA6 webfont, not a Nerd-Font PUA
+     fallback that happens to share SOME (not all) of the same codepoints
+     with FA4 -- see fontawesome.css's own doc comment. The fix is to not
+     touch font-family/font-weight/font-style/font-variant/line-height here
+     at all -- `.fa-solid`/`.fa-brands` already supplies all of those --
+     and keep only the font-size override this class actually needs. */
   font-size: var(--icon-size);
   cursor: pointer;
   transition: background var(--dur) var(--ease), transform var(--dur) var(--ease);
@@ -267,11 +285,26 @@ body.fullscreen-hidden #bar { display: none; }
   border: none;
   border-radius: var(--radius-sm);
   padding: var(--space-sm) 0;
-  font: inherit;
-  /* Task 3 (Font Awesome icons): these buttons render a Font Awesome glyph
-     (`fa-solid`, entries/media.js) now, not plain-text symbols -- pin an
-     explicit icon size instead of inheriting the panel's body text size,
-     consistent with every other icon in this bar. */
+  /* Font Awesome fix (Task 1, feat/corner-overlays follow-up): this was
+     `font: inherit;` -- worse than `.bar-btn`'s equivalent bug (see that
+     rule's own comment), because `button` (a type selector) makes this
+     selector's specificity (0,1,1) strictly HIGHER than `.fa-solid`'s
+     (0,1,0), so it always won regardless of stylesheet order, not just on
+     a source-order tiebreak. And because these buttons live in
+     `.media-panel`, which is appended to `document.body` (a sibling of
+     `#bar`, not a descendant -- see entries/media.js's own comment on why),
+     `inherit` didn't even land on "0xProto Nerd Font" the way `.bar-btn`'s
+     did -- it fell all the way to the browser's own default UA font stack
+     (confirmed live via CDP: getComputedStyle on these buttons read
+     `system-ui, "Segoe UI", Roboto, ...`, not any font this pack ships).
+     Every prevBtn/playBtn/nextBtn codepoint (U+F048/U+F04B/U+F04C/U+F051)
+     would have rendered as tofu the moment the drawer became reachable by a
+     real click -- not caught by prior QA only because the drawer isn't
+     wired up to a real click yet (see docs/zebar-bar.md's "Known-incomplete:
+     the media drawer"). Fix: drop the shorthand entirely and let
+     `.fa-solid` (already on these buttons, entries/media.js) supply
+     font-family/font-weight/font-style/font-variant/line-height -- keep
+     only the font-size override this rule actually needs. */
   font-size: var(--icon-size);
   cursor: pointer;
 }

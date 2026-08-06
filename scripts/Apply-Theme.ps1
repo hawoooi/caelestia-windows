@@ -590,12 +590,42 @@ function Restart-ZebarWidgets {
       called out) exits almost immediately with a nonzero code. Captured
       via -PassThru and checked after StartupWaitMs, surfacing that failure
       as a warning instead of the previous silent no-op.
+      Task 3 (real incident, feat/corner-overlays follow-up): a
+      fullscreen-detect.exe instance (fullscreen.js's shellExec poll,
+      ../tools/fullscreen-detect.cs) outlived its parent zebar process and
+      inherited zebar's own LISTENING SOCKET on port 6124 -- every
+      subsequent zebar start then failed to bind that port, the bar
+      rendered nothing, and TWO separate agents burned roughly an hour
+      misdiagnosing it as a WebView2 fault before the real cause (an
+      orphaned helper process holding a socket, not the browser engine) was
+      found. See docs/zebar-bar.md's troubleshooting section for the full
+      account. This function now defends against a recurrence in two steps,
+      both AFTER killing the old zebar.exe process above and BEFORE
+      starting any widget back up:
+
+      1. Reap any surviving fullscreen-detect.exe -- it has no reason to
+         outlive the zebar process that spawned it, so any instance still
+         alive at this point is, by definition, an orphan.
+      2. Check whether port 6124 is STILL held after that reap. If it is
+         (e.g. by something other than fullscreen-detect.exe, or a reap
+         that failed to actually free the handle), warn with the holding
+         PID and process name -- so a future recurrence is a clear,
+         actionable warning instead of the bar silently rendering nothing
+         with nothing in errors.log to explain why.
+
+      Both steps are fail-soft: `Get-NetTCPConnection` (part of the
+      Windows-builtin NetTCPIP module, not something this repo controls)
+      not being available, or the reap itself failing, only downgrades to a
+      warning -- never aborts the restart, since a successful theme apply
+      must never be blocked by best-effort diagnostics for an unrelated
+      process.
     #>
     [CmdletBinding()]
     param(
         [string]$ZebarExe     = $script:ZebarExe,
         [string]$SettingsPath = (Join-Path $env:USERPROFILE ".glzr\zebar\settings.json"),
-        [int]$StartupWaitMs   = 500
+        [int]$StartupWaitMs   = 500,
+        [int]$AssetServerPort = 6124
     )
 
     if (-not (Test-Path $ZebarExe)) {
@@ -617,6 +647,38 @@ function Restart-ZebarWidgets {
 
     Get-Process zebar -ErrorAction SilentlyContinue | Stop-Process -Force
     Start-Sleep -Milliseconds $StartupWaitMs
+
+    # Step 1: reap any surviving fullscreen-detect.exe (see this function's
+    # own comment above) before starting anything back up, so a leftover
+    # from the zebar process just killed can never hold port 6124 hostage
+    # for the widgets about to start.
+    $orphans = Get-Process fullscreen-detect -ErrorAction SilentlyContinue
+    if ($orphans) {
+        $orphanIds = ($orphans | ForEach-Object { $_.Id }) -join ', '
+        Write-Warning "Reaping $(@($orphans).Count) surviving fullscreen-detect.exe process(es) (PID(s): $orphanIds) before restarting zebar widgets -- see docs/zebar-bar.md's port-$AssetServerPort troubleshooting entry. This is expected occasionally (a poll outliving its parent zebar), not itself a sign of a new bug."
+        $orphans | Stop-Process -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Milliseconds 200
+    }
+
+    # Step 2: if the asset-server port is STILL held after that reap,
+    # report the holder clearly instead of letting the widgets below fail
+    # to bind silently -- this exact silent failure is what cost two prior
+    # agents ~an hour misdiagnosing a WebView2 problem that never existed.
+    try {
+        $portHolder = Get-NetTCPConnection -LocalPort $AssetServerPort -ErrorAction SilentlyContinue |
+            Where-Object { $_.State -eq 'Listen' } | Select-Object -First 1
+        if ($portHolder) {
+            $holderProc = Get-Process -Id $portHolder.OwningProcess -ErrorAction SilentlyContinue
+            $holderDesc = if ($holderProc) {
+                "$($holderProc.ProcessName) (PID $($portHolder.OwningProcess))"
+            } else {
+                "PID $($portHolder.OwningProcess) (process no longer exists -- a stale/inherited socket handle, the same shape of bug fullscreen-detect.exe hit)"
+            }
+            Write-Warning "Port $AssetServerPort is still held by $holderDesc after reaping known orphans -- the zebar asset server below will likely fail to bind (`"Bind(Os { code: 10048, kind: AddrInUse ... }`" in state\zebar-logs) and the bar will render nothing. Investigate/kill that process manually if the widgets started below don't come up."
+        }
+    } catch {
+        Write-Warning "Could not check whether port $AssetServerPort is already held (Get-NetTCPConnection failed: $_) -- continuing the restart anyway."
+    }
 
     # Zebar logs EVERY provider emission (cpu, memory, network, ...) to stdout at
     # INFO level, several times a second. `-WindowStyle Hidden` does NOT detach a

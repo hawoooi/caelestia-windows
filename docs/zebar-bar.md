@@ -431,19 +431,88 @@ over-broad `argsRegex` on a shutdown binary is the most dangerous single edit an
 this file: it would let *any* JS running in this widget's page shut the machine down with whatever
 arguments it likes, not just the one confirm-gated button this pack ships.
 
-## Troubleshooting: WebView2 renders nothing (`about:blank`)
+## Troubleshooting: the bar renders nothing
+
+**Check this FIRST, before suspecting WebView2:** an orphaned `fullscreen-detect.exe` holding
+port 6124 is a confirmed, real cause of "the bar renders nothing" on this machine, and has already
+cost **two separate agents roughly an hour each** misdiagnosing it as the WebView2 problem
+described further down this section. A five-second check settles which one you're looking at —
+see "Cause (confirmed, check this first)" immediately below — before spending any time on the
+WebView2 remediations at the bottom of this section, which do NOT apply to this failure mode and
+will not fix it.
+
+### Cause (confirmed, check this first): an orphaned `fullscreen-detect.exe` holding port 6124
+
+**Symptom:** identical to the WebView2 symptom below from the outside — the widget window(s) open,
+hold their position and komorebi work-area reservation correctly, but nothing visibly renders.
+The distinguishing signal is in the log, not the screen: `state\zebar-logs\<slug>.out.log` (or
+`.err.log`) for the run shows `Asset server failed during runtime: Bind(Os { code: 10048, kind:
+AddrInUse, ... })` — zebar's own internal Rocket asset server (the one that serves
+`http://127.0.0.1:6124/...`, see "Pack layout" above) failed to bind its port, so it never served
+`index.html` at all. **Check this before anything else**: `Get-NetTCPConnection -LocalPort 6124`.
+If a PID shows up there and `Get-Process -Id <that PID>` returns nothing, or returns a
+`fullscreen-detect` process, that confirms this cause.
+
+**Root cause:** `fullscreen.js`'s `startFullscreenWatch` polls a tiny helper,
+`tools/fullscreen-detect.exe`, roughly once a second via `shellExec` (see "Fullscreen auto-hide"
+above). That helper is a short-lived child process launched via Windows' `CreateProcess` — and,
+critically, `CreateProcess` by default can inherit the **launching process's own open handles**,
+including a listening socket, unless the caller explicitly marks that handle non-inheritable or
+passes `bInheritHandles=FALSE`. When zebar itself is killed (a normal `Restart-ZebarWidgets`
+stop/start cycle, or any crash) while a `fullscreen-detect.exe` child is still alive, that child
+can be left holding an inherited duplicate of zebar's own port-6124 listening socket handle. The
+process itself does nothing with that handle — it never listens on it, it's just an incidental
+open handle from inheritance — but as long as the process is alive, the socket stays bound at the
+OS level. The next zebar start then fails to bind port 6124 at all, because something (a process
+Windows still considers alive, even though it isn't zebar and isn't doing anything useful with the
+handle) is still holding it. Corroborating evidence found live during this task: querying
+`Get-NetTCPConnection -LocalPort 9222` (a CDP remote-debugging port opened the same way, for
+unrelated diagnostic purposes) during this same investigation showed **two different PIDs**
+simultaneously reporting `Listen` state on the identical port — the same inherited-duplicate-handle
+shape of bug, observed on a second, unrelated port, from the same process tree.
+
+**Fix: kill the orphaned `fullscreen-detect.exe`, never touch `msedgewebview2`.**
+`Get-Process fullscreen-detect | Stop-Process -Force` releases the inherited handle and frees the
+port immediately; killing WebView2 (see below) does nothing for this cause and only trades one
+outage for a much longer one. `scripts/Apply-Theme.ps1`'s `Restart-ZebarWidgets` now does this
+reap automatically, every restart, before starting any widget back up — see "Reloading zebar after
+a theme apply" above and the function's own doc comment. If port 6124 is *still* held after that
+automatic reap (e.g. by something other than `fullscreen-detect.exe`), `Restart-ZebarWidgets` now
+warns with the exact holding PID and process name instead of the widgets simply failing to bind in
+silence.
+
+`fullscreen.js` was also hardened against the underlying pattern that let a probe outlive its
+parent in the first place: each poll now races against a timeout (default 2s) so a hung probe is
+abandoned rather than awaited forever, and a new poll is never started while the previous one is
+still outstanding (an `inFlight` guard) — see that file's own doc comment and
+`tests/js/fullscreen.test.mjs` for the two tests covering this directly. Neither change can
+force-terminate the underlying Win32 process (`shellExec` exposes no handle for that, unlike
+`shellSpawn`+`shellKill`); they only stop this module's own polling loop from ever compounding a
+single hung probe into a pile of them, and the `Restart-ZebarWidgets` reap is the actual cleanup
+for a process that does end up orphaned regardless.
+
+### A separate, historical cause: a genuine WebView2 session problem (`about:blank`)
+
+**This is a different failure mode from the one above and does NOT apply if `Get-NetTCPConnection
+-LocalPort 6124` showed the port already held before zebar even started** — check that first.
+Kept here because it is a real failure this pack hit once, and the remediations below remain
+correct advice *for this specific cause*, not for the port-6124 orphan above.
 
 **Symptom:** the Zebar widget window opens, holds its position and its komorebi work-area
 reservation correctly, and Windows' own hit-testing routes clicks to it correctly — but nothing
 visibly renders. UI Automation shows a `Document` node with no children and a `Pane` literally
 named `"about:blank"`; re-querying after several seconds shows no change (this isn't lazy
-accessibility-tree population, it's a genuinely failed navigation).
+accessibility-tree population, it's a genuinely failed navigation). Zebar's own log does **not**
+show the `Bind(Os { code: 10048, kind: AddrInUse, ... })` line the port-6124 orphan above produces
+— the asset server bound its port fine; the WebView2 navigation itself is what failed.
 
 **Cause:** this is an **environmental WebView2 problem on this specific machine**, triggered by
 running `Get-Process msedgewebview2 -ErrorAction SilentlyContinue | Stop-Process -Force` (done
 during Task 8's cleanup, intending to reset just this pack's WebView2 state) — this force-kills
 **every** WebView2 process on the machine, including shared infrastructure other apps depend on,
-not just Zebar's. **Never run `Stop-Process` against `msedgewebview2` again for any reason.**
+not just Zebar's. **Never run `Stop-Process` against `msedgewebview2` again for any reason** —
+killing an orphaned `fullscreen-detect.exe` (see above) is fine and expected; killing
+`msedgewebview2` is not, and is unrelated to fixing the port-6124 cause.
 
 **Confirmed NOT the cause:** it is not anything in this pack's own code — the pre-existing,
 untouched `gunturdwiap.good-enough`/`goodenoughedit` pack shows the identical `about:blank`
@@ -463,11 +532,13 @@ without a machine-state change first):
 
 **What actually clears it:** the state survives a `zebar.exe` process restart and even a full
 profile wipe, which points at something in the user's WebView2 **session** rather than any file on
-disk. The known-working fixes are a **user sign-out/sign-in, or a full reboot** — neither has been
-performed yet as of Task 9/10 because doing so would kill the very WezTerm/VS Code session these
-tasks run inside of. Recommended action: next time it's convenient to sign out or reboot, do so,
-then re-verify the bar renders and re-screenshot it — nothing about the code needs to change first,
-it's a pure environment-recovery step.
+disk. The known-working fixes are a **user sign-out/sign-in, or a full reboot**. Recommended
+action: next time it's convenient to sign out or reboot, do so, then re-verify the bar renders and
+re-screenshot it — nothing about the code needs to change first, it's a pure environment-recovery
+step. (This was, in fact, a full reboot's worth of the machine's uptime ago as of this task — the
+bar renders again, and this project's own port-6124 remote-debugging session used to diagnose the
+Font Awesome/layout bugs elsewhere in this doc is itself live proof WebView2 on this machine is
+currently healthy.)
 
 **What stays safe even in this broken state** (verified directly, not assumed): the komorebi
 work-area reservation (`left: 52`), and real OS-level hit-testing (`WindowFromPoint` at the
@@ -1507,22 +1578,134 @@ every other icon-bearing entry (`logo.js`, `power.js`, `vesktop.js`, `media.js`'
 has no pure branching logic of its own worth a node test, consistent with how `statusCluster`'s DOM
 composition and `spacer`'s trivial factory are already untested elsewhere in this file.
 
-**Live on-screen visual confirmation of this pass could not be completed.** Restarting the bar to
-load the new files (unavoidable — Zebar has no hot reload, see "Starting, stopping, and reloading"
-above) triggered a recurrence of the environmental WebView2 problem this file already documents
-under "Troubleshooting: WebView2 renders nothing" — the bar (and the rest of the pack: corners,
-edges) opened and its process stayed responsive, but nothing painted (confirmed transparent, not
-just dark: repeated screenshots of the bar's screen region showed the animated wallpaper cycling
-underneath, at multiple different animation frames, with zero opaque content at any sampled moment).
-This specific occurrence also showed a concrete proximate cause not previously recorded in this
-file: `state/zebar-logs/caelestia-bar-default.out.log` logged `Asset server failed during runtime:
-Bind(Os { code: 10048, kind: AddrInUse, ... })` on every fresh restart attempted during this task,
-and `Get-NetTCPConnection -LocalPort 6124` kept showing that port held (`Listen`/`CloseWait`/
-`Established`) by a PID that `Get-Process`/`tasklist` both confirm no longer exists — a stuck
-kernel-level socket outliving its owning process, unrelated to anything in this pack's own files
-(confirmed via a direct Node.js harness — see the task's own final report — that every changed/new
-entry constructs, updates, and renders the exact expected DOM classes/text/glyphs in isolation).
-Per this file's own prior findings, this class of issue is known to require a user sign-out or a
-full reboot to clear, neither of which this task's safety constraints permit performing
-unilaterally — recommended next step, same as previously recorded here: next time it's convenient,
-sign out or reboot, then re-screenshot the bar's lower half to confirm the restyle visually.
+**Live on-screen visual confirmation of this pass could not be completed at the time.** Restarting
+the bar to load the new files (unavoidable — Zebar has no hot reload, see "Starting, stopping, and
+reloading" above) hit a `state/zebar-logs/caelestia-bar-default.out.log` line reading `Asset server
+failed during runtime: Bind(Os { code: 10048, kind: AddrInUse, ... })` on every fresh restart
+attempted during this task, with `Get-NetTCPConnection -LocalPort 6124` showing that port held by a
+PID that `Get-Process`/`tasklist` both confirmed no longer existed. At the time this was recorded
+under "Troubleshooting: WebView2 renders nothing" and treated as the same environmental WebView2
+session problem this file had already hit once before. **A later task (see "Font Awesome cascade
+fix, layout-provider normalisation, and the port-6124 orphan (eighth pass)" below) identified the
+real, different cause: an orphaned `fullscreen-detect.exe` process, not WebView2 at all** — see the
+"Troubleshooting" section's now-corrected top entry for the full account and the fix. This
+paragraph is left as historical record of how the symptom first presented, not as still-accurate
+guidance — follow the corrected "Troubleshooting" section instead.
+
+## Font Awesome cascade fix, layout-provider normalisation, and the port-6124 orphan (eighth pass)
+
+The bar renders again (see "Troubleshooting" above for how the port-6124 orphan that had been
+blocking it was found and killed). With it actually visible, this pass fixed two real, confirmed
+bugs the previous (unverifiable) pass had shipped, plus hardened the root cause of the outage
+itself so it recurs less easily.
+
+### 1. Font Awesome icons were rendering through Nerd Font's FA4 glyphs, not the vendored FA6 webfont
+
+**Symptom:** `layoutToggle`'s button rendered as an empty tofu box; every other icon (logo, wifi,
+volume, power) looked correct. That split was the tell — Nerd Fonts embed Font Awesome **v4**
+glyphs in the U+F000–U+F2E0 PUA range, so any icon whose FA6 codepoint happens to coincide with an
+FA4 glyph at the same codepoint (diamond U+F219, wifi U+F1EB, volume-high U+F028, power-off
+U+F011 — all unchanged shapes between FA4 and FA6) would look right even when rendered through the
+wrong font entirely. `layoutToggle`'s codepoints (`diagram-project` U+F542, fallback `border-all`
+U+F84C) sit above FA4's range and have no Nerd Font glyph to fall back to, so they alone showed
+tofu.
+
+**Diagnosed empirically, via a live CDP session** (not guessed): `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS
+= '--remote-debugging-port=9222'` set before a `Restart-ZebarWidgets` cycle opens a Chrome DevTools
+Protocol port on the widget's own WebView2 process (two separate WebView2 "root" browser processes
+exist per running zebar — one per pack profile plus one shared app-level profile — both pick up the
+env var and race for the same port; killing the non-`webview-cache\caelestia` one resolves the
+collision and leaves a clean single target). Findings, in order:
+
+- `document.fonts.status` was `"loaded"` and `document.fonts.check('900 16px "Font Awesome 6
+  Free"')`/`check('400 16px "Font Awesome 6 Brands"')` both returned `true` — the vendored webfonts
+  genuinely load; this was never a network/404/wrong-format problem.
+- Canvas `measureText` against a genuine Unicode noncharacter (U+FDD0, permanently unassigned in
+  every font) as a "missing glyph" baseline showed all nine codepoints the task needed to verify
+  (U+F219, U+F011, U+F1EB, U+F028, U+F542, U+F84C, U+F0DB, U+F0C9, U+F00A) render at a distinct,
+  nonzero advance width in `"Font Awesome 6 Free"` — the vendored `fa-solid-900.woff2` is not a
+  subset missing these glyphs; re-vendoring was never necessary.
+- `getComputedStyle(...).fontFamily` on the live DOM was the decisive test: `.logo` and
+  `.status-icons__glyph` (never combined with `.bar-btn`) correctly resolved to `"Font Awesome 6
+  Free"`. `.layout-toggle` and `.power` (both `bar-btn fa-solid`) resolved to `'"0xProto Nerd
+  Font", monospace'` — the exact wrong font the tofu theory predicted.
+
+**Root cause:** `style.css`'s `.bar-btn` rule used the `font: inherit;` **shorthand**, which resets
+*every* font sub-property (family, weight, style, variant, stretch, line-height) to the parent's
+computed value — not just the properties the author meant to normalise. `.fa-solid`/`.fa-brands`
+(`vendor/fontawesome/fontawesome.css`, loaded *before* `style.css` in `index.html`) has the exact
+same specificity (one class selector) as `.bar-btn`, so on a source-order tiebreak `.bar-btn`'s
+later declaration won, silently reverting `font-family`/`font-weight` back to `#bar`'s inherited
+`"0xProto Nerd Font", monospace` for every button carrying both classes (`power`, `layoutToggle`).
+A **second**, worse instance of the identical bug existed in `.media-panel__transport button`
+(the media drawer's prev/play/next buttons, `entries/media.js`) — there the `button` type selector
+makes it *strictly higher specificity* than `.fa-solid`, so it would have won regardless of
+stylesheet order, and because the media panel is appended to `document.body` (a sibling of `#bar`,
+not a descendant), the inherited fallback there wasn't even Nerd Font — CDP confirmed
+`getComputedStyle` read the bare browser default (`system-ui, "Segoe UI", ...`), so those three
+buttons would have shown pure tofu (no Nerd Font fallback at all) the moment the drawer became
+reachable by a real click.
+
+**Fix:** removed the `font: inherit;` line from both rules in `style.css`, keeping only the
+`font-size` override each actually needs — `.fa-solid`/`.fa-brands` already supplies
+`font-family`/`font-weight`/`font-style`/`font-variant`/`line-height`, and with the competing
+declaration gone entirely, cascade order/specificity no longer matters. **Confirmed live, not just
+by reasoning:** re-querying `getComputedStyle` after the fix and a real restart showed every
+`.fa-solid`/`.fa-brands` element resolving to the correct Font Awesome family, and a fresh
+screenshot (below) shows `layoutToggle` rendering a real glyph, zero tofu anywhere on the bar.
+
+### 2. `layoutToggle`'s provider-layout comparison hardened, `columns` now gets a real glyph
+
+The pre-fix code's own comment guessed the tofu might be `FALLBACK_GLYPH`, caused by
+`komorebic state`'s CLI JSON reporting the layout as `"BSP"` (capitalised, nested under
+`layout.Default`) against a lowercase-keyed `PROVIDER_TO_CYCLE` map. **Read live, per this pack's
+own established discipline of never trusting a provider field's shape without checking** (this
+pack has already been bitten twice — the invented `isFocused` field, and this same CLI-vs-provider
+spelling gap for a different field): a temporary `window.__zebarDebugProviders = providers;` line
+in `bar.js`, removed again after use, exposed `bar.js`'s own `createProviderGroup` output to the
+same CDP session used for the Font Awesome diagnosis above. Result:
+**`focusedWorkspace.layout` was already a flat, lower-case `"bsp"` for the real live BSP
+layout** — the CLI-vs-provider casing gap the pre-fix comment worried about was NOT actually live
+for `bsp`/`rows`/`grid` on this zebar@3.3.1 build; the tofu was entirely the CSS bug above, not a
+mapping miss.
+
+Cycling the real layout live via `komorebic change-layout <name>` (bsp -> columns -> rows -> grid ->
+back to bsp, per this task's own safety constraint to end on BSP) and re-reading the same debug
+provider after each change confirmed the full picture: `rows` -> `"rows"`, `grid` -> `"grid"`, and
+**`columns` -> `"custom"`** — the same bucket every OTHER layout outside zebar's 8-value
+`KomorebiLayout` union also falls into (`vertical_stack`, `horizontal_stack`,
+`ultrawide_vertical_stack`, `right_main_vertical_stack` all report their own literal names; only
+`columns` isn't a recognised union member, so it's the one CLI value that collapses to `custom`).
+
+`layoutToggle.js` changes: `PROVIDER_TO_CYCLE` gained `custom: 'columns'` (giving `columns` the
+real `table-columns` glyph it already had defined but could never reach, instead of always falling
+to `FALLBACK_GLYPH`) — documented as a deliberate simplification, not a precise inverse of the CLI,
+since `custom` is ambiguous with every other non-union layout; a `PROVIDER_TO_CYCLE` lookup and a
+new `normalizeLayoutString()` helper (lower-case + strip `-`/`_`) were added defensively so a future
+zebar/komorebi version reintroducing real casing drift (which `komorebic state`'s own CLI JSON
+already exhibits for the unrelated `layout.Default` field) can't silently reintroduce this exact bug
+a third time. `tests/js/entries.test.mjs` gained direct coverage of both the live-confirmed mapping
+and the defensive normalisation (case/`-`/`_` variants of every curated value).
+
+### 3. The port-6124 orphan itself (`fullscreen-detect.exe`) — hardened against recurrence
+
+Covered in full in the "Troubleshooting" section above (the actual root cause of "the bar renders
+nothing", corrected there in place of the old, wrong WebView2 lead) and in `fullscreen.js`'s own
+doc comment. Summary: `startFullscreenWatch` now (a) never starts a new poll while the previous one
+is still outstanding, and (b) races each poll against a 2s timeout so a hung probe is abandoned
+rather than awaited forever — both covered by new tests in `tests/js/fullscreen.test.mjs`.
+`Restart-ZebarWidgets` (`scripts/Apply-Theme.ps1`) now reaps any surviving `fullscreen-detect.exe`
+before starting widgets back up, and warns with the exact holding PID/process name if port 6124 is
+still held after that reap — covered by new tests in `tests/ApplyTheme.Tests.ps1`.
+
+### Verification
+
+Both `node --test` (77 tests, up from 72) and the Pester suite (165 tests, up from 160) run green.
+Live, on-screen confirmation (finally possible with the bar actually rendering): screenshots of
+`x:0-56,y:0-560` and `x:0-56,y:950-1440` at 3x zoom show every icon as a real glyph — logo, all
+nine workspace numbers, `layoutToggle` (now a real `diagram-project` glyph, not tofu), the
+`activeWindow` app name, the status-cluster pill (wifi/volume/vesktop), and the power button.
+Changing the tiling layout live via `komorebic change-layout` (behind the button's own back, per
+this task's instructions) and re-screenshotting confirmed `layoutToggle`'s glyph follows the real
+layout, ending back on BSP's `diagram-project` glyph per the safety constraint to leave the desktop
+on BSP.

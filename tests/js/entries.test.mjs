@@ -12,6 +12,7 @@ import {
   layoutGlyph,
   nextLayout,
   changeLayoutCommand,
+  normalizeLayoutString,
   KOMOREBIC_PATH as LAYOUT_KOMOREBIC_PATH,
 } from '../../zebar/caelestia/bar/entries/layoutToggle.js';
 
@@ -337,21 +338,65 @@ test('currentLayout reads the focused workspace\'s layout and maps it into the c
   assert.strictEqual(currentLayout({ focusedWorkspace: { layout: 'grid' } }), 'grid');
 });
 
-test('currentLayout returns null for a layout outside the curated cycle, including "columns" itself', () => {
+test('currentLayout maps the provider\'s "custom" report to columns (confirmed live, Task 2)', () => {
   // 'columns' is deliberately NOT in zebar's own KomorebiLayout union (see
-  // layoutToggle.js's module comment) -- it is not asserted to map to any
-  // specific reported string here because that string has never been
-  // directly observed; the point of this test is that whatever comes back
-  // for it degrades to null (-> the fallback glyph), not a thrown error or
-  // a guessed-wrong glyph.
-  assert.strictEqual(currentLayout({ focusedWorkspace: { layout: 'custom' } }), null);
+  // layoutToggle.js's module comment). This task read the REAL provider
+  // output live via a CDP session against the running widget:
+  // `change-layout columns` -> `focusedWorkspace.layout` read back as
+  // exactly "custom", the same bucket every other layout outside the
+  // confirmed 8-value union also falls into. PROVIDER_TO_CYCLE's own
+  // comment documents why mapping 'custom' -> 'columns' is a deliberate
+  // simplification rather than a precise inverse of the CLI.
+  assert.strictEqual(currentLayout({ focusedWorkspace: { layout: 'custom' } }), 'columns');
+});
+
+test('currentLayout returns null for a layout outside the curated cycle', () => {
+  // vertical_stack IS one of zebar's confirmed union values (reported
+  // verbatim by the provider, not bucketed into 'custom'), so it correctly
+  // falls outside the curated four -- null (-> the fallback glyph), not a
+  // thrown error or a guessed-wrong glyph.
   assert.strictEqual(currentLayout({ focusedWorkspace: { layout: 'vertical_stack' } }), null);
+  assert.strictEqual(currentLayout({ focusedWorkspace: { layout: 'right_main_vertical_stack' } }), null);
 });
 
 test('currentLayout tolerates missing provider output', () => {
   assert.strictEqual(currentLayout(undefined), null);
   assert.strictEqual(currentLayout({}), null);
   assert.strictEqual(currentLayout({ focusedWorkspace: {} }), null);
+});
+
+test('normalizeLayoutString lower-cases and strips -/_ separators', () => {
+  assert.strictEqual(normalizeLayoutString('bsp'), 'bsp');
+  assert.strictEqual(normalizeLayoutString('BSP'), 'bsp');
+  assert.strictEqual(normalizeLayoutString('Bsp'), 'bsp');
+  assert.strictEqual(normalizeLayoutString('right_main_vertical_stack'), 'rightmainverticalstack');
+  assert.strictEqual(normalizeLayoutString('right-main-vertical-stack'), 'rightmainverticalstack');
+  assert.strictEqual(normalizeLayoutString('Right-Main_Vertical-Stack'), 'rightmainverticalstack');
+});
+
+test('currentLayout is robust to case and -/_ spelling differences (Task 2 hardening)', () => {
+  // This task read the REAL, live zebar@3.3.1 komorebi provider output
+  // (CDP against the running widget) and found it already reports a flat,
+  // lower-case "bsp"/"rows"/"grid"/"custom" -- NOT the capitalised
+  // "BSP" `komorebic state`'s own raw CLI JSON reports under its
+  // differently-shaped `layout.Default` field. So the exact casing bug the
+  // pre-fix code comments warned about was not actually live for this
+  // build. This test asserts the defensive normalisation added anyway
+  // (in case a future zebar/komorebi build changes that convention) does
+  // not silently regress: every case/separator variant of a curated value
+  // must still resolve to the same cycle entry as the canonical spelling.
+  for (const variant of ['bsp', 'BSP', 'Bsp']) {
+    assert.strictEqual(currentLayout({ focusedWorkspace: { layout: variant } }), 'bsp');
+  }
+  for (const variant of ['rows', 'ROWS', 'Rows']) {
+    assert.strictEqual(currentLayout({ focusedWorkspace: { layout: variant } }), 'rows');
+  }
+  for (const variant of ['grid', 'GRID', 'Grid']) {
+    assert.strictEqual(currentLayout({ focusedWorkspace: { layout: variant } }), 'grid');
+  }
+  for (const variant of ['custom', 'CUSTOM', 'Custom']) {
+    assert.strictEqual(currentLayout({ focusedWorkspace: { layout: variant } }), 'columns');
+  }
 });
 
 test('layoutGlyph returns a distinct glyph for each curated layout and a fallback otherwise', () => {

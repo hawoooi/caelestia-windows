@@ -517,6 +517,12 @@ Describe "Restart-ZebarWidgets (C1)" {
         Mock Get-Process {}
         Mock Stop-Process {}
         Mock Start-Process { return [PSCustomObject]@{ HasExited = $false; ExitCode = 0 } }
+        # Task 3: Get-NetTCPConnection is the real Windows NetTCPIP cmdlet --
+        # mocked here so every existing test in this Describe block stays
+        # isolated from whatever port 6124 actually looks like on the
+        # machine running the suite (without this, a real zebar bar running
+        # during a test pass makes these tests observe real system state).
+        Mock Get-NetTCPConnection {}
     }
 
     It "restarts EVERY startupConfigs entry, not just caelestia/bar" {
@@ -580,6 +586,64 @@ Describe "Restart-ZebarWidgets (C1)" {
         $warnings = @()
         Restart-ZebarWidgets -ZebarExe $script:rzFakeExe -SettingsPath $settings -StartupWaitMs 1 -WarningVariable warnings -WarningAction SilentlyContinue
         ($warnings -join ' ') | Should -Match 'caelestia'
+    }
+
+    <#
+      Task 3 (real incident): a fullscreen-detect.exe instance outlived its
+      parent zebar and inherited zebar's own listening socket on port 6124,
+      so the next zebar start failed to bind and the bar rendered nothing
+      -- misdiagnosed twice as a WebView2 fault before the real cause was
+      found (see docs/zebar-bar.md's troubleshooting section). These tests
+      cover the two defenses added to this function against a recurrence.
+    #>
+    It "reaps a surviving fullscreen-detect.exe before restarting any widget" {
+        Mock Get-Process { [PSCustomObject]@{ Id = 42424; ProcessName = 'fullscreen-detect' } } -ParameterFilter { $Name -eq 'fullscreen-detect' }
+        $settings = "$env:TEMP\rz-settings-orphan-$PID.json"
+        '{ "startupConfigs": [] }' | Set-Content $settings -Encoding utf8
+        $warnings = @()
+        Restart-ZebarWidgets -ZebarExe $script:rzFakeExe -SettingsPath $settings -StartupWaitMs 1 -WarningVariable warnings -WarningAction SilentlyContinue
+        Should -Invoke Stop-Process -Times 1 -ParameterFilter { $Id -and ($Id -contains 42424) }
+        ($warnings -join ' ') | Should -Match 'fullscreen-detect'
+        ($warnings -join ' ') | Should -Match '42424'
+    }
+
+    It "does not warn about orphan reaping when no fullscreen-detect.exe survives" {
+        $settings = "$env:TEMP\rz-settings-noorphan-$PID.json"
+        '{ "startupConfigs": [] }' | Set-Content $settings -Encoding utf8
+        $warnings = @()
+        Restart-ZebarWidgets -ZebarExe $script:rzFakeExe -SettingsPath $settings -StartupWaitMs 1 -WarningVariable warnings -WarningAction SilentlyContinue
+        ($warnings -join ' ') | Should -Not -Match 'Reaping'
+    }
+
+    It "warns with the holding PID and process name when the asset-server port is still held after reaping" {
+        Mock Get-NetTCPConnection { [PSCustomObject]@{ LocalPort = 6124; State = 'Listen'; OwningProcess = 55555 } }
+        Mock Get-Process { [PSCustomObject]@{ Id = 55555; ProcessName = 'some-stuck-process' } } -ParameterFilter { $Id -eq 55555 }
+        $settings = "$env:TEMP\rz-settings-portheld-$PID.json"
+        '{ "startupConfigs": [] }' | Set-Content $settings -Encoding utf8
+        $warnings = @()
+        Restart-ZebarWidgets -ZebarExe $script:rzFakeExe -SettingsPath $settings -StartupWaitMs 1 -WarningVariable warnings -WarningAction SilentlyContinue
+        ($warnings -join ' ') | Should -Match 'some-stuck-process'
+        ($warnings -join ' ') | Should -Match '55555'
+        ($warnings -join ' ') | Should -Match '6124'
+    }
+
+    It "describes the holder as a stale handle when the owning PID no longer resolves to a live process" {
+        Mock Get-NetTCPConnection { [PSCustomObject]@{ LocalPort = 6124; State = 'Listen'; OwningProcess = 66666 } }
+        Mock Get-Process {} -ParameterFilter { $Id -eq 66666 }
+        $settings = "$env:TEMP\rz-settings-portstale-$PID.json"
+        '{ "startupConfigs": [] }' | Set-Content $settings -Encoding utf8
+        $warnings = @()
+        Restart-ZebarWidgets -ZebarExe $script:rzFakeExe -SettingsPath $settings -StartupWaitMs 1 -WarningVariable warnings -WarningAction SilentlyContinue
+        ($warnings -join ' ') | Should -Match 'no longer exists'
+        ($warnings -join ' ') | Should -Match '66666'
+    }
+
+    It "does not warn about the port when it is free after reaping" {
+        $settings = "$env:TEMP\rz-settings-portfree-$PID.json"
+        '{ "startupConfigs": [] }' | Set-Content $settings -Encoding utf8
+        $warnings = @()
+        Restart-ZebarWidgets -ZebarExe $script:rzFakeExe -SettingsPath $settings -StartupWaitMs 1 -WarningVariable warnings -WarningAction SilentlyContinue
+        ($warnings -join ' ') | Should -Not -Match 'still held'
     }
 }
 
