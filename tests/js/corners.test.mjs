@@ -9,35 +9,36 @@ import { classifyCorner } from '../../zebar/caelestia/corners/classify.js';
 // numbers make the test cases easy to sanity-check by eye.
 
 test('classifyCorner: a window near the physical top-left is "top-left"', () => {
-  // Actual zpack.json "top-left" preset placement (post flush-to-edge fix,
-  // frame-flush with both the bar's own right edge and the screen top):
-  // anchor top_left, offsetX 52px, offsetY 0px. classifyCorner only ever
-  // looks at x/y, never width/height, so this assertion is unaffected by
-  // the "no left band" pass (fifth pass) shrinking this preset's own width
-  // from 44px to 24px -- see corners.css's :root comment for why the left
-  // corners are narrower than the right ones now.
+  // Actual zpack.json "top-left" preset placement (thinner-frame/
+  // equal-gaps pass -- --frame-band 8px, --corner-radius 16px, corner
+  // widget size 24x24 on both axes for every corner, including the left
+  // ones): anchor top_left, offsetX 52px, offsetY 0px. classifyCorner only
+  // ever looks at x/y, never width/height, so this assertion is unaffected
+  // by the left corners going back to a uniform 24x24 footprint (see
+  // corners.css's own :root comment for why they were briefly narrower).
   assert.strictEqual(classifyCorner(52, 0, 2560, 1440), 'top-left');
 });
 
 test('classifyCorner: a window near the physical top-right is "top-right"', () => {
-  // Every corner preset now uses anchor top_left with a purely positive,
+  // Every corner preset uses anchor top_left with a purely positive,
   // absolute offset (sidesteps the offset-sign trap -- see
-  // docs/zebar-bar.md): offsetX 2516px, offsetY 0px, width 44px -> outer
-  // x = 2516, which is 2560 - 44 (flush with the screen's right edge).
-  assert.strictEqual(classifyCorner(2516, 0, 2560, 1440), 'top-right');
+  // docs/zebar-bar.md): offsetX 2536px, offsetY 0px, width 24px -> outer
+  // x = 2536, which is 2560 - 24 (flush with the screen's right edge).
+  assert.strictEqual(classifyCorner(2536, 0, 2560, 1440), 'top-right');
 });
 
 test('classifyCorner: a window near the physical bottom-left is "bottom-left"', () => {
-  // anchor top_left, offsetX 52px, offsetY 1396px, height 44px -> outer y
-  // = 1396, which is 1440 - 44 (flush with the screen's bottom edge). Width
-  // is 24px (not 44px like the right corners -- see the top-left test's
-  // own comment), but classifyCorner never reads width, so that has no
-  // bearing on this assertion.
-  assert.strictEqual(classifyCorner(52, 1396, 2560, 1440), 'bottom-left');
+  // anchor top_left, offsetX 52px, offsetY 1416px, height 24px -> outer y
+  // = 1416, which is 1440 - 24 (flush with the screen's bottom edge).
+  // Width is 24px, same as every other corner now (the left corners no
+  // longer shed their own left-band term -- see corners.css), but
+  // classifyCorner never reads width, so that has no bearing on this
+  // assertion either way.
+  assert.strictEqual(classifyCorner(52, 1416, 2560, 1440), 'bottom-left');
 });
 
 test('classifyCorner: a window near the physical bottom-right is "bottom-right"', () => {
-  assert.strictEqual(classifyCorner(2516, 1396, 2560, 1440), 'bottom-right');
+  assert.strictEqual(classifyCorner(2536, 1416, 2560, 1440), 'bottom-right');
 });
 
 test('classifyCorner: exactly at the midpoint rounds to bottom-right (strict "<" means a tie loses)', () => {

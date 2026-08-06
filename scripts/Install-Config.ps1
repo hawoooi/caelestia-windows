@@ -295,14 +295,23 @@ ctrl + alt + w                : Start-Process powershell -WindowStyle Hidden -Ar
     # "bar-link-top"/"bar-link-bottom" stubs -- the bar itself already forms
     # the frame's left edge, so only top/right/bottom strips are wanted.
     # This list shrank from five entries to three as a result; the
-    # non-DryRun branch below now explicitly PRUNES caelestia/edges'
-    # startupConfigs entries before re-registering the current list, or the
-    # two removed presets would linger in ~/.glzr/zebar/settings.json
-    # forever (Set-ZebarStartupConfig only adds/updates a matching
+    # non-DryRun branch below explicitly PRUNES caelestia/edges'
+    # startupConfigs entries before re-registering the current list, or a
+    # removed preset would linger in ~/.glzr/zebar/settings.json forever
+    # (Set-ZebarStartupConfig only adds/updates a matching
     # Pack+Widget+Preset triple, it never removes an entry that's no longer
     # in this list) and Zebar would keep trying to autostart widgets that no
     # longer exist in zpack.json after every reboot.
-    $edgePresets = @('top', 'right', 'bottom')
+    #
+    # Thinner-frame/equal-gaps pass: "left" re-added. The bar no longer
+    # stands in for the frame's left band on its own -- see
+    # zebar/caelestia/edges/edges.css's :root-adjacent comment -- so the
+    # "edges" widget gained a real "left" preset in zpack.json alongside
+    # top/right/bottom, and it needs the exact same startupConfigs
+    # registration as its three siblings or it won't survive a reboot
+    # either. The prune-then-re-add pattern above already generalizes to
+    # this without any further change.
+    $edgePresets = @('top', 'right', 'bottom', 'left')
 
     if ($DryRun) {
         # I1: the junction/settings.json steps below must ALSO be a no-op

@@ -22,15 +22,28 @@
    var(--primary) (cyan) stroke, matching a border the corner arcs used to
    draw. The frame is now a solid var(--surface) band instead -- the same
    colour as the bar itself, so bar + corners + edges read as one
-   continuous surface, not an accent-coloured outline. Only top, right and
-   bottom strips exist; there is no left strip, because the bar (52px wide,
-   ../bar/) already forms the frame's left edge -- painting a second
-   left-edge strip on top of it would be redundant. The two short
+   continuous surface, not an accent-coloured outline. The two short
    "bar-link" stubs that used to bridge the ~12px gap between the bar's own
    right edge and the two left corner widgets were removed for the same
-   reason (the user only wants a rectangle fill on the three sides that
-   don't already have the bar covering them) -- that left a ~12x4px sliver
-   of bare wallpaper at each left corner as an accepted side effect.
+   reason (the user only wants a rectangle fill on the sides that don't
+   already have the bar covering them) -- historically that left a
+   ~12x4px sliver of bare wallpaper at each left corner as an accepted side
+   effect.
+
+   A real "left" preset (sixth pass, direct user feedback -- see
+   ../corners/corners.css's own :root comment for the full account) now
+   exists alongside top/right/bottom, reversing the earlier "no left strip,
+   the bar already forms the frame's left edge" decision below. That
+   reasoning held only because top/right/bottom/left were treated
+   asymmetrically -- the bar (52px) standing in for a --frame-band-thick
+   left band meant the left side's wallpaper gap was structurally a whole
+   band thicker than the other three, not because a left strip was
+   actually undesired. This preset is --frame-band thick, flush against
+   the bar's own right edge (x == bar width), running the same
+   corner-to-corner span every other strip does -- see ../zpack.json's
+   "left" preset and ../../scripts/Set-FrameGeometry.ps1, which derives its
+   offset/width/height the same way it derives the other seven presets, not
+   as a special case.
 
    Flush-to-edge correction (direct user feedback, fourth pass): all three
    strips are now --frame-band (20px, matching komorebi's own
@@ -57,7 +70,31 @@
    rects; this comment intentionally does not restate historical
    superseded numbers inline -- a comment quoting stale offsets reads as
    current and is worse than no comment at all (lesson from this same pass,
-   see its own commit message). */
+   see its own commit message).
+
+   Thinner frame, equal gaps, left band restored (sixth pass): see
+   ../corners/corners.css's :root comment for the full rationale (thinner
+   band, an explicit tunable gap, and why the left side needed a real band
+   rather than staying an asymmetric special case). Same lesson as the
+   fifth pass applies here too -- current numbers live in
+   docs/zebar-bar.md's own geometry table and in
+   ../../scripts/Set-FrameGeometry.ps1 (the one place that computes and
+   writes them), not restated here. */
+
+:root {
+  /* Documentation/parity property only -- NOT read by #edge below (each
+     preset's real on-screen thickness comes entirely from its own
+     width/height in ../zpack.json, since every "edges" preset is already a
+     fixed, different shape -- see this file's own top comment). Exists so
+     "what thickness is this file currently built for" has one canonical,
+     mechanically-rewritable value (../../scripts/Set-FrameGeometry.ps1
+     updates this alongside ../corners/corners.css's own --frame-band)
+     instead of only living inside prose comments, which is exactly the
+     drift the fifth pass's own retrospective (this file's "this comment
+     intentionally does not restate historical numbers" note, above)
+     warned about. */
+  --frame-band: 8px;
+}
 
 html,
 body {

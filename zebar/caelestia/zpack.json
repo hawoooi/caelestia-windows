@@ -1,162 +1,235 @@
 {
-  "$schema": "https://github.com/glzr-io/zebar/raw/v3.3.1/resources/zpack-schema.json",
-  "name": "caelestia",
-  "version": "0.1.0",
-  "description": "Caelestia-style vertical bar",
-  "tags": ["sidebar"],
-  "previewImages": [],
-  "repositoryUrl": "",
-  "widgets": [
-    {
-      "name": "bar",
-      "htmlPath": "./bar/index.html",
-      "zOrder": "normal",
-      "shownInTaskbar": false,
-      "focused": false,
-      "resizable": false,
-      "transparent": true,
-      "includeFiles": ["*"],
-      "caching": { "defaultDuration": 0, "rules": [] },
-      "privileges": {
-        "shellCommands": [
-          {
-            "program": "C:\\Users\\PC\\.config\\yasb\\scripts\\vesktop-unread.exe",
-            "argsRegex": "^$"
-          },
-          {
-            "program": "C:\\Users\\PC\\scoop\\shims\\komorebic.exe",
-            "argsRegex": "^focus-workspace \\d$"
-          },
-          {
-            "program": "C:\\Users\\PC\\Documents\\git\\setup\\zebar\\caelestia\\tools\\fullscreen-detect.exe",
-            "argsRegex": "^$"
-          }
-        ]
-      },
-      "presets": [
-        {
-          "name": "default",
-          "anchor": "top_left",
-          "offsetX": "0px",
-          "offsetY": "0px",
-          "width": "52px",
-          "height": "100%",
-          "monitorSelection": { "type": "all" },
-          "dockToEdge": { "enabled": true, "edge": "left", "windowMargin": "0px" }
-        }
-      ]
-    },
-    {
-      "name": "corners",
-      "htmlPath": "./corners/index.html",
-      "zOrder": "top_most",
-      "shownInTaskbar": false,
-      "focused": false,
-      "resizable": false,
-      "transparent": true,
-      "includeFiles": ["*"],
-      "caching": { "defaultDuration": 0, "rules": [] },
-      "privileges": {
-        "shellCommands": [
-          {
-            "program": "C:\\Users\\PC\\Documents\\git\\setup\\zebar\\caelestia\\tools\\fullscreen-detect.exe",
-            "argsRegex": "^$"
-          }
-        ]
-      },
-      "presets": [
-        {
-          "name": "top-left",
-          "anchor": "top_left",
-          "offsetX": "52px",
-          "offsetY": "0px",
-          "width": "24px",
-          "height": "44px",
-          "monitorSelection": { "type": "all" },
-          "dockToEdge": { "enabled": false }
-        },
-        {
-          "name": "top-right",
-          "anchor": "top_left",
-          "offsetX": "2516px",
-          "offsetY": "0px",
-          "width": "44px",
-          "height": "44px",
-          "monitorSelection": { "type": "all" },
-          "dockToEdge": { "enabled": false }
-        },
-        {
-          "name": "bottom-left",
-          "anchor": "top_left",
-          "offsetX": "52px",
-          "offsetY": "1396px",
-          "width": "24px",
-          "height": "44px",
-          "monitorSelection": { "type": "all" },
-          "dockToEdge": { "enabled": false }
-        },
-        {
-          "name": "bottom-right",
-          "anchor": "top_left",
-          "offsetX": "2516px",
-          "offsetY": "1396px",
-          "width": "44px",
-          "height": "44px",
-          "monitorSelection": { "type": "all" },
-          "dockToEdge": { "enabled": false }
-        }
-      ]
-    },
-    {
-      "name": "edges",
-      "htmlPath": "./edges/index.html",
-      "zOrder": "top_most",
-      "shownInTaskbar": false,
-      "focused": false,
-      "resizable": false,
-      "transparent": true,
-      "includeFiles": ["*"],
-      "caching": { "defaultDuration": 0, "rules": [] },
-      "privileges": {
-        "shellCommands": [
-          {
-            "program": "C:\\Users\\PC\\Documents\\git\\setup\\zebar\\caelestia\\tools\\fullscreen-detect.exe",
-            "argsRegex": "^$"
-          }
-        ]
-      },
-      "presets": [
-        {
-          "name": "top",
-          "anchor": "top_left",
-          "offsetX": "76px",
-          "offsetY": "0px",
-          "width": "2440px",
-          "height": "20px",
-          "monitorSelection": { "type": "all" },
-          "dockToEdge": { "enabled": false }
-        },
-        {
-          "name": "right",
-          "anchor": "top_left",
-          "offsetX": "2540px",
-          "offsetY": "44px",
-          "width": "20px",
-          "height": "1352px",
-          "monitorSelection": { "type": "all" },
-          "dockToEdge": { "enabled": false }
-        },
-        {
-          "name": "bottom",
-          "anchor": "top_left",
-          "offsetX": "76px",
-          "offsetY": "1420px",
-          "width": "2440px",
-          "height": "20px",
-          "monitorSelection": { "type": "all" },
-          "dockToEdge": { "enabled": false }
-        }
-      ]
-    }
-  ]
+    "$schema":  "https://github.com/glzr-io/zebar/raw/v3.3.1/resources/zpack-schema.json",
+    "name":  "caelestia",
+    "version":  "0.1.0",
+    "description":  "Caelestia-style vertical bar",
+    "tags":  [
+                 "sidebar"
+             ],
+    "previewImages":  [
+
+                      ],
+    "repositoryUrl":  "",
+    "widgets":  [
+                    {
+                        "name":  "bar",
+                        "htmlPath":  "./bar/index.html",
+                        "zOrder":  "normal",
+                        "shownInTaskbar":  false,
+                        "focused":  false,
+                        "resizable":  false,
+                        "transparent":  true,
+                        "includeFiles":  [
+                                             "*"
+                                         ],
+                        "caching":  {
+                                        "defaultDuration":  0,
+                                        "rules":  [
+
+                                                  ]
+                                    },
+                        "privileges":  {
+                                           "shellCommands":  [
+                                                                 {
+                                                                     "program":  "C:\\Users\\PC\\.config\\yasb\\scripts\\vesktop-unread.exe",
+                                                                     "argsRegex":  "^$"
+                                                                 },
+                                                                 {
+                                                                     "program":  "C:\\Users\\PC\\scoop\\shims\\komorebic.exe",
+                                                                     "argsRegex":  "^focus-workspace \\d$"
+                                                                 },
+                                                                 {
+                                                                     "program":  "C:\\Users\\PC\\Documents\\git\\setup\\zebar\\caelestia\\tools\\fullscreen-detect.exe",
+                                                                     "argsRegex":  "^$"
+                                                                 }
+                                                             ]
+                                       },
+                        "presets":  [
+                                        {
+                                            "name":  "default",
+                                            "anchor":  "top_left",
+                                            "offsetX":  "0px",
+                                            "offsetY":  "0px",
+                                            "width":  "52px",
+                                            "height":  "100%",
+                                            "monitorSelection":  {
+                                                                     "type":  "all"
+                                                                 },
+                                            "dockToEdge":  {
+                                                               "enabled":  true,
+                                                               "edge":  "left",
+                                                               "windowMargin":  "0px"
+                                                           }
+                                        }
+                                    ]
+                    },
+                    {
+                        "name":  "corners",
+                        "htmlPath":  "./corners/index.html",
+                        "zOrder":  "top_most",
+                        "shownInTaskbar":  false,
+                        "focused":  false,
+                        "resizable":  false,
+                        "transparent":  true,
+                        "includeFiles":  [
+                                             "*"
+                                         ],
+                        "caching":  {
+                                        "defaultDuration":  0,
+                                        "rules":  [
+
+                                                  ]
+                                    },
+                        "privileges":  {
+                                           "shellCommands":  [
+                                                                 {
+                                                                     "program":  "C:\\Users\\PC\\Documents\\git\\setup\\zebar\\caelestia\\tools\\fullscreen-detect.exe",
+                                                                     "argsRegex":  "^$"
+                                                                 }
+                                                             ]
+                                       },
+                        "presets":  [
+                                        {
+                                            "name":  "top-left",
+                                            "anchor":  "top_left",
+                                            "offsetX":  "52px",
+                                            "offsetY":  "0px",
+                                            "width":  "24px",
+                                            "height":  "24px",
+                                            "monitorSelection":  {
+                                                                     "type":  "all"
+                                                                 },
+                                            "dockToEdge":  {
+                                                               "enabled":  false
+                                                           }
+                                        },
+                                        {
+                                            "name":  "top-right",
+                                            "anchor":  "top_left",
+                                            "offsetX":  "2536px",
+                                            "offsetY":  "0px",
+                                            "width":  "24px",
+                                            "height":  "24px",
+                                            "monitorSelection":  {
+                                                                     "type":  "all"
+                                                                 },
+                                            "dockToEdge":  {
+                                                               "enabled":  false
+                                                           }
+                                        },
+                                        {
+                                            "name":  "bottom-left",
+                                            "anchor":  "top_left",
+                                            "offsetX":  "52px",
+                                            "offsetY":  "1416px",
+                                            "width":  "24px",
+                                            "height":  "24px",
+                                            "monitorSelection":  {
+                                                                     "type":  "all"
+                                                                 },
+                                            "dockToEdge":  {
+                                                               "enabled":  false
+                                                           }
+                                        },
+                                        {
+                                            "name":  "bottom-right",
+                                            "anchor":  "top_left",
+                                            "offsetX":  "2536px",
+                                            "offsetY":  "1416px",
+                                            "width":  "24px",
+                                            "height":  "24px",
+                                            "monitorSelection":  {
+                                                                     "type":  "all"
+                                                                 },
+                                            "dockToEdge":  {
+                                                               "enabled":  false
+                                                           }
+                                        }
+                                    ]
+                    },
+                    {
+                        "name":  "edges",
+                        "htmlPath":  "./edges/index.html",
+                        "zOrder":  "top_most",
+                        "shownInTaskbar":  false,
+                        "focused":  false,
+                        "resizable":  false,
+                        "transparent":  true,
+                        "includeFiles":  [
+                                             "*"
+                                         ],
+                        "caching":  {
+                                        "defaultDuration":  0,
+                                        "rules":  [
+
+                                                  ]
+                                    },
+                        "privileges":  {
+                                           "shellCommands":  [
+                                                                 {
+                                                                     "program":  "C:\\Users\\PC\\Documents\\git\\setup\\zebar\\caelestia\\tools\\fullscreen-detect.exe",
+                                                                     "argsRegex":  "^$"
+                                                                 }
+                                                             ]
+                                       },
+                        "presets":  [
+                                        {
+                                            "name":  "top",
+                                            "anchor":  "top_left",
+                                            "offsetX":  "76px",
+                                            "offsetY":  "0px",
+                                            "width":  "2460px",
+                                            "height":  "8px",
+                                            "monitorSelection":  {
+                                                                     "type":  "all"
+                                                                 },
+                                            "dockToEdge":  {
+                                                               "enabled":  false
+                                                           }
+                                        },
+                                        {
+                                            "name":  "right",
+                                            "anchor":  "top_left",
+                                            "offsetX":  "2552px",
+                                            "offsetY":  "24px",
+                                            "width":  "8px",
+                                            "height":  "1392px",
+                                            "monitorSelection":  {
+                                                                     "type":  "all"
+                                                                 },
+                                            "dockToEdge":  {
+                                                               "enabled":  false
+                                                           }
+                                        },
+                                        {
+                                            "name":  "bottom",
+                                            "anchor":  "top_left",
+                                            "offsetX":  "76px",
+                                            "offsetY":  "1432px",
+                                            "width":  "2460px",
+                                            "height":  "8px",
+                                            "monitorSelection":  {
+                                                                     "type":  "all"
+                                                                 },
+                                            "dockToEdge":  {
+                                                               "enabled":  false
+                                                           }
+                                        },
+                                        {
+                                            "name":  "left",
+                                            "anchor":  "top_left",
+                                            "offsetX":  "52px",
+                                            "offsetY":  "24px",
+                                            "width":  "8px",
+                                            "height":  "1392px",
+                                            "monitorSelection":  {
+                                                                     "type":  "all"
+                                                                 },
+                                            "dockToEdge":  {
+                                                               "enabled":  false
+                                                           }
+                                        }
+                                    ]
+                    }
+                ]
 }

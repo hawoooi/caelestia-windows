@@ -4,41 +4,46 @@
    Enforced by tests/Get-ColorLiterals.Tests.ps1. */
 
 :root {
-  /* Frame band thickness. MUST equal ~/komorebi.json's
-     default_workspace_padding / default_container_padding (20px each on
-     this machine) -- the frame is sized to exactly fill komorebi's own
-     padding gap between the screen/bar edge and a tiled window's outer
-     edge, so it never covers any part of a tiled window's interior. If
-     that padding value ever changes, this must change with it (and so
-     must every corner/edge preset's width/height/offset in ../zpack.json
-     -- see docs/zebar-bar.md's "Frame flush-to-edge correction" geometry
-     table for the full derivation). */
-  --frame-band: 20px;
+  /* Frame band thickness. MUST equal half of ~/komorebi.json's combined
+     padding budget the way Set-FrameGeometry.ps1 splits it -- the frame is
+     sized to exactly fill komorebi's own padding gap between the
+     screen/bar edge and a tiled window's outer edge, minus the wallpaper
+     gap (see --gap below), so it never covers any part of a tiled
+     window's interior. Retuning this by hand instead of via
+     ../../scripts/Set-FrameGeometry.ps1 will desync it from
+     ~/komorebi.json's default_workspace_padding/default_container_padding
+     and from every corner/edge preset's width/height/offset in
+     ../zpack.json -- see docs/zebar-bar.md's "Thinner frame, equal gaps,
+     left band" section for the full derivation and the supported way to
+     change this. Currently 8px (was 20px). */
+  --frame-band: 8px;
 
   /* Content corner radius -- how tightly the frame curves into the tiled
      content region. Independent of --frame-band; tune this alone to
      change how rounded the corner feels without touching the band
-     thickness.
+     thickness. Currently 16px (was 24px).
 
-     Widget sizing is NOT uniform across all four corners, because the bar
-     (../bar/, 52px wide) already forms the frame's entire left edge -- see
-     ../edges/edges.css's own comment on why there is no left edge strip.
-     A left corner therefore has no left band to paint at all, only a top-
-     or-bottom band plus the arc:
-
-       - top-right / bottom-right: --frame-band + --corner-radius (44px =
-         20 + 24) on BOTH axes -- these still have a real band on their two
-         screen-facing sides (top-or-bottom AND right).
-       - top-left / bottom-left: --corner-radius (24px) WIDE (no left-band
-         term at all -- width == radius exactly, since there is zero band
-         to add) x --frame-band + --corner-radius (44px) TALL (top/bottom
-         still needs its own band).
+     Widget sizing IS now uniform across all four corners: every corner is
+     --frame-band + --corner-radius (24px = 8 + 16) on BOTH axes. This is a
+     change from the previous pass, where the two left corners were only
+     --corner-radius wide (no left-band term at all), because the bar
+     (../bar/, 52px wide) was considered the frame's entire left edge. Per
+     direct user feedback, the left gap (bar's right edge -> tiled content)
+     was structurally a full band thicker than the other three sides for
+     exactly that reason -- there was nowhere for the left side to "lose"
+     a band the way top/right/bottom each lose one out of komorebi's own
+     padding. A real left band (see ../edges/edges.css's "left" preset) now
+     exists between the bar and the content on every row, so all four
+     corners once again share the same square, uniform footprint the
+     right-hand corners always had, and the geometry proof below applies
+     identically to all four, not just two of them.
 
      If --frame-band or --corner-radius changes, every corner preset's
-     width/height in ../zpack.json must change to match using the formulas
-     above, or the arc's tangent points will no longer land on the
-     widget's own edges. */
-  --corner-radius: 24px;
+     width/height in ../zpack.json (and the new ../edges/edges.css "left"
+     preset) must change to match, or the arc's tangent points will no
+     longer land on the widget's own edges -- use
+     ../../scripts/Set-FrameGeometry.ps1 rather than hand-editing these. */
+  --corner-radius: 16px;
 }
 
 html,
@@ -86,59 +91,55 @@ body {
    tiled window -- the OPPOSITE corner from the one named in the body
    class, e.g. a top-left widget's content-facing corner is its own
    bottom-right) is where the tiled window's own outer corner actually
-   sits. The fill is var(--surface) everywhere in the 44x44 window EXCEPT
-   a --corner-radius circle centred exactly on that content-facing corner:
-   transparent within --corner-radius of it, solid var(--surface) beyond.
-   Because the circle's centre sits exactly on one corner of the (square)
-   widget, only one quarter of its 360 degrees ever crosses the visible
-   area -- a true 90-degree sweep, "half of a door pathway arc" -- not a
-   semicircle. This is mathematically identical to painting it as three
-   separate pieces (a --frame-band x 44 top-or-bottom band, a 44 x
-   --frame-band left-or-right band, and a --corner-radius x --corner-radius
-   arc box in the remaining content-facing corner, itself filled by the
-   same hard-stopped gradient centred on ITS own content-facing corner):
-   every point within --corner-radius of the widget's content-facing
-   corner necessarily falls inside that --corner-radius x --corner-radius
-   sub-box (the two bands are each --frame-band thick, i.e. exactly
-   --corner-radius away from the content-facing corner along their own
-   axis, so nothing closer than --corner-radius to the centre can lie
-   outside the sub-box). One gradient rule per corner is simpler than
-   three separately-positioned pieces and paints the identical pixels.
+   sits. The fill is var(--surface) everywhere in the (--frame-band +
+   --corner-radius)-square window EXCEPT a --corner-radius circle centred
+   exactly on that content-facing corner: transparent within
+   --corner-radius of it, solid var(--surface) beyond. Because the circle's
+   centre sits exactly on one corner of the (square) widget, only one
+   quarter of its 360 degrees ever crosses the visible area -- a true
+   90-degree sweep, "half of a door pathway arc" -- not a semicircle. This
+   is mathematically identical to painting it as three separate pieces (a
+   --frame-band x (--frame-band + --corner-radius) top-or-bottom band, a
+   matching left-or-right band, and a --corner-radius x --corner-radius arc
+   box in the remaining content-facing corner, itself filled by the same
+   hard-stopped gradient centred on ITS own content-facing corner): every
+   point within --corner-radius of the widget's content-facing corner
+   necessarily falls inside that --corner-radius x --corner-radius sub-box
+   (the two bands are each --frame-band thick, i.e. exactly --corner-radius
+   away from the content-facing corner along their own axis, so nothing
+   closer than --corner-radius to the centre can lie outside the sub-box).
+   One gradient rule per corner is simpler than three separately-positioned
+   pieces and paints the identical pixels.
 
    This is the same hard-stopped radial-gradient technique corners.css has
-   used since corner-overlays; only the placement (flush, not inset) and
-   the hole's size relative to the widget (fixed --corner-radius, not
-   "fills the whole widget") changed. See docs/zebar-bar.md's "Frame
-   flush-to-edge correction" section for the full geometry table and the
-   click-dead-footprint measurement this pass took.
+   used since corner-overlays; only the widget size (via --frame-band /
+   --corner-radius) and the offsets in ../zpack.json ever change between
+   passes -- the four CSS rules below have not needed to change since
+   corner-overlays, because `at bottom right` / `at top right` / etc. are
+   percentage-based against the widget's own box, not fixed pixel values.
 
-   No left band, left corners (fifth pass, direct user feedback): the
-   "three separate pieces" equivalence above assumed a --frame-band term on
-   BOTH non-content-facing axes -- true for top-right/bottom-right, which
-   keep their 44x44 (--frame-band + --corner-radius on both axes) footprint
-   and a real right-hand band. It was never true for top-left/bottom-left:
-   the bar (../bar/, 52px wide) already IS the frame's left edge (see
-   ../edges/edges.css's own comment), so painting a left band on top of it
-   was redundant paint sitting where the bar already covers the pixels --
-   except the widget's own window was still 44px wide, so that redundant
-   band extended 20px past the bar's own right edge (x=52) into what should
-   have been open content, producing a visible rectangular step where the
-   band suddenly retreated back to x=52 below the widget (see
-   docs/zebar-bar.md's account of this defect and its fix). The fix is
-   entirely in ../zpack.json: top-left/bottom-left shrank from 44px wide to
-   --corner-radius (24px) wide -- i.e. the left-band term is now exactly
-   zero, not just small -- while staying --frame-band + --corner-radius
-   (44px) tall, since the top/bottom band on those two corners is real and
-   unaffected. The gradient rules below did not need to change at all: `at
-   bottom right` / `at top right` are percentage-based (100% of the box's
-   own width/height), so centring on the widget's own content-facing corner
-   still lands in the right place automatically once the box is narrower --
-   only ../zpack.json's width needed editing. The three-piece equivalence
-   above still holds for left corners, it just degenerates to TWO pieces
-   (no left-or-right band term at all): a --frame-band x --corner-radius
-   top-or-bottom band plus the --corner-radius x --corner-radius arc box --
-   because the band's own thickness away from the content-facing corner
-   along the (now-absent) left axis is zero, not --frame-band. */
+   Thinner frame, equal gaps, left band restored (sixth pass, direct user
+   feedback): three complaints against the fourth/fifth-pass 20px-band,
+   24px-radius frame, fixed together via ../../scripts/Set-FrameGeometry.ps1
+   rather than by hand: (1) 20px read as too heavy -- --frame-band dropped
+   to 8px; (2) the wallpaper gap between the frame and the tiled content
+   used to be whatever was left over from komorebi's padding after the band
+   ate into it, not a value anyone chose on purpose -- Set-FrameGeometry.ps1
+   now derives it explicitly as a ratio of the band thickness (gap == band
+   at the default 1:1 ratio) and sizes komorebi's own
+   default_workspace_padding/default_container_padding to band + gap, so
+   the invariant `gap == komorebi_total_padding - band` holds by
+   construction; (3) the left side's gap used to be a full band thicker
+   than the other three, because top/right/bottom each lose --frame-band
+   out of komorebi's padding while the left side had no band to lose it to
+   (the bar was standing in for one, at 52px, not --frame-band). The fix
+   restores a REAL left band (../edges/edges.css's new "left" preset,
+   flush against the bar's own right edge) rather than trying to shrink the
+   bar itself, which makes all four corners --frame-band + --corner-radius
+   square again (the fifth pass's asymmetric 24-wide/44-tall left corners
+   are gone -- every corner is back to the uniform footprint the
+   right-hand corners always had, and the three-piece proof above once
+   again applies identically to all four). */
 
 body.corner--top-left #corner {
   background: radial-gradient(

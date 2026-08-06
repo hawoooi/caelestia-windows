@@ -997,6 +997,172 @@ discontinuity at the corner-to-bar junction, top or bottom. The two right corner
 unchanged (still 44x44, still keep their right-hand band) and were re-checked at the same zoom to
 confirm this pass didn't disturb them.
 
+## Thinner frame, equal gaps, left band (direct user feedback, sixth pass)
+
+Three complaints against the fifth pass's shipped frame (20px band, 24px radius, no left band),
+from direct user feedback:
+
+1. **20px read as too heavy.** The band needed to be visibly thinner.
+2. **The wallpaper gap between the frame and the tiled content was whatever was left over from
+   komorebi's own padding after the band ate into it** -- never a value anyone actually chose. It
+   needed to be an explicit, tunable quantity, not an accident of arithmetic.
+3. **The left gap was visibly unequal to the other three.** Root cause: top/right/bottom each lose
+   the band's own thickness out of komorebi's padding budget (band flush against the screen/bar
+   edge, content starting `padding - band` further in), but the left side had no band at all -- the
+   bar (52px) stood in for one -- so its visible gap was a full band thicker than the other three.
+
+**The fix, all driven by one new script, `scripts/Set-FrameGeometry.ps1`:**
+
+- **Thickness dropped to `T = 8px`** (from 20px).
+- **An explicit gap ratio** (`-GapRatio`, default `1.0`) makes the wallpaper gap `G = round(T *
+  GapRatio)` a first-class, tunable quantity rather than a leftover. At the default 1:1 ratio,
+  `G = T = 8px`.
+- **komorebi's own padding is derived FROM the band+gap, not the other way around**:
+  `P = T + G`, split `workspace = ceil(P/2)`, `container = floor(P/2)` (both `8` at the defaults,
+  since `P = 16` splits evenly). This makes the invariant `gap == komorebi_total_padding - band`
+  hold **by construction**, on every side, not just approximately.
+- **A real left band was added** (`edges/left`, new preset alongside top/right/bottom) rather than
+  trying to shrink the bar itself. This is the actual fix for complaint 3: once every side has a
+  real `--frame-band`-thick band eating into komorebi's padding, all four sides lose the same
+  amount and the invariant holds identically on the left as everywhere else. The two left corner
+  widgets go back to being `--frame-band + --corner-radius` square on BOTH axes (same footprint the
+  right-hand corners always had), reversing the fifth pass's "no left-band term" shrink -- see
+  `corners.css`'s own `:root` comment for the full before/after account.
+- **Content corner radius dropped to `R = 16px`** (from 24px), picked together with the thinner
+  band rather than independently, to keep the arc reading proportionate at the new, thinner weight.
+
+**Corner size is now uniform on every corner: `C = T + R = 24px` square**, unlike the fifth pass
+(where the two left corners were `R`-wide only). The paint technique itself did not change --
+still one `radial-gradient` per corner (`corners.css`'s `body.corner--*` rules), hard-stopped at
+`--corner-radius` from the widget's own content-facing corner -- because with every corner back to
+a square `T+R` footprint, the same three-piece equivalence proof (two `T`-thick bands + an `R`x`R`
+arc box) the fourth pass established for the right-hand corners now applies identically to all
+four.
+
+**Geometry, derived by `Set-FrameGeometry.ps1` from the screen size (`System.Windows.Forms.Screen`)
+and the bar's own width (read from `zpack.json`, never hardcoded a second time) and confirmed live
+via `GetWindowRect` against every running `caelestia` widget process, 2560x1440 screen, `T=8`,
+`GapRatio=1` (`G=8`), `R=16` (`C=24`):**
+
+| Preset | Rect (screen px, `GetWindowRect`) | width x height |
+|---|---|---|
+| `corners/top-left` | `(52,0)-(76,24)` | 24x24 |
+| `corners/top-right` | `(2536,0)-(2560,24)` | 24x24 |
+| `corners/bottom-left` | `(52,1416)-(76,1440)` | 24x24 |
+| `corners/bottom-right` | `(2536,1416)-(2560,1440)` | 24x24 |
+| `edges/top` | `(76,0)-(2536,8)` | 2460x8 |
+| `edges/bottom` | `(76,1432)-(2536,1440)` | 2460x8 |
+| `edges/left` (**new**) | `(52,24)-(60,1416)` | 8x1392 |
+| `edges/right` | `(2552,24)-(2560,1416)` | 8x1392 |
+
+All eight rects line up with no gap or overlap (`corners/top-left`'s right edge (76) is
+`edges/top`'s left edge; `edges/left`'s top edge (24) is `corners/top-left`'s bottom edge, and its
+bottom edge (1416) is `corners/bottom-left`'s top edge; same pattern at every other junction, on
+both the left and right sides). `komorebic state`'s
+`work_area_size` was re-read before and after: `{left:52, top:0, right:2508, bottom:1440}`,
+unchanged -- `dockToEdge: { enabled: false }` on every corner/edge preset still reserves nothing.
+`~/komorebi.json`'s `default_workspace_padding`/`default_container_padding` are both `8` (down from
+20), applied live via `komorebic workspace-padding`/`container-padding` per workspace as well as
+persisted to disk, per `Set-FrameGeometry.ps1`'s own contract (see below).
+
+**The four gaps, measured two independent ways, both confirming exact equality:**
+
+1. **Direct pixel-colour-boundary scan** (`Bitmap.GetPixel` along a line crossing each side, away
+   from any corner): every side shows the identical three-band pattern -- `--surface` (`#0F1416`,
+   the frame's own paint) for exactly 8px, then the wallpaper's own colour (revealed through the
+   transparent gap) for **exactly 8px**, then komorebi's own themed border (`#899296`, the
+   `unfocused` role's colour, since neither pane was focused at measurement time), then the tiled
+   window's real content. Measured at `x=1000` (top, gap = y8-y15), `y=700` (right, gap =
+   x2544-x2551), `x=1000` (bottom, gap = y1424-y1431), and `x=60-67` (left, gap = exactly 8 pixels
+   between the band's end at x=60 and komorebi's border at x=68) -- **all four gaps are exactly
+   8px**, matching `G` to the pixel.
+2. **`komorebic state`'s own window rects** (the tiled application's rect, not komorebi's border
+   window): a consistent **13px** on all four sides (left/top/right/bottom), also exactly equal.
+   The extra 5px on top of the design's 8px is komorebi's own border decoration
+   (`border_offset: 1` + `border_width: 4` = 5px, from `~/komorebi.json`'s pre-existing border
+   theming -- see CLAUDE.md's "Window borders and gaps") straddling the true padding boundary
+   outside the application's own window rect. Confirmed directly: the `komoborder-*` window class's
+   own `GetWindowRect` sits exactly at the design boundary (`(68,16)-(1298,1424)` for the left pane
+   in the layout measured, `(1314,16)-(2544,1424)` for the right pane) -- i.e. **zero** discrepancy
+   between the intended 8px gap and where komorebi's own border actually renders; the 13px number is
+   purely an artifact of measuring against the app's own window rect instead of the true tiling
+   boundary. Either measurement is internally consistent across all four sides, which is the actual
+   invariant this pass exists to fix.
+
+**Visual result (screenshotted top-left corner at `x:40-110,y:0-70` and the full left edge at
+`x:40-110,y:600-700`, both 8x nearest-neighbour zoom):** the dark `--surface` band runs unbroken
+from the bar's own interior straight through the corner widget and down the entire left edge --
+bar and frame are visually one continuous surface, exactly as intended. Past the band, an even
+strip of bare wallpaper is visible (the `G=8px` gap), curving smoothly through the corner's
+90-degree arc at the top and running as a straight parallel strip down the rest of the left edge,
+with komorebi's own thin grey border visible just before the tiled window's real content starts.
+No jog, step, or thickness change anywhere along the curve or the straight run, and the gap reads
+visually even compared to the top edge.
+
+**Click-dead footprint, recomputed** (`4 * 24*24` corners + `2460*8*2 + 8*1392*2` edges):
+
+- Corners: `4 * 24*24` = 2,304px² (down from 5,984px²).
+- Edges: `2460*8 * 2 + 8*1392 * 2` = 39,360 + 22,272 = 61,632px² (down from 124,640px², even after
+  adding the new `edges/left` strip, because the band's own thickness fell from 20px to 8px --
+  a 2.5x reduction per strip more than offsets one extra strip).
+- **Total: 63,936px²**, down from the fifth pass's 130,624px² -- **a reduction of 66,688px² (about
+  51%)**, the sharpest drop of any pass in this file's history, driven almost entirely by the
+  thickness cut (20px -> 8px) rather than the left-band addition (which by itself would have grown
+  the footprint).
+
+## The tunability knob: `Set-FrameGeometry.ps1`
+
+`scripts/Set-FrameGeometry.ps1` is the **only supported way** to retune the frame's thickness, gap,
+or radius. Hand-editing `zpack.json` alone (or `corners.css`/`edges.css` alone, or
+`~/komorebi.json` alone) will silently break the `gap == komorebi_total_padding - band` invariant
+this whole pass exists to establish -- the four files have to move together, and this script is the
+one place that does the arithmetic once and writes it everywhere.
+
+```powershell
+. .\scripts\Set-FrameGeometry.ps1
+Set-FrameGeometry -DryRun                                    # prints the computed 8-preset table + padding split, writes nothing
+Set-FrameGeometry -Thickness 8 -GapRatio 1.0 -Radius 16       # the current defaults, applied for real
+Set-FrameGeometry -Thickness 12 -GapRatio 0.5 -Radius 20      # example retune: thicker band, half-thickness gap, bigger radius
+```
+
+What a real (non-`-DryRun`) run does, in order:
+
+1. Reads the bar's real width from `zpack.json` and the primary monitor's real size from
+   `System.Windows.Forms.Screen` -- never a hardcoded `52`/`2560`/`1440` a second time.
+2. Computes `G = round(T * GapRatio)`, `P = T + G`, `workspace = ceil(P/2)`, `container = floor(P/2)`.
+3. Rewrites all eight `corners`/`edges` presets in `zebar/caelestia/zpack.json` (structural
+   parse/mutate/serialize, same family of pattern as `Set-ZebarStartupConfig` --
+   `scripts/Install-Config.ps1`) from the formulas in "Geometry" above. A preset with no existing
+   match (e.g. `edges/left` against an older, pre-this-pass `zpack.json`) is appended, not skipped.
+4. Rewrites `--frame-band`/`--corner-radius` in `corners/corners.css` and `--frame-band` in
+   `edges/edges.css` (a documentation/parity property there -- see that file's own `:root`
+   comment -- not read by any paint rule, since each `edges` preset's real thickness comes from its
+   own `zpack.json` width/height, same as always).
+5. Backs up `~/komorebi.json` (into `state/config-backup/komorebi.json.bak-frame-geometry-<stamp>`)
+   and then surgically updates `default_workspace_padding`/`default_container_padding`, using the
+   **exact** parse -> mutate -> serialize -> temp-file -> `Move-Item -Force` pattern
+   `Set-KomorebiBorderColours` (`scripts/Apply-Theme.ps1`) established, including its guard against
+   content that parses to `$null` (empty/whitespace/literal `null`) or to a non-object.
+6. Applies the new padding live, per workspace, via `komorebic workspace-padding`/
+   `container-padding` -- enumerated from `komorebic state`'s own monitor/workspace list, not a
+   hardcoded "9 workspaces on monitor 0". Entirely fail-soft (`komorebic` missing from PATH, or
+   komorebi not running, warns and returns) -- `~/komorebi.json` is already updated by step 5 by the
+   time this runs, so a dead komorebi still picks up the new padding on its next start.
+
+This does **not** restart Zebar or touch `~/.glzr/zebar/settings.json` itself -- run
+`Restart-ZebarWidgets` (`scripts/Apply-Theme.ps1`) afterward to make a running bar pick up the new
+`zpack.json`/CSS (Zebar has no hot reload -- see "Starting, stopping, and reloading" above), and
+`Install-Config` if a brand-new preset (like `edges/left`, the first time this pass's script runs
+against an older checkout) needs registering into `startupConfigs` so it survives a reboot.
+
+Covered by `tests/SetFrameGeometry.Tests.ps1`: the computed table for the current defaults
+(`-Thickness 8 -GapRatio 1 -Radius 16`) is asserted against this section's own target table
+byte-for-byte, the `gap == totalPadding - thickness` invariant is checked across several thickness
+and gap-ratio values (including non-1:1 ratios and an intentionally odd total-padding value, to
+exercise the `ceil`/`floor` split asymmetrically), and the live `komorebic` calls are mocked out
+(same technique `tests/ApplyTheme.Tests.ps1` already uses for `Set-KomorebiBorderColour`) so running
+the suite never mutates the real machine's live tiling padding as a side effect.
+
 ## Installing/uninstalling
 
 ```powershell
