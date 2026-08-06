@@ -1,0 +1,72 @@
+/* Structure/layout only, same invariant as ../bar/style.css -- zero colour
+   literals. Every colour reference below is a var(--...) token that
+   theme.css (matugen-generated, linked from index.html) currently defines.
+   Enforced by tests/Get-ColorLiterals.Tests.ps1. */
+
+:root {
+  /* Must match the widget's own window size (zpack.json's "corners" preset
+     width/height). The radial-gradient radius below is keyed off this same
+     value so the transparent quarter-circle always reaches exactly to the
+     window's far edges -- if the preset size ever changes, change this too. */
+  --corner-size: 28px;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+}
+
+#corner {
+  width: 100%;
+  height: 100%;
+}
+
+/* Each corner paints var(--surface) into the gap between the bar/screen
+   edge and the content region, fading via a radial-gradient quarter-circle
+   into full transparency at the corner nearest the content -- the standard
+   "rounded corner mask" trick. Which of these four rules applies is decided
+   at runtime by corners.js (classifyCorner), which reads this window's own
+   on-screen position rather than trusting a hardcoded preset->corner map,
+   so a geometry change can never leave a widget painting the wrong corner
+   silently. The gradient's "at <x> <y>" keyword pair is always the corner
+   of #corner nearest the bar/screen edge -- i.e. the OPPOSITE corner from
+   the one named in the class (a top-left widget's outer corner is its own
+   bottom-right, since the widget sits between the bar/screen edge and the
+   content, with its innermost corner touching the content). */
+
+body.corner--top-left #corner {
+  background: radial-gradient(
+    circle at bottom right,
+    transparent var(--corner-size),
+    var(--surface) calc(var(--corner-size) + 1px)
+  );
+}
+
+body.corner--top-right #corner {
+  background: radial-gradient(
+    circle at bottom left,
+    transparent var(--corner-size),
+    var(--surface) calc(var(--corner-size) + 1px)
+  );
+}
+
+body.corner--bottom-left #corner {
+  background: radial-gradient(
+    circle at top right,
+    transparent var(--corner-size),
+    var(--surface) calc(var(--corner-size) + 1px)
+  );
+}
+
+body.corner--bottom-right #corner {
+  background: radial-gradient(
+    circle at top left,
+    transparent var(--corner-size),
+    var(--surface) calc(var(--corner-size) + 1px)
+  );
+}

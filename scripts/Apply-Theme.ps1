@@ -630,10 +630,21 @@ function Restart-ZebarWidgets {
     foreach ($c in $toStart) {
         $preset = if ($c.preset) { $c.preset } else { 'default' }
 
-        # One log pair per widget: PowerShell 5.1 throws if stdout and stderr
-        # are redirected to the same path, and two widgets sharing one file
-        # would interleave.
-        $slug    = (($c.pack + '-' + $c.widget) -replace '[^\w.\-]', '_')
+        # One log pair per RUNNING PROCESS, not per widget name: PowerShell
+        # 5.1 throws if stdout and stderr are redirected to the same path,
+        # and two processes sharing one file would interleave -- or, worse,
+        # the second Start-Process could fail outright trying to open a log
+        # file the first (still-running, since start-widget-preset blocks)
+        # process still holds open for writing. This used to be
+        # pack+widget only, which was fine while every widget only ever had
+        # one autostarted preset -- but corner-overlays' "corners" widget
+        # registers four startupConfigs entries under the SAME pack+widget
+        # (one per preset/corner; see Set-ZebarStartupConfig), so
+        # pack+widget alone collides across all four and only the first
+        # corner's process would ever get a writable log handle. Preset is
+        # now part of the slug so every distinct (pack, widget, preset)
+        # triple gets its own log pair.
+        $slug    = (($c.pack + '-' + $c.widget + '-' + $preset) -replace '[^\w.\-]', '_')
         $outLog  = Join-Path $logDir "$slug.out.log"
         $errLog  = Join-Path $logDir "$slug.err.log"
 

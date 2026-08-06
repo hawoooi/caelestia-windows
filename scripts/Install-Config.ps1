@@ -152,9 +152,16 @@ function Set-ZebarStartupConfig {
       startupConfigs entry (e.g. the pre-existing gunturdwiap.good-enough
       autostart) and any other top-level field (e.g. $schema) untouched.
 
-      Idempotent: matched by Pack+Widget: calling this again with the same
-      pair replaces that one entry (updating Preset if it differs) rather
-      than appending a duplicate.
+      Idempotent: matched by Pack+Widget+Preset: calling this again with the
+      same triple replaces that one entry rather than appending a
+      duplicate. Widened from Pack+Widget alone (corner-overlays): the
+      "corners" widget (zpack.json) runs the SAME widget name under four
+      DIFFERENT presets (one per screen corner) -- matching on Pack+Widget
+      only would make each subsequent Set-ZebarStartupConfig call for a
+      different preset of the same widget silently evict the previous
+      preset's entry, leaving at most one corner autostarted. Every existing
+      caller (caelestia/bar/default) only ever registers one preset per
+      pack+widget, so this widening changes nothing for them.
     #>
     [CmdletBinding()]
     param(
@@ -178,7 +185,7 @@ function Set-ZebarStartupConfig {
         $obj | Add-Member -NotePropertyName 'startupConfigs' -NotePropertyValue @() -Force
     }
 
-    $others = @($obj.startupConfigs | Where-Object { -not ($_.pack -eq $Pack -and $_.widget -eq $Widget) })
+    $others = @($obj.startupConfigs | Where-Object { -not ($_.pack -eq $Pack -and $_.widget -eq $Widget -and $_.preset -eq $Preset) })
     $entry  = [PSCustomObject]@{ pack = $Pack; widget = $Widget; preset = $Preset }
     $obj.startupConfigs = @($others) + @($entry)
 
@@ -190,12 +197,15 @@ function Set-ZebarStartupConfig {
 
 function Remove-ZebarStartupConfig {
     <#
-      I4's uninstall counterpart to Set-ZebarStartupConfig -- removes only
-      the entry matching Pack+Widget, leaving every other startupConfigs
-      entry (and any other top-level field) untouched. A no-op if the file
-      doesn't exist or doesn't parse, matching Remove-PatchedBlock's
-      already-established "uninstall of something never installed is
-      harmless" contract.
+      I4's uninstall counterpart to Set-ZebarStartupConfig -- removes every
+      entry matching Pack+Widget (deliberately NOT narrowed to a single
+      Preset, unlike Set-ZebarStartupConfig's match key: corner-overlays'
+      "corners" widget registers up to four entries -- one per preset/corner
+      -- under the same Pack+Widget, and uninstall should clear all of them
+      in one call), leaving every other startupConfigs entry (and any other
+      top-level field) untouched. A no-op if the file doesn't exist or
+      doesn't parse, matching Remove-PatchedBlock's already-established
+      "uninstall of something never installed is harmless" contract.
     #>
     [CmdletBinding()]
     param(
@@ -270,6 +280,13 @@ ctrl + alt + w                : Start-Process powershell -WindowStyle Hidden -Ar
         else            { Set-PatchedBlock  -Path $t.Path -Marker $marker -CommentPrefix $t.Prefix -Content $t.Content }
     }
 
+    # corner-overlays: the "corners" widget (zpack.json) has four presets,
+    # one per screen corner -- each needs its own startupConfigs entry (same
+    # pack+widget, different preset; see Set-ZebarStartupConfig's widened
+    # match key above) or it won't come back after a reboot, exactly the
+    # gap I4 fixed for caelestia/bar itself.
+    $cornerPresets = @('top-left', 'top-right', 'bottom-left', 'bottom-right')
+
     if ($DryRun) {
         # I1: the junction/settings.json steps below must ALSO be a no-op
         # under -DryRun, for BOTH the install and the uninstall direction.
@@ -286,9 +303,11 @@ ctrl + alt + w                : Start-Process powershell -WindowStyle Hidden -Ar
         if ($Uninstall) {
             "would remove junction $JunctionLink"
             "would remove startupConfigs entry for caelestia/bar from $ZebarSettingsPath"
+            "would remove startupConfigs entries for caelestia/corners (all presets) from $ZebarSettingsPath"
         } else {
             "would create/verify junction $JunctionLink -> $JunctionTarget"
             "would add startupConfigs entry for caelestia/bar to $ZebarSettingsPath"
+            "would add startupConfigs entries for caelestia/corners ($($cornerPresets -join ', ')) to $ZebarSettingsPath"
         }
         return
     }
@@ -298,8 +317,12 @@ ctrl + alt + w                : Start-Process powershell -WindowStyle Hidden -Ar
             Remove-Item $JunctionLink -Force
         }
         Remove-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'bar'
+        Remove-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'corners'
     } else {
         Set-ManagedJunction -LinkPath $JunctionLink -TargetPath $JunctionTarget | Out-Null
         Set-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'bar' -Preset 'default'
+        foreach ($preset in $cornerPresets) {
+            Set-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'corners' -Preset $preset
+        }
     }
 }

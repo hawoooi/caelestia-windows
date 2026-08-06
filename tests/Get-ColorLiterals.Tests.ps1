@@ -42,12 +42,23 @@ Describe "The zebar bar's zero-color-literal invariant (I5)" {
       (Get-ColorLiterals); it just had no caller pointed at the real file.
     #>
     BeforeAll {
-        $script:styleCss = "$PSScriptRoot\..\zebar\caelestia\bar\style.css"
-        $script:themeCss = "$PSScriptRoot\..\zebar\caelestia\bar\theme.css"
+        $script:styleCss   = "$PSScriptRoot\..\zebar\caelestia\bar\style.css"
+        $script:themeCss   = "$PSScriptRoot\..\zebar\caelestia\bar\theme.css"
+        # corner-overlays: corners.css is a second structural stylesheet
+        # added alongside style.css (a different widget in the same pack --
+        # see zpack.json's "corners" widget) and is bound by the exact same
+        # invariant: every colour it paints (var(--surface), for the
+        # radial-gradient corner mask) must come from theme.css, never a
+        # literal.
+        $script:cornersCss = "$PSScriptRoot\..\zebar\caelestia\corners\corners.css"
     }
 
     It "style.css contains zero colour literals" {
         @(Get-ColorLiterals -Path $script:styleCss).Count | Should -Be 0
+    }
+
+    It "corners.css contains zero colour literals" {
+        @(Get-ColorLiterals -Path $script:cornersCss).Count | Should -Be 0
     }
 
     It "is non-vacuous: theme.css (which legitimately hardcodes the matugen palette) returns a nonzero count" {

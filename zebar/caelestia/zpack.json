@@ -41,6 +41,59 @@
           "dockToEdge": { "enabled": true, "edge": "left", "windowMargin": "0px" }
         }
       ]
+    },
+    {
+      "name": "corners",
+      "htmlPath": "./corners/index.html",
+      "zOrder": "top_most",
+      "shownInTaskbar": false,
+      "focused": false,
+      "resizable": false,
+      "transparent": true,
+      "includeFiles": ["*"],
+      "caching": { "defaultDuration": 0, "rules": [] },
+      "presets": [
+        {
+          "name": "top-left",
+          "anchor": "top_left",
+          "offsetX": "64px",
+          "offsetY": "12px",
+          "width": "28px",
+          "height": "28px",
+          "monitorSelection": { "type": "all" },
+          "dockToEdge": { "enabled": false }
+        },
+        {
+          "name": "top-right",
+          "anchor": "top_right",
+          "offsetX": "-12px",
+          "offsetY": "12px",
+          "width": "28px",
+          "height": "28px",
+          "monitorSelection": { "type": "all" },
+          "dockToEdge": { "enabled": false }
+        },
+        {
+          "name": "bottom-left",
+          "anchor": "bottom_left",
+          "offsetX": "64px",
+          "offsetY": "-12px",
+          "width": "28px",
+          "height": "28px",
+          "monitorSelection": { "type": "all" },
+          "dockToEdge": { "enabled": false }
+        },
+        {
+          "name": "bottom-right",
+          "anchor": "bottom_right",
+          "offsetX": "-12px",
+          "offsetY": "-12px",
+          "width": "28px",
+          "height": "28px",
+          "monitorSelection": { "type": "all" },
+          "dockToEdge": { "enabled": false }
+        }
+      ]
     }
   ]
 }

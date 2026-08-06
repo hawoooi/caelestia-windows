@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <!-- Reuses the bar widget's own theme.css so corners re-theme with
+         everything else -- there is exactly one matugen zebar target
+         (see matugen/config.toml's [templates.zebar]) and it renders into
+         ../bar/theme.css. No separate copy for this widget. -->
+    <link rel="stylesheet" href="../bar/theme.css" />
+    <link rel="stylesheet" href="./corners.css" />
+    <title>Caelestia corner</title>
+  </head>
+  <body>
+    <div id="corner" class="corner"></div>
+    <script type="module" src="./corners.js"></script>
+  </body>
+</html>

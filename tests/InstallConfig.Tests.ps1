@@ -233,6 +233,33 @@ Describe "Install-Config primitives" {
             (Get-ZebarStartupConfigs -Path $p).Count | Should -Be 1
         }
 
+        It "Set-ZebarStartupConfig stores multiple presets under the same Pack+Widget as distinct entries (corner-overlays)" {
+            # The widened match key (Pack+Widget+Preset, not Pack+Widget
+            # alone) is what lets the "corners" widget's four presets
+            # (top-left/top-right/bottom-left/bottom-right) all autostart --
+            # without this, each call would evict the previous preset's
+            # entry and only the last corner registered would ever start.
+            $p = Join-Path $script:tmp "zs-multi-preset.json"
+            Set-ZebarStartupConfig -Path $p -Pack 'caelestia' -Widget 'corners' -Preset 'top-left'
+            Set-ZebarStartupConfig -Path $p -Pack 'caelestia' -Widget 'corners' -Preset 'top-right'
+            Set-ZebarStartupConfig -Path $p -Pack 'caelestia' -Widget 'corners' -Preset 'bottom-left'
+            Set-ZebarStartupConfig -Path $p -Pack 'caelestia' -Widget 'corners' -Preset 'bottom-right'
+
+            $configs = Get-ZebarStartupConfigs -Path $p
+            $configs.Count | Should -Be 4
+            ($configs | Sort-Object preset | ForEach-Object { $_.preset }) -join ',' |
+                Should -Be 'bottom-left,bottom-right,top-left,top-right'
+        }
+
+        It "Set-ZebarStartupConfig is still idempotent per (Pack, Widget, Preset) triple" {
+            $p = Join-Path $script:tmp "zs-multi-preset-idempotent.json"
+            Set-ZebarStartupConfig -Path $p -Pack 'caelestia' -Widget 'corners' -Preset 'top-left'
+            Set-ZebarStartupConfig -Path $p -Pack 'caelestia' -Widget 'corners' -Preset 'top-right'
+            Set-ZebarStartupConfig -Path $p -Pack 'caelestia' -Widget 'corners' -Preset 'top-left'
+
+            (Get-ZebarStartupConfigs -Path $p).Count | Should -Be 2
+        }
+
         It "Set-ZebarStartupConfig creates the file (and parent directory) when neither exists yet" {
             $p = Join-Path $script:tmp "zs-fresh\nested\settings.json"
             Test-Path $p | Should -BeFalse
@@ -258,6 +285,21 @@ Describe "Install-Config primitives" {
             { Remove-ZebarStartupConfig -Path (Join-Path $script:tmp "zs-noexist.json") -Pack 'caelestia' -Widget 'bar' } | Should -Not -Throw
         }
 
+        It "Remove-ZebarStartupConfig removes EVERY preset entry for a Pack+Widget in one call (corner-overlays)" {
+            $p = Join-Path $script:tmp "zs-remove-multi.json"
+            Set-ZebarStartupConfig -Path $p -Pack 'gunturdwiap.good-enough' -Widget 'main' -Preset 'default'
+            Set-ZebarStartupConfig -Path $p -Pack 'caelestia' -Widget 'corners' -Preset 'top-left'
+            Set-ZebarStartupConfig -Path $p -Pack 'caelestia' -Widget 'corners' -Preset 'top-right'
+            Set-ZebarStartupConfig -Path $p -Pack 'caelestia' -Widget 'corners' -Preset 'bottom-left'
+            Set-ZebarStartupConfig -Path $p -Pack 'caelestia' -Widget 'corners' -Preset 'bottom-right'
+
+            Remove-ZebarStartupConfig -Path $p -Pack 'caelestia' -Widget 'corners'
+
+            $configs = Get-ZebarStartupConfigs -Path $p
+            $configs.Count | Should -Be 1
+            $configs[0].pack | Should -Be 'gunturdwiap.good-enough'
+        }
+
         It "Install-Config (non-Uninstall) registers caelestia/bar in ZebarSettingsPath's startupConfigs" {
             $settings = Join-Path $script:tmp "ic-zs-settings.json"
             Install-Config `
@@ -271,6 +313,25 @@ Describe "Install-Config primitives" {
             @($configs | Where-Object { $_.pack -eq 'caelestia' -and $_.widget -eq 'bar' }).Count | Should -Be 1
         }
 
+        It "Install-Config (non-Uninstall) registers all four caelestia/corners presets in ZebarSettingsPath's startupConfigs" {
+            $settings = Join-Path $script:tmp "ic-zs-settings-corners.json"
+            Install-Config `
+                -WhkdrcPath (Join-Path $script:tmp "ic-zs-whkdrc-corners.conf") `
+                -JunctionLink (Join-Path $script:tmp "ic-zs-link-corners") `
+                -JunctionTarget (New-Item -ItemType Directory -Force -Path (Join-Path $script:tmp "ic-zs-target-corners")).FullName `
+                -BackupRoot (Join-Path $script:tmp "ic-zs-backup-corners") `
+                -ZebarSettingsPath $settings
+
+            $configs = Get-ZebarStartupConfigs -Path $settings
+            $corners = @($configs | Where-Object { $_.pack -eq 'caelestia' -and $_.widget -eq 'corners' })
+            $corners.Count | Should -Be 4
+            ($corners | Sort-Object preset | ForEach-Object { $_.preset }) -join ',' |
+                Should -Be 'bottom-left,bottom-right,top-left,top-right'
+            # bar's own entry must still be there too -- Install-Config
+            # registers both, not one instead of the other.
+            @($configs | Where-Object { $_.pack -eq 'caelestia' -and $_.widget -eq 'bar' }).Count | Should -Be 1
+        }
+
         It "Install-Config -Uninstall removes caelestia/bar from ZebarSettingsPath's startupConfigs" {
             $settings = Join-Path $script:tmp "ic-zs-settings2.json"
             Set-ZebarStartupConfig -Path $settings -Pack 'gunturdwiap.good-enough' -Widget 'main' -Preset 'default'
@@ -281,6 +342,26 @@ Describe "Install-Config primitives" {
                 -JunctionLink (Join-Path $script:tmp "ic-zs-link2") `
                 -JunctionTarget (New-Item -ItemType Directory -Force -Path (Join-Path $script:tmp "ic-zs-target2")).FullName `
                 -BackupRoot (Join-Path $script:tmp "ic-zs-backup2") `
+                -ZebarSettingsPath $settings
+
+            $configs = Get-ZebarStartupConfigs -Path $settings
+            @($configs | Where-Object { $_.pack -eq 'caelestia' }).Count | Should -Be 0
+            @($configs | Where-Object { $_.pack -eq 'gunturdwiap.good-enough' }).Count | Should -Be 1
+        }
+
+        It "Install-Config -Uninstall removes all four caelestia/corners presets from ZebarSettingsPath's startupConfigs" {
+            $settings = Join-Path $script:tmp "ic-zs-settings-corners-uninstall.json"
+            Set-ZebarStartupConfig -Path $settings -Pack 'gunturdwiap.good-enough' -Widget 'main' -Preset 'default'
+            Set-ZebarStartupConfig -Path $settings -Pack 'caelestia' -Widget 'bar' -Preset 'default'
+            foreach ($preset in @('top-left', 'top-right', 'bottom-left', 'bottom-right')) {
+                Set-ZebarStartupConfig -Path $settings -Pack 'caelestia' -Widget 'corners' -Preset $preset
+            }
+
+            Install-Config -Uninstall `
+                -WhkdrcPath (Join-Path $script:tmp "ic-zs-whkdrc-corners-un.conf") `
+                -JunctionLink (Join-Path $script:tmp "ic-zs-link-corners-un") `
+                -JunctionTarget (New-Item -ItemType Directory -Force -Path (Join-Path $script:tmp "ic-zs-target-corners-un")).FullName `
+                -BackupRoot (Join-Path $script:tmp "ic-zs-backup-corners-un") `
                 -ZebarSettingsPath $settings
 
             $configs = Get-ZebarStartupConfigs -Path $settings

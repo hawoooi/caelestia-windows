@@ -478,6 +478,86 @@ about the other; komorebi is the only thing that combines both reservations into
 area for tiled windows. See the Task 10 coexistence check below for what was actually confirmed on
 this machine.
 
+## Corner overlays (rounded content corners)
+
+`corner-overlays` added a second widget, `corners`, to `zpack.json` (see `zebar/caelestia/corners/`):
+four small 28x28px windows, one per screen corner, each painting a `var(--surface)`-colored
+radial-gradient wedge that fades to fully transparent toward the content region, giving the
+illusion of a rounded corner where the bar meets the content and at the two outer screen corners.
+
+**Why not one full-screen overlay.** Proven earlier on this build: `pointer-events: none` does
+**not** give OS-level click-through on Zebar's WebView2/Tauri windows (see "Known-incomplete: the
+media drawer" above) — `WindowFromPoint` returns the Zebar window across the whole transparent
+region regardless of CSS. A full-screen transparent overlay would make the entire desktop
+unclickable. Four small per-corner widgets instead keep the click-dead footprint to
+4 x 28x28 = 3,136px^2, confirmed (by direct `WindowFromPoint` sampling, corner-overlays' own
+verification) to sit exactly on the wallpaper/gap between the bar/screen edge and the tiled
+content — never on any real window.
+
+**Geometry.** The content region's corner (where a tiled window's own edge sits, given
+`default_workspace_padding`/`default_container_padding` = 20 each, from `~/komorebi.json`) is at
+`(bar_width + 40, 40)` for the left corners and `(screen_width - 40, 40)` / `(*, screen_height -
+40)` for the right/bottom ones (52 + 20 + 20 = 92 measured on this machine, matching real tiled
+window rects observed via `komorebic state`, off by only the ~5px native border decoration).
+Each 28px corner widget is positioned so its corner nearest the content touches that point exactly
+and it extends outward into the 40px gap toward the bar/screen edge — comfortably inside the gap
+(28 < 40), never overlapping the bar or a real window.
+
+**`offsetX`/`offsetY` sign convention (undocumented, found the hard way).** For every anchor,
+positive `offsetX` shifts the window **right** and positive `offsetY` shifts it **down** — the
+anchor only decides the window's position when the offset is `0` (e.g. `top_right` at offset 0
+sits flush with the screen's right edge). This means a `top_right`/`bottom_right`/`bottom_left`
+preset that needs to move the window *inward*, toward the screen center, needs a **negative**
+offset on the axis nearest its anchored edge — `offsetX: "12px"` on a `top_right` preset does not
+move the window 12px in from the right edge, it moves it 12px **further right, off-screen**. Confirmed
+by starting all four corner presets and reading back their actual `GetWindowRect` via a P/Invoke
+probe; the fix is baked into `zpack.json`'s current offsets (`top-right`/`bottom-right` use
+negative `offsetX`, `bottom-left`/`bottom-right` use negative `offsetY`) — don't "simplify" them
+back to all-positive without re-verifying against real window rects.
+
+**Which corner am I? (`corners.js`/`classify.js`).** All four presets share one `htmlPath`
+(`corners/index.html`), so a running instance has no static way to know which corner it is. It
+finds out at runtime instead: `classifyCorner(x, y, screenWidth, screenHeight)`
+(`zebar/caelestia/corners/classify.js`, pure and unit-tested — `tests/js/corners.test.mjs`) compares
+its own `outerPosition()` (via `currentWidget().tauriWindow`, vendored zebar/Tauri API) against
+half the screen's width/height and adds a `corner--<name>` class to `<body>`, which `corners.css`
+uses to pick the correctly-oriented gradient. This is intentionally geometry-derived rather than a
+hardcoded preset-name-to-corner map, so a future geometry change can't silently leave a widget
+painting the wrong corner.
+
+**Reservation: confirmed zero.** `dockToEdge: { enabled: false }` on every corner preset. Verified
+directly: `komorebic state`'s `work_area_size` read `{ left: 52, top: 0, right: 2508, bottom: 1440
+}` before the corner widgets existed, immediately after starting them for the first time, and again
+after a full `Restart-ZebarWidgets` stop/start cycle — unchanged in every case.
+
+**Startup registration needed a real fix, not just four `Install-Config` calls.**
+`~/.glzr/zebar/settings.json`'s `startupConfigs` entries were previously deduplicated by
+`(pack, widget)` alone (`Set-ZebarStartupConfig`, `scripts/Install-Config.ps1`) — fine while every
+widget only ever had one autostarted preset, but the `corners` widget needs **four** entries under
+the same `pack`+`widget` (one per preset/corner). Matching was widened to
+`(pack, widget, preset)`; every existing caller (`caelestia/bar/default`) is unaffected since it
+never registered more than one preset per widget anyway. `Remove-ZebarStartupConfig` deliberately
+stayed matched on `(pack, widget)` only, so uninstalling clears all four corner entries in one
+call. `Apply-Theme.ps1`'s `Restart-ZebarWidgets` had a latent same-slug log-file collision fixed
+alongside this: its per-widget log filename used to be `pack-widget` only, which four
+same-pack-same-widget startup entries would all collide on — since `start-widget-preset` blocks for
+as long as its window is open, the second corner's `Start-Process -RedirectStandardOutput` would be
+opening a log file the first corner's still-running process already holds open. The slug is now
+`pack-widget-preset`.
+
+**A `top_most` z-order overlaps fullscreen games — not mitigated.** Corners use `zOrder: "top_most"`
+per this feature's own spec (the existing `bar` widget uses `"normal"`). Zebar's CLI
+(`zebar.exe --help`) and both `zpack-schema.json`/`settings-schema.json` were checked for any
+fullscreen-aware auto-hide option — there is none. VALORANT (in `~/komorebi.json`'s
+`ignore_rules`) is only excluded from *tiling*; nothing stops a `top_most` Zebar window from
+painting over a borderless-fullscreen game window (DXGI *exclusive* fullscreen, if the game uses
+it, bypasses the desktop compositor entirely and would hide it regardless, but that mode isn't
+guaranteed and wasn't tested — the game was deliberately not launched to verify this, per this
+feature's own safety constraints). Worst case is cosmetic (a 28x28px corner decal in gameplay's
+extreme screen corners), not input-swallowing, since the corner widgets' click-dead footprint is
+confirmed tiny and off any window — but this is a real, unmitigated risk worth knowing about before
+relying on this bar setup during a match.
+
 ## Installing/uninstalling
 
 ```powershell
