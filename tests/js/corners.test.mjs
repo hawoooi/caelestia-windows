@@ -9,24 +9,28 @@ import { classifyCorner } from '../../zebar/caelestia/corners/classify.js';
 // numbers make the test cases easy to sanity-check by eye.
 
 test('classifyCorner: a window near the physical top-left is "top-left"', () => {
-  // Actual zpack.json "top-left" preset placement (post corner-radius fix,
-  // flush with the bar's own right edge): anchor top_left, offsetX 52px,
-  // offsetY 12px.
-  assert.strictEqual(classifyCorner(52, 12, 2560, 1440), 'top-left');
+  // Actual zpack.json "top-left" preset placement (post flush-to-edge fix,
+  // frame-flush with both the bar's own right edge and the screen top):
+  // anchor top_left, offsetX 52px, offsetY 0px.
+  assert.strictEqual(classifyCorner(52, 0, 2560, 1440), 'top-left');
 });
 
 test('classifyCorner: a window near the physical top-right is "top-right"', () => {
-  // anchor top_right, offsetX -12px, width 36px -> outer x = 2560 - 12 - 36 = 2512.
-  assert.strictEqual(classifyCorner(2512, 12, 2560, 1440), 'top-right');
+  // Every corner preset now uses anchor top_left with a purely positive,
+  // absolute offset (sidesteps the offset-sign trap -- see
+  // docs/zebar-bar.md): offsetX 2516px, offsetY 0px, width 44px -> outer
+  // x = 2516, which is 2560 - 44 (flush with the screen's right edge).
+  assert.strictEqual(classifyCorner(2516, 0, 2560, 1440), 'top-right');
 });
 
 test('classifyCorner: a window near the physical bottom-left is "bottom-left"', () => {
-  // anchor bottom_left, offsetY -12px, height 36px -> outer y = 1440 - 12 - 36 = 1392.
-  assert.strictEqual(classifyCorner(52, 1392, 2560, 1440), 'bottom-left');
+  // anchor top_left, offsetX 52px, offsetY 1396px, height 44px -> outer y
+  // = 1396, which is 1440 - 44 (flush with the screen's bottom edge).
+  assert.strictEqual(classifyCorner(52, 1396, 2560, 1440), 'bottom-left');
 });
 
 test('classifyCorner: a window near the physical bottom-right is "bottom-right"', () => {
-  assert.strictEqual(classifyCorner(2512, 1392, 2560, 1440), 'bottom-right');
+  assert.strictEqual(classifyCorner(2516, 1396, 2560, 1440), 'bottom-right');
 });
 
 test('classifyCorner: exactly at the midpoint rounds to bottom-right (strict "<" means a tie loses)', () => {

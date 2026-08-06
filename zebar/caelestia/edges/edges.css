@@ -45,7 +45,22 @@
    right strip was re-anchored the same way against the two right corners'
    new tangent points (offsetY 40 -> 48, height 1360 -> 1344). See
    docs/zebar-bar.md's "Corner overlays" geometry note for the full
-   arithmetic. */
+   arithmetic.
+
+   Flush-to-edge correction (direct user feedback, fourth pass): all three
+   strips are now --frame-band (20px, matching komorebi's own
+   default_workspace_padding/default_container_padding -- see
+   ../corners/corners.css's :root comment) thick instead of the old 4px
+   hairline, and flush against the corner widgets' new, larger 44x44
+   footprint (../zpack.json's "corners" presets) -- see docs/zebar-bar.md's
+   "Frame flush-to-edge correction" section for the current geometry table
+   and rationale (band thickness == komorebi padding, closing the 12px
+   band of bare wallpaper that used to show outside the old inset frame).
+   The historical offsets/widths quoted just above (92/88/2428/2424/etc.)
+   are the PRIOR pass's numbers, kept as a record of how this file's
+   geometry has moved over time -- they are not the current values; read
+   them alongside their own paragraph's "before" framing, not as current
+   truth. */
 
 html,
 body {

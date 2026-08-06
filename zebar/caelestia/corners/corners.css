@@ -4,18 +4,26 @@
    Enforced by tests/Get-ColorLiterals.Tests.ps1. */
 
 :root {
-  /* Must match the widget's own window size (zpack.json's "corners" preset
-     width/height). This is the radius of the quarter-circle cut-out below --
-     it always reaches exactly to the window's far edges -- if the preset
-     size ever changes, change this too.
+  /* Frame band thickness. MUST equal ~/komorebi.json's
+     default_workspace_padding / default_container_padding (20px each on
+     this machine) -- the frame is sized to exactly fill komorebi's own
+     padding gap between the screen/bar edge and a tiled window's outer
+     edge, so it never covers any part of a tiled window's interior. If
+     that padding value ever changes, this must change with it (and so
+     must every corner/edge preset's width/height/offset in ../zpack.json
+     -- see docs/zebar-bar.md's "Frame flush-to-edge correction" geometry
+     table for the full derivation). */
+  --frame-band: 20px;
 
-     Bumped 28 -> 36 (desktop-frame corner-radius follow-up, direct user
-     feedback comparing against a Caelestia reference screenshot: the arc
-     read as a tiny 28px nub next to the reference's generous, clearly
-     rounded curve). All four presets stay square (width == height ==
-     --corner-size) -- see the geometry comment below for why that square
-     invariant is what keeps the two straight-edge tangent points exact. */
-  --corner-size: 36px;
+  /* Content corner radius -- how tightly the frame curves into the tiled
+     content region. Independent of --frame-band; tune this alone to
+     change how rounded the corner feels without touching the band
+     thickness. Each corner widget's own window size in zpack.json is
+     --frame-band + --corner-radius (44px = 20 + 24) on both axes -- if
+     either variable changes, the corresponding preset's width/height in
+     ../zpack.json must change to match, or the arc's tangent points will
+     no longer land on the widget's own edges. */
+  --corner-radius: 24px;
 }
 
 html,
@@ -33,82 +41,91 @@ body {
   height: 100%;
 }
 
-/* Desktop-frame colour/shape correction (direct user feedback on
-   corner-overlays + desktop-frame): the frame is one solid var(--surface)
-   band, the same colour as the bar -- not an outlined var(--primary) stroke
-   around a filled wedge. "Solid fill with a quarter-circle hole", not
-   "ring/border drawn on top of a fill".
+/* Flush-to-edge desktop frame (direct user feedback, fourth pass): the
+   frame used to be a 4px hairline inset 12px from the screen edge, which
+   left a 12px band of bare wallpaper showing outside it everywhere. The
+   user's reference (Caelestia) instead shows a solid band running from
+   the screen edge all the way to the content, the same colour and visual
+   weight as the left bar -- "the border between the edge of the screen
+   and the arc". Two things changed to get there:
 
-   Each corner widget sits in the gap between the bar/screen edge and the
-   content region (see docs/zebar-bar.md's "Corner overlays" geometry note).
-   The fill is var(--surface) everywhere in that 36x36 window EXCEPT a
-   quarter-circle of radius --corner-size centred on the window's own
-   content-facing corner (the corner nearest the tiled window, i.e. the
-   OPPOSITE corner from the one named in the body class -- a top-left
-   widget's content-facing corner is its own bottom-right). That circle's
-   quarter that actually falls inside the window is a genuine 90-degree
-   sweep -- "half of a door pathway arc", per the user's own description,
-   not a semicircle -- because the centre sits exactly at one corner of the
-   box: the other three corners of the window are all >= --corner-size away
-   from it (the two adjacent ones are tangent at exactly --corner-size, the
-   far one is corner-size*sqrt(2) away), so only one quarter of the circle's
-   full 360 degrees ever crosses the visible 36x36 area.
+   1. Every corner widget grew from 36x36 to 44x44 (--frame-band(20) +
+      --corner-radius(24)) and is now positioned flush against BOTH
+      screen edges it touches (e.g. top-left sits at (52,0) -- x flush
+      with the bar's own right edge, y flush with the physical screen
+      top), not inset by the old 12px margin. Same for the edge strips in
+      ../edges/edges.css: they now start exactly where a corner widget's
+      far edge ends, and are --frame-band (20px) thick instead of 4px.
+      Combined, the band's near edge is always the literal screen/bar
+      edge -- there is no gap left for wallpaper to show through.
+   2. The radial-gradient hole shrank from filling the ENTIRE widget
+      (radius == widget size, the old 36px/36px invariant) to a fixed
+      --corner-radius (24px) hole inside a now-larger widget. The extra
+      --frame-band (20px) of solid margin the widget gained on its two
+      screen/bar-facing sides is exactly what makes the "flush solid band
+      + a genuine content corner curve" shape possible -- shrinking the
+      hole without also growing the widget would have just made a smaller
+      wedge in the same 12px-inset position, not a flush band.
 
-   The two LEFT corner widgets (top-left, bottom-left) are anchored flush
-   with the bar's own right edge (zpack.json offsetX: 52px, matching the
-   bar preset's own width) rather than inset a further 12px into the gap
-   like the two right corners still are -- direct user feedback: a visible
-   ~12x4px sliver of bare wallpaper was showing between the bar and the
-   arc, left over from removing the old bar-link stub widgets. Extending
-   the corner widget itself (not reintroducing a stub) closes it, because
-   the square's far corner (the solid-wedge tip, diagonally opposite the
-   content-facing corner above) now sits exactly on the bar's edge instead
-   of 12px away from it -- see docs/zebar-bar.md's "Corner overlays"
-   geometry note for the full before/after arithmetic and how the adjoining
-   edge strips were re-derived to stay contiguous with the new, larger
-   squares.
+   Each corner widget's own content-facing corner (the corner nearest the
+   tiled window -- the OPPOSITE corner from the one named in the body
+   class, e.g. a top-left widget's content-facing corner is its own
+   bottom-right) is where the tiled window's own outer corner actually
+   sits. The fill is var(--surface) everywhere in the 44x44 window EXCEPT
+   a --corner-radius circle centred exactly on that content-facing corner:
+   transparent within --corner-radius of it, solid var(--surface) beyond.
+   Because the circle's centre sits exactly on one corner of the (square)
+   widget, only one quarter of its 360 degrees ever crosses the visible
+   area -- a true 90-degree sweep, "half of a door pathway arc" -- not a
+   semicircle. This is mathematically identical to painting it as three
+   separate pieces (a --frame-band x 44 top-or-bottom band, a 44 x
+   --frame-band left-or-right band, and a --corner-radius x --corner-radius
+   arc box in the remaining content-facing corner, itself filled by the
+   same hard-stopped gradient centred on ITS own content-facing corner):
+   every point within --corner-radius of the widget's content-facing
+   corner necessarily falls inside that --corner-radius x --corner-radius
+   sub-box (the two bands are each --frame-band thick, i.e. exactly
+   --corner-radius away from the content-facing corner along their own
+   axis, so nothing closer than --corner-radius to the centre can lie
+   outside the sub-box). One gradient rule per corner is simpler than
+   three separately-positioned pieces and paints the identical pixels.
 
-   The gradient's hard stop (transparent up to --corner-size, var(--surface)
-   from one pixel past it) makes that boundary a crisp curve, not a fade --
-   there is no stroke/ring anywhere, just solid fill up to the cut and fully
-   transparent (true window transparency, showing the desktop/content
-   underneath) inside it. This is deliberately the same construction
-   corner-overlays shipped originally; a later follow-up added a
-   var(--primary) bordered-box stroke so the arc had a "line" to visually
-   continue into the edge strips, but the strips are solid var(--surface)
-   fill now too (see edges.css), not a stroke, so there is no line left to
-   continue -- reverting to a plain solid-fill cut-out is what makes the
-   corner and the strips read as one continuous solid band again. */
+   This is the same hard-stopped radial-gradient technique corners.css has
+   used since corner-overlays; only the placement (flush, not inset) and
+   the hole's size relative to the widget (fixed --corner-radius, not
+   "fills the whole widget") changed. See docs/zebar-bar.md's "Frame
+   flush-to-edge correction" section for the full geometry table and the
+   click-dead-footprint measurement this pass took. */
 
 body.corner--top-left #corner {
   background: radial-gradient(
-    circle at bottom right,
-    transparent var(--corner-size),
-    var(--surface) calc(var(--corner-size) + 1px)
+    circle var(--corner-radius) at bottom right,
+    transparent 0 var(--corner-radius),
+    var(--surface) var(--corner-radius)
   );
 }
 
 body.corner--top-right #corner {
   background: radial-gradient(
-    circle at bottom left,
-    transparent var(--corner-size),
-    var(--surface) calc(var(--corner-size) + 1px)
+    circle var(--corner-radius) at bottom left,
+    transparent 0 var(--corner-radius),
+    var(--surface) var(--corner-radius)
   );
 }
 
 body.corner--bottom-left #corner {
   background: radial-gradient(
-    circle at top right,
-    transparent var(--corner-size),
-    var(--surface) calc(var(--corner-size) + 1px)
+    circle var(--corner-radius) at top right,
+    transparent 0 var(--corner-radius),
+    var(--surface) var(--corner-radius)
   );
 }
 
 body.corner--bottom-right #corner {
   background: radial-gradient(
-    circle at top left,
-    transparent var(--corner-size),
-    var(--surface) calc(var(--corner-size) + 1px)
+    circle var(--corner-radius) at top left,
+    transparent 0 var(--corner-radius),
+    var(--surface) var(--corner-radius)
   );
 }
 

@@ -806,6 +806,126 @@ row. The curve itself is visibly larger and smoother than the old 28px nub, and 
 still meet their adjoining top/right/bottom strip with no gap or thickness jump, mirrored
 correctly on the right-hand corners.
 
+## Frame flush-to-edge correction (band thickness == komorebi padding, fourth pass)
+
+Direct user feedback against the shipped 44px-frame from the previous pass, compared side-by-side
+against a Caelestia reference screenshot: the frame was rendering as a **4px hairline inset 12px
+from the screen edge**, leaving a 12px band of bare wallpaper visible outside it everywhere. The
+reference instead shows a **solid band running from the screen edge all the way to the content**,
+the same colour and visual weight as the left bar -- "the border between the edge of the screen and
+the arc". This pass makes the frame flush on every edge it touches and ties its thickness directly
+to a real number already in `~/komorebi.json` instead of an arbitrary pixel value.
+
+**The governing idea: band thickness == komorebi's own padding.** `~/komorebi.json`'s
+`default_workspace_padding` and `default_container_padding` are both `20`. A tiled window's outer
+edge sits exactly `20px` in from the work area edge (or the bar's own right edge, on the left side).
+Sizing the frame band to exactly `20px` and placing it flush against the screen/bar edge makes the
+frame fill that gap precisely -- it can never cover a tiled window's interior, because the interior
+starts exactly where the band ends. Content corner radius is a separate, independently-tunable
+constant, `--corner-radius: 24px` (`corners.css`'s own `:root` block) -- picked to read close to the
+reference's curve at this frame thickness; not derived from any komorebi value. Each corner widget's
+own window size is therefore `--frame-band + --corner-radius` = `20 + 24` = **44x44** on both axes.
+
+**Geometry (measured on this machine's 2560x1440 screen via a `GetWindowRect` P/Invoke probe against
+every running `caelestia` widget process, all anchor `top_left` with purely positive absolute
+offsets -- same offset-sign-trap avoidance corner-overlays' and desktop-frame's own strips already
+used):**
+
+| Preset | Rect (screen px, `GetWindowRect`) | width x height |
+|---|---|---|
+| `corners/top-left` | `(52,0)-(96,44)` | 44x44 |
+| `corners/top-right` | `(2516,0)-(2560,44)` | 44x44 |
+| `corners/bottom-left` | `(52,1396)-(96,1440)` | 44x44 |
+| `corners/bottom-right` | `(2516,1396)-(2560,1440)` | 44x44 |
+| `edges/top` | `(96,0)-(2516,20)` | 2420x20 |
+| `edges/right` | `(2540,44)-(2560,1396)` | 20x1352 |
+| `edges/bottom` | `(96,1420)-(2516,1440)` | 2420x20 |
+
+Every rect above was read back live, not just computed from `zpack.json` -- this task's own explicit
+instruction, and consistent with how every prior geometry pass in this file was verified. All seven
+line up exactly with no gap or overlap: `edges/top`'s left edge (96) is `corners/top-left`'s right
+edge; `edges/right`'s top edge (44) is `corners/top-right`'s bottom edge; and so on around the frame.
+`komorebic state`'s `work_area_size` was re-read before and after this pass: `{left:52, top:0,
+right:2508, bottom:1440}`, unchanged -- `dockToEdge: { enabled: false }` on every preset still
+reserves nothing.
+
+**The arc technique is unchanged, only its placement and the hole's size relative to the widget
+changed.** Every corner is still one `radial-gradient` rule on `#corner`, hard-stopped at a fixed
+radius from the widget's own content-facing corner (`corners.css`'s `body.corner--*` rules) --
+transparent within `--corner-radius` of that corner, solid `var(--surface)` beyond it. The only
+difference from the prior (36x36, hole == whole widget) design is that the hole's radius
+(`--corner-radius`, 24px) is now smaller than the widget's own size (44px), which is what leaves the
+extra `--frame-band` (20px) of guaranteed-solid margin on the widget's two screen/bar-facing sides.
+Worked through by hand and confirmed by direct pixel sampling (`CopyFromScreen`, 1px steps across
+each 44x44 corner window): the transparent region is exactly the set of points within 24px of the
+widget's content-facing corner, which is provably identical to painting three separate pieces (a
+`--frame-band`-thick top-or-bottom band, a `--frame-band`-thick left-or-right band, and a
+`--corner-radius`-square arc box in the remaining corner) -- see `corners.css`'s own comment for the
+short proof. All four corners were sampled this way (not just top-left) and all four mirror
+correctly.
+
+**Visual result (screenshotted top-left and bottom-right corners at 5x nearest-neighbour zoom, plus
+1px-step pixel sampling across all four corner windows and every edge strip):** the dark
+`var(--surface)` band (`#0F1416`, sampled exact) runs unbroken from the physical screen edge and
+from the bar's own right edge, through a smooth, mathematically-verified 90-degree arc, into the
+content region -- zero wallpaper visible anywhere in the frame, and zero gap or colour mismatch at
+any of the seven corner-to-edge junctions (sampled directly on both sides of each seam). The initial
+screenshot crop looks mostly non-`--surface` at a glance because the band is now thin (20px) relative
+to a wide crop -- the majority of any wide crop is legitimately real desktop content beyond the frame,
+not the frame itself; pixel sampling (not just the screenshot) is what actually confirms the band's
+own pixels are correct.
+
+**Click-dead footprint grew substantially -- this is a genuine, real regression, not a rounding
+error.** Every pixel inside any corner or edge widget's window rect swallows clicks regardless of
+its own CSS transparency (Zebar has no OS-level click-through on this WebView2/Tauri build -- see
+corner-overlays' own "Why not one full-screen overlay" note), so the footprint is the sum of the
+widget rects themselves, not just their painted pixels:
+
+- Corners: `4 * 44*44` = 7,744px² (up from 5,184px²).
+- Edges: `2420*20 * 2 + 20*1352` = 96,800 + 27,040 = 123,840px² (up from 24,768px²).
+- **Total: 131,584px²**, up from the prior pass's 29,952px² -- **a net increase of 101,632px² (about
+  4.4x)**, almost entirely from the edge strips' thickness growing 4px -> 20px (a 5x multiplier
+  across a perimeter that barely changed length). This is the real cost of matching the reference's
+  visual weight and deserves to be weighed plainly, not minimised.
+
+**How much of that now sits on a tiled window, specifically (measured, not estimated).** The
+corner widgets' own far corner is designed to land exactly on a tiled window's own outer corner (see
+"the governing idea" above) -- so the concern is whether they land *on top of* it (dead clicks where
+a user would expect the window to be interactive) rather than merely *beside* it (dead clicks in
+what was already-dead padding). Measured directly against this machine's real, live tiled windows
+(`komorebic state`'s per-window `rect`, cross-checked with `WindowFromPoint` + `GetAncestor(GA_ROOT)`
+sampled at and around each corner):
+
+| Corner | Widget's content corner | Real window's corner (from `komorebic state`) |
+|---|---|---|
+| top-left | `(96,44)` | `(97,45)` |
+| top-right | `(2516,44)` | `(2515,45)` |
+| bottom-left | `(96,1396)` | `(97,1395)` |
+| bottom-right | `(2516,1396)` | `(2515,1395)` |
+
+Every corner widget's rect is **adjacent to, not overlapping**, the real tiled window's rect on this
+machine's current layout -- off by a consistent 1px, which `WindowFromPoint` sampling showed is
+occupied by komorebi's own themed border window (`class` prefixed `komoborder-`, from this repo's
+window-border theming feature -- see CLAUDE.md's "Window borders and gaps"), not bare window content
+or wallpaper. `WindowFromPoint(97,45)` (1px past every corner widget's edge, into the window itself)
+resolved to `wezterm-gui`/`chrome` (the real tiled window), never to `zebar`; every point actually
+inside a corner widget's own rect, including its fully-transparent disc pixels, resolved to `zebar`
+as expected. **Measured overlap with tiled-window interiors: ~0px²** -- better than this task's own
+worst-case estimate of `4 * 24*24` = 2,304px² (which assumed the corner's whole content-facing
+sub-box would land on the window; in practice the tangent point lands within 1px of the window's
+real corner instead, with komorebi's own border window absorbing the seam). This was checked against
+both windows on the currently-focused workspace (a two-pane split) at all four corners, not just one
+sample point. It is not proven to hold for every possible tiling layout on this machine (a
+differently-shaped split could, in principle, place a window's corner slightly closer to the work
+area edge than `default_workspace_padding` alone would suggest) -- only that it holds for the layout
+this pass actually measured against, live.
+
+**Bottom line for the user to weigh:** the frame is now visually flush and matches the reference,
+but costs a real, measured ~101,632px² more click-dead screen area than the previous 4px-hairline
+design, almost entirely in the (previously mostly-empty, now much thicker) edge strips rather than at
+the corners -- the corners' own overlap with actual window interiors remains close to zero, measured
+live, not just assumed.
+
 ## Installing/uninstalling
 
 ```powershell
