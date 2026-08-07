@@ -29,6 +29,14 @@ const HELPER = 'C:\\Users\\PC\\.config\\yasb\\scripts\\vesktop-unread.exe';
 // \uXXXX escape and read back after writing, per CLAUDE.md's "Nerd Font
 // glyphs" discipline (raw pasted PUA glyphs have previously been silently
 // dropped to empty strings by tooling between drafting and the file write).
+//
+// feat/corner-overlays follow-up (direct user feedback, screenshot showed
+// the glyph and the count crowding each other side by side against the
+// 52px bar's edges): icon-above-count layout moved from a row to a column
+// entirely in style.css's `.vesktop` rule -- this module's own DOM order
+// (`el.append(icon, count)`) already put the icon before the count, so no
+// JS change was needed, only the CSS axis flip. See style.css's own
+// comment on `.vesktop` for the sizing/spacing rationale.
 register('vesktop', ({ shell }) => {
   const el = document.createElement('div');
   el.className = 'vesktop';

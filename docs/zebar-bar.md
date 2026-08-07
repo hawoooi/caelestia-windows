@@ -8,7 +8,10 @@ anything under `zebar/`.
 **Status of this feature as of Task 10: the bar's code is complete and committed, but WebView2 is
 currently broken on this machine (see "Troubleshooting: WebView2 renders nothing" below), so the
 bar's own visual output has not been re-confirmed since Task 8. The media drawer/panel is
-explicitly NOT shipped as a working feature — see "Known-incomplete: the media drawer" below.**
+explicitly NOT shipped as a working feature — see "Known-incomplete: the media drawer" below.
+Since `feat/corner-overlays`, the `media` bar entry itself is also disabled (removed from
+`bar.config.json`, not deleted) — see "The `media` entry is disabled by config" below, a separate,
+config-level concern from the drawer's own unreachability.**
 
 ## The stack
 
@@ -400,6 +403,91 @@ Trade-offs to plan for if this is picked up:
 - It would **not** get genuine View Transitions morphing between the pill and the panel — View
   Transitions don't span two separate documents/windows. At best, a coordinated-but-separate open
   animation (e.g. both windows fading/sliding in sync) could approximate it.
+
+## The `media` entry is disabled by config (direct user feedback)
+
+**Separate concern from the drawer's own unreachability above.** The drawer/panel was already
+known-unshippable (see above); independently of that, the top-line `media` *pill* itself —
+`entries/media.js`'s `el`, the one showing a track title down the middle of the bar, not the
+`.media-panel` drawer — was still rendering in the strip and scrolling/clipping a long title
+(observed live: `TORONTONIANS PLAY VALORAN…`) through the vertical column. Direct user feedback:
+*"I think media status shouldn't be here. disable it for now."*
+
+**The fix is config-only, not code deletion.** `"media"` was removed from `bar.config.json`'s
+`entries` array (`zebar/caelestia/bar/bar.config.json`) — `entries/render.js`'s `renderEntries`
+only ever constructs the types listed there (see "The entry registry" above), so an entry type
+that's registered but not listed simply never gets created or appended; nothing needs to be
+unregistered or wrapped in a feature flag for this to take effect. `entries/media.js`,
+`entries/index.js`'s `import './media.js'` (which is what keeps the `'media'` type registered and
+available), `drawer.js`, and every `.media`/`.media-panel*` rule in `style.css` are all left
+exactly as they were — "for now" means this is reversible in one line, not a deletion.
+
+**Nothing else assumed a `media` element between the spacer and the clock.** Checked: no CSS
+adjacency/sibling selector (`+`, `~`, `:nth-child`) in `style.css` references entry position or
+count; `entries/registry.js`'s `create()`/`knownTypes()` don't require every registered type to be
+used; `bar.js`'s `providers` still declares a `media: { type: 'media' }` provider (left running —
+harmless, since nothing reads `out.media` now that the entry that read it isn't constructed) and
+its own per-entry `try`/`catch` in the tick loop and in `renderEntries` never assumed a fixed entry
+count or shape to begin with (see "The entry registry" above — that resilience was already the
+point of I3). No test asserts the literal contents of `bar.config.json`'s `entries` array either
+(checked `tests/js/*.test.mjs`), so none needed updating for this change.
+
+**How to re-enable it:** add `"media"` back into `bar.config.json`'s `entries` array, in whatever
+position is wanted (it doesn't have to go back between the two `activeWindow` spacers — see "Centre
+the app name..." note below for why there are two now), then restart the widget
+(`Restart-ZebarWidgets`). The drawer/panel itself will still be unreachable by a real click even
+once the pill is back (see "Known-incomplete: the media drawer" above) — re-enabling the entry only
+restores the scrolling title pill, not a working drawer.
+
+## vesktop icon/count stacked vertically (direct user feedback)
+
+A screenshot of the shipped `.status-cluster` pill showed the Discord glyph
+(`.vesktop__icon`) and the unread count (`.vesktop__count`) laid out side by side
+(`flex-direction: row`), crowding each other against the 52px bar's own edges. Direct user
+feedback: *"i think this discord icon could be laid vertically if it helps."*
+
+`style.css`'s `.vesktop` rule flipped from `flex-direction: row` to `column` — glyph on top,
+count below, both still centred via `align-items: center; justify-content: center` on the bar's
+vertical axis. No JS change: `entries/vesktop.js` already appends the icon before the count
+(`el.append(icon, count)`), so the existing DOM order became the existing top-to-bottom order
+for free. `gap` stayed the existing `var(--space-sm)` token — the same one `.status-cluster` and
+`.status-icons` already use between their own stacked rows — rather than inventing a new spacing
+value, per the brief's explicit ask to match the rest of the bar's rhythm. `min-height:
+var(--icon-box)` (a square-box leftover from the row layout) was dropped since stacked content is
+naturally taller than one icon row; `min-width: var(--icon-box)` stayed, so vesktop's column keeps
+the same horizontal footprint as `.status-icons__glyph`'s own box inside the shared pill. The
+badge/colour treatment (`.vesktop--pinged { color: var(--primary); font-weight: 700; }`) is
+untouched.
+
+## Centre the app name in the vacant space (direct user feedback)
+
+With `media` disabled (see above), the run between the top group (`logo`, `workspaces`,
+`layoutToggle`) and the bottom group (`clock`, `statusCluster`, `power`) is now a large empty gap
+— `activeWindow` used to sit flush directly under `layoutToggle`, at the top of that gap, not
+centred within it. Direct user feedback: *"put the app name on the middle of the vacant space
+between the top and bottom."*
+
+**The fix is a second `spacer`, not a pixel offset.** `bar.config.json`'s `entries` array is now
+`["logo", "workspaces", "layoutToggle", "spacer", "activeWindow", "spacer", "clock",
+"statusCluster", "power"]` — one `.entry--spacer` (`flex: 1 1 auto`, already used elsewhere in this
+file to push the lower cluster to the bottom of the strip) immediately before `activeWindow` and
+another immediately after it. `#bar` is `display: flex; flex-direction: column`, so the two
+spacers — both empty, both `flex: 1 1 auto`, so both grow from the same zero content-basis — split
+whatever vertical space is left over between the two groups exactly evenly, landing `activeWindow`
+in the middle of that space regardless of how tall either group currently is (workspace count,
+clock width, whether vesktop is showing a badge). This was the user's own suggested approach and
+is deliberately not a hardcoded pixel offset computed from the top/bottom groups' current
+heights — a pixel value would be correct only until either group's height changed, where the flex
+split is correct by construction. The top group still sits flush at the top (nothing precedes it
+to push it down) and the bottom group still sits flush at the bottom (nothing follows `power` to
+push it up), exactly as before — only the middle run changed.
+
+`activeWindow`'s existing ellipsis truncation (`entries/activeWindow.js`'s `appName()` backstop at
+`MAX_LEN`, plus `style.css`'s `.active-window` `overflow: hidden; text-overflow: ellipsis;
+white-space: nowrap;`) is unaffected by sitting between two flex spacers instead of one — the
+element itself has no `flex` property of its own, so it keeps its own intrinsic (capped) size
+regardless of how the surrounding spacers grow; verified with a long unaliased exe name run through
+the same render path (see the Verify section of this change's own report for the screenshot).
 
 ## Known-minor gaps (final review, not fixed — documented instead)
 

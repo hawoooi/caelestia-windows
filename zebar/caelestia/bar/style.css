@@ -168,17 +168,32 @@ body.fullscreen-hidden #bar { display: none; }
    the unread count, no icon). It's now two children -- a Discord mark
    (`.vesktop__icon`, `fa-brands`) and the count (`.vesktop__count`, plain
    text, same smaller-text treatment `.status-icons__battery` already
-   uses) -- laid out in a row instead of centring one string, so `.vesktop`
-   grows from a fixed icon-box square to a row that can hold both without
-   clipping either. */
+   uses).
+
+   feat/corner-overlays follow-up (direct user feedback, screenshot showed
+   the glyph and count crowding each other side by side against the 52px
+   bar's edges -- "i think this discord icon could be laid vertically if it
+   helps"): flipped from `flex-direction: row` to `column`, glyph above
+   count, both centred on the bar's own (vertical) axis. `gap` stays
+   `--space-sm` unchanged -- it's already the same token `.status-cluster`
+   and `.status-icons` use for their own internal rhythm between stacked
+   rows, so vesktop's stack reads as part of the same rhythm rather than a
+   one-off spacing value. `min-height: var(--icon-box)` (a leftover from
+   the row layout, where it made the box a square matching
+   `.status-icons__glyph`) is dropped -- stacked content is naturally
+   taller than one icon-box row, and forcing it back down to --icon-box
+   would just get overridden by content anyway. `min-width: var(--icon-box)`
+   stays: it keeps this column exactly as wide as `.status-icons__glyph`'s
+   own box, so both entries occupy the same horizontal footprint inside the
+   pill regardless of which is momentarily wider (unpinged vesktop is
+   `display: none` and contributes nothing). */
 .vesktop {
   display: flex;
-  flex-direction: row;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: var(--space-sm);
   min-width: var(--icon-box);
-  min-height: var(--icon-box);
   line-height: 1;
 }
 .vesktop__icon {
