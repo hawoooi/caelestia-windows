@@ -222,7 +222,8 @@ function Set-KomorebiFramePadding {
     param(
         [Parameter(Mandatory)][string]$Path,
         [Parameter(Mandatory)][int]$WorkspacePadding,
-        [Parameter(Mandatory)][int]$ContainerPadding
+        [Parameter(Mandatory)][int]$ContainerPadding,
+        [Parameter(Mandatory)][int]$Thickness
     )
 
     if (-not (Test-Path $Path)) { throw "Set-KomorebiFramePadding: komorebi.json not found at $Path" }
@@ -244,6 +245,35 @@ function Set-KomorebiFramePadding {
         $obj | Add-Member -NotePropertyName 'default_container_padding' -NotePropertyValue $ContainerPadding -Force
     } else {
         $obj.default_container_padding = $ContainerPadding
+    }
+
+    # There is no left frame band -- the bar itself is the left side of the
+    # frame (a deliberate user call: a left band made the 52px bar read as a
+    # 60px surface with its contents 4px off-centre). Without one, the left
+    # side never spends `Thickness` out of komorebi's padding the way the
+    # other three do, so its visible wallpaper gap comes out a full band
+    # WIDER than top/right/bottom -- the exact inconsistency this pulls back
+    # into line.
+    #
+    # `left` shifts the work area's origin; `right` shrinks its WIDTH, and
+    # the two are independent (komorebic's own help says "set right to left
+    # * 2 to maintain right padding"). So left == right == -Thickness moves
+    # the left edge in by Thickness while leaving the right edge exactly
+    # where it was.
+    #
+    # WARNING: komorebi reads this only at STARTUP, and never reflects it
+    # back in `komorebic state`'s monitor.work_area_offset -- that field
+    # stays empty even when the offset is demonstrably in effect. Two
+    # separate attempts were written off as no-ops on the strength of that
+    # field before the real check (pixel-scanning where tiled windows
+    # actually land) proved it works. `komorebic global-work-area-offset`
+    # IS genuinely a no-op here, exits 0 and changes nothing. Verify by
+    # measuring windows, not by reading state.
+    $offset = [PSCustomObject]@{ left = -$Thickness; top = 0; right = -$Thickness; bottom = 0 }
+    if (-not (Get-Member -InputObject $obj -Name 'global_work_area_offset' -MemberType NoteProperty)) {
+        $obj | Add-Member -NotePropertyName 'global_work_area_offset' -NotePropertyValue $offset -Force
+    } else {
+        $obj.global_work_area_offset = $offset
     }
 
     $json = $obj | ConvertTo-Json -Depth 10
@@ -438,7 +468,7 @@ function Set-FrameGeometry {
         $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
         $backupPath = Join-Path $BackupRoot "komorebi.json.bak-frame-geometry-$stamp"
         Copy-Item -Path $KomorebiJsonPath -Destination $backupPath -Force
-        Set-KomorebiFramePadding -Path $KomorebiJsonPath -WorkspacePadding $workspacePadding -ContainerPadding $containerPadding
+        Set-KomorebiFramePadding -Path $KomorebiJsonPath -WorkspacePadding $workspacePadding -ContainerPadding $containerPadding -Thickness $Thickness
     } else {
         Write-Warning "Set-FrameGeometry: $KomorebiJsonPath not found -- skipping the komorebi.json padding update"
     }

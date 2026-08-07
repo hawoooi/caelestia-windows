@@ -1454,7 +1454,40 @@ corner's own left edge). Confirmed live: `komorebic state`'s `work_area_size` re
 after this pass's restart, `{left:52, top:0, right:2508, bottom:1440}`, unchanged -- none of this
 touches the bar's own `dockToEdge` reservation.
 
-### The work-area-offset trick -- and why it did NOT ship
+### The work-area-offset trick -- how it eventually DID ship
+
+**This section's original conclusion was wrong, and is kept below only as a record of how the wrong
+conclusion was reached.** The offset works. It ships. All four gaps are 8px.
+
+What actually happened: `global_work_area_offset` has to be set in `~/komorebi.json` and is read
+**only at komorebi startup** -- the `komorebic global-work-area-offset` CLI genuinely is a no-op
+(exits `0`, changes nothing), so attempt 1 below was a correct observation of the *CLI*, wrongly
+generalised to the *feature*. The value that works is `{ "left": -8, "top": 0, "right": -8,
+"bottom": 0 }`, applied by `Set-KomorebiFramePadding` in `scripts/Set-FrameGeometry.ps1` as
+`left == right == -Thickness`. `left` shifts the work area's origin; `right` shrinks its **width**;
+the two are independent (komorebic's own `--help` says "set right to left * 2 to maintain right
+padding"). So `-8` on both moves the left edge in by 8 while leaving the right edge exactly at 2560.
+
+**The trap that cost two passes:** komorebi **never reflects this back**. After a restart with the
+offset in place and demonstrably in effect, `komorebic state` still reports
+`monitors[0].work_area_size` as `{left:52, top:0, right:2508, bottom:1440}` and
+`monitors[0].work_area_offset` as *empty*. Reading those fields tells you nothing. **Verify by
+measuring where tiled windows actually land** -- scan a horizontal line of screen pixels across the
+left edge and find the colour transitions. Measured after the change, at `y=700`:
+
+| side | band | wallpaper gap | komorebi border |
+|---|---|---|---|
+| top | `y 0..7` | `y 8..15` | `y 16..18` |
+| left | bar `x 0..51` | `x 52..59` | `x 60..62` |
+| right | `x 2552..2559` | `x 2544..2551` | `x 2541..2543` |
+| bottom | `y 1432..1439` | `y 1424..1431` | `y 1421..1423` |
+
+All four gaps 8px. Changing the frame thickness via `Set-FrameGeometry` rewrites the offset to match,
+so the invariant survives retuning -- but **komorebi must be restarted** (`komorebic stop`, then
+`komorebic start --config "$env:USERPROFILE\komorebi.json"`) for a changed offset to take effect,
+unlike the padding half, which applies live via `komorebic workspace-padding`/`container-padding`.
+
+### Historical: why the offset was first believed NOT to work
 
 Without a left band, the left gap (bar's right edge at x=52 to a tiled window's own outer edge) is
 komorebi's **full** `default_workspace_padding + default_container_padding` (16px at this pass's
@@ -1498,15 +1531,12 @@ Both candidate mechanisms for this were tried live, in order, per this pass's ow
    Shipping this would have violated this task's own explicit "bar width stays 52px" constraint, so
    it was reverted (`windowMargin` back to `"0px"`) immediately after the measurement.
 
-**Result: the left gap ships at 16px, the other three at 8px -- a real, unequal, and openly stated
-trade-off, not a bug that slipped through.** `Set-FrameGeometry.ps1` and this doc both record it
-plainly rather than quietly rounding the discrepancy away. If a future pass wants to close this
-gap, the two ideas above are now known dead ends on this komorebi/Zebar build; the remaining
-untried lever is a THIRD, even-smaller left corner/edge band sized to exactly `16 - 8 = 8px`
-narrower than the current content-hole inset, i.e. reintroducing a thin `edges/left` at the width
-needed to visually crop the extra 8px of wallpaper rather than trying to move komorebi's own work
-area boundary at all -- not attempted here because the user's own instruction was specifically "no
-extra border on the left", which a re-added (even thinner) left band would reintroduce.
+**The conclusion drawn at the time -- "the left gap ships at 16px, both mechanisms are dead ends" --
+was wrong.** Attempt 1's observation was accurate but over-generalised: the *CLI* is a no-op, the
+*config field* is not. Attempt 2's finding about `windowMargin` stands and is still a real dead end.
+The lesson worth keeping: `komorebic state`'s `work_area_size`/`work_area_offset` are useless as
+evidence here -- they do not change even when the offset is working. Measure pixels, not state.
+See the section above for what shipped.
 
 ### Vendored Font Awesome icons
 

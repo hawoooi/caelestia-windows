@@ -267,7 +267,7 @@ Describe "Set-KomorebiFramePadding" {
 
     It "updates both padding fields while preserving unrelated keys (e.g. ignore_rules)" {
         [System.IO.File]::WriteAllText($script:komFixture, '{ "default_workspace_padding": 20, "default_container_padding": 20, "ignore_rules": ["a", "b"], "border": true }', (New-Object System.Text.UTF8Encoding($false)))
-        Set-KomorebiFramePadding -Path $script:komFixture -WorkspacePadding 8 -ContainerPadding 8
+        Set-KomorebiFramePadding -Path $script:komFixture -WorkspacePadding 8 -ContainerPadding 8 -Thickness 8
 
         $obj = [System.IO.File]::ReadAllText($script:komFixture) | ConvertFrom-Json
         $obj.default_workspace_padding | Should -Be 8
@@ -276,9 +276,35 @@ Describe "Set-KomorebiFramePadding" {
         $obj.border | Should -Be $true
     }
 
+    It "writes global_work_area_offset as -Thickness on left AND right" {
+        # The left side has no frame band (the bar is the left side of the
+        # frame), so without this offset its visible gap comes out a full
+        # band wider than the other three -- the inconsistency the user
+        # reported. `left` shifts the work area's origin, `right` shrinks
+        # its width, and they are independent, so left == right ==
+        # -Thickness pulls the left edge in without moving the right edge.
+        [System.IO.File]::WriteAllText($script:komFixture, '{ "default_workspace_padding": 20, "default_container_padding": 20 }', (New-Object System.Text.UTF8Encoding($false)))
+        Set-KomorebiFramePadding -Path $script:komFixture -WorkspacePadding 8 -ContainerPadding 8 -Thickness 8
+
+        $obj = [System.IO.File]::ReadAllText($script:komFixture) | ConvertFrom-Json
+        $obj.global_work_area_offset.left   | Should -Be -8
+        $obj.global_work_area_offset.right  | Should -Be -8
+        $obj.global_work_area_offset.top    | Should -Be 0
+        $obj.global_work_area_offset.bottom | Should -Be 0
+    }
+
+    It "overwrites an existing global_work_area_offset rather than nesting or duplicating it" {
+        [System.IO.File]::WriteAllText($script:komFixture, '{ "default_workspace_padding": 20, "default_container_padding": 20, "global_work_area_offset": { "left": -99, "top": 0, "right": -99, "bottom": 0 } }', (New-Object System.Text.UTF8Encoding($false)))
+        Set-KomorebiFramePadding -Path $script:komFixture -WorkspacePadding 6 -ContainerPadding 6 -Thickness 4
+
+        $obj = [System.IO.File]::ReadAllText($script:komFixture) | ConvertFrom-Json
+        $obj.global_work_area_offset.left  | Should -Be -4
+        $obj.global_work_area_offset.right | Should -Be -4
+    }
+
     It "rejects content that parses to `$null (empty file) rather than truncating it" {
         [System.IO.File]::WriteAllText($script:komFixture, '', (New-Object System.Text.UTF8Encoding($false)))
-        { Set-KomorebiFramePadding -Path $script:komFixture -WorkspacePadding 8 -ContainerPadding 8 } | Should -Throw
+        { Set-KomorebiFramePadding -Path $script:komFixture -WorkspacePadding 8 -ContainerPadding 8 -Thickness 8 } | Should -Throw
         # File must be untouched (still empty, not deleted/corrupted) -- the
         # guard fires before any write.
         (Get-Item $script:komFixture).Length | Should -Be 0
@@ -286,12 +312,12 @@ Describe "Set-KomorebiFramePadding" {
 
     It "rejects a root-level JSON array" {
         [System.IO.File]::WriteAllText($script:komFixture, '[1,2,3]', (New-Object System.Text.UTF8Encoding($false)))
-        { Set-KomorebiFramePadding -Path $script:komFixture -WorkspacePadding 8 -ContainerPadding 8 } | Should -Throw
+        { Set-KomorebiFramePadding -Path $script:komFixture -WorkspacePadding 8 -ContainerPadding 8 -Thickness 8 } | Should -Throw
     }
 
     It "writes via an atomic temp-file-then-rename, leaving no stray temp file behind" {
         [System.IO.File]::WriteAllText($script:komFixture, '{ "default_workspace_padding": 20, "default_container_padding": 20 }', (New-Object System.Text.UTF8Encoding($false)))
-        Set-KomorebiFramePadding -Path $script:komFixture -WorkspacePadding 8 -ContainerPadding 8
+        Set-KomorebiFramePadding -Path $script:komFixture -WorkspacePadding 8 -ContainerPadding 8 -Thickness 8
         (Get-ChildItem $script:tmp -Filter "*.tmp-*").Count | Should -Be 0
     }
 }
