@@ -9,23 +9,45 @@
 /* ==========================================================================
    MOCKUP ONLY -- not wired into zebar yet, pending review.
 
-   This recreates the Caelestia shell's top hover dashboard from the reference
-   screenshots: four tabs (Dashboard / Media / Performance / Workspaces), and
-   the card layout inside each.
+   THIRD DRAFT, a redesign rather than another spacing pass. Direct user
+   feedback on draft two: "it looks kinda ugly ngl".
 
-   Two deliberate departures from the reference, both asked for:
-     * the media art is a ROUNDED SQUARE, not a circle, and there is no
-       visualizer ring around it;
-     * the palette is this desktop's, not Caelestia's light pink. Every colour
-       below is the live matugen palette, so the panel reads as part of the
-       same desktop as the bar and the dock. When this is wired up for real it
-       links ../bar/theme.css instead of redeclaring, exactly like every other
-       widget -- the values are inlined here only so the file opens standalone
-       in a browser for review.
+   The diagnosis, before the fix:
+     * every tile had the same fill, radius, padding and weight, so nothing
+       led and the eye had nowhere to land;
+     * --surface-container on --surface is a ~6% luminance step. The reference
+       gets card separation free from a LIGHT palette; this dark one does not.
+       Cards needed an EDGE, not a slightly different fill;
+     * all type was one family at four near-identical sizes -- no voice;
+     * no signature element.
 
-   Adapted for this machine rather than copied: the reference's Arch Linux /
-   Hyprland / uptime rows become Windows 11 / komorebi / uptime, and the
-   workspace tab is built from komorebi's nine workspaces.
+   THE DIRECTION. The reference speaks "soft cards floating on a sheet". This
+   desktop is a TILING WINDOW MANAGER: its grammar is rectangles, uniform
+   gaps, one radius, windows snapped to a grid, and the bar, frame and dock
+   already speak it. So the dashboard is built as TILES IN A LAYOUT, with the
+   panel's own background as the gap -- exactly like komorebi's container
+   padding showing wallpaper between windows. That fixes the flatness
+   structurally (the gap and a hairline separate the tiles) rather than by
+   nudging fills.
+
+   TYPE carries the personality, which draft two had none of. Every NUMERAL is
+   0xProto Nerd Font -- the bar's own face -- tabular and technical, so panel
+   and bar are visibly one system. Segoe is demoted to labels. Each tile gets
+   an uppercase micro-label, which turns a pile of boxes into an instrument
+   panel.
+
+   ONE ACCENT PER PANE, on the single thing that is "now": today's date, the
+   play button, the focused workspace. That is what stops it reading as
+   decorated.
+
+   SIGNATURE: the prompt line across the top of the Dashboard pane. It is this
+   machine's own vernacular, it replaces the reference's generic avatar card,
+   and weather folds into it because weather is ambient status like uptime.
+
+   Standing constraints: media art is a rounded square with no visualizer, the
+   palette is the live matugen one (inlined here only so the file opens
+   standalone -- wired up it links ../bar/theme.css), and Windows 11 /
+   komorebi replace Arch / Hyprland.
    ========================================================================== */
 
 :root {
@@ -39,310 +61,339 @@
   --surface-container: #1a2121;
   --surface-container-high: #252b2b;
 
-  /* Derived, all from the palette above */
-  --hair: rgba(137, 147, 147, 0.16);
-  --accent-soft: rgba(128, 212, 217, 0.12);
-  --track: rgba(137, 147, 147, 0.22);
+  /* The hairline is the flatness fix: in a dark palette, a tile needs an edge
+     rather than a 6%-brighter fill. */
+  --edge: rgba(137, 147, 147, 0.13);
+  --edge-strong: rgba(137, 147, 147, 0.22);
+  --accent-soft: rgba(128, 212, 217, 0.10);
+  --track: rgba(137, 147, 147, 0.18);
 
-  --r-panel: 26px;
-  --r-card: 20px;
-  --r-inner: 14px;
+  /* One gap, used between tiles AND as the base of every internal rhythm --
+     the komorebi-padding idea. */
+  --gap: 10px;
+  --pad: 15px;
+
+  --r-panel: 24px;
+  --r-tile: 14px;
+  --r-inner: 10px;
   --r-full: 999px;
 
-  --font: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
-  --mono: "0xProto Nerd Font", ui-monospace, "Cascadia Mono", monospace;
+  --ui: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --data: "0xProto Nerd Font", ui-monospace, "Cascadia Mono", Consolas, monospace;
 }
 
 * { box-sizing: border-box; }
 
 html, body {
-  margin: 0;
-  padding: 0;
-  min-height: 100%;
-  font-family: var(--font);
-  /* Stand-in for the wallpaper, so the panel can be judged against something
-     rather than floating on white. Not part of the widget. */
-  background:
-    radial-gradient(120% 90% at 20% 0%, #16302f 0%, #0b1112 60%),
-    #0b1112;
+  margin: 0; padding: 0; min-height: 100%;
+  font-family: var(--ui);
+  background: radial-gradient(120% 90% at 20% 0%, #16302f 0%, #0b1112 60%), #0b1112;
   color: var(--on-surface);
 }
 
-.stage {
-  min-height: 100vh;
-  display: flex;
-  justify-content: center;
-  align-items: flex-start;
-  padding: 0 24px 64px;
-}
+.stage { min-height: 100vh; display: flex; justify-content: center; align-items: flex-start; padding: 0 24px 44px; }
 
 /* --------------------------------------------------------------- the panel */
-/* Slides down from the top edge, so only the BOTTOM corners are round -- the
-   same logic the dock uses at the bottom of the screen. */
 .panel {
-  width: min(1280px, 100%);
+  width: min(1140px, 100%);
   background: var(--surface);
   border-bottom-left-radius: var(--r-panel);
   border-bottom-right-radius: var(--r-panel);
-  padding: 10px 22px 22px;
-  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+  padding: 0 var(--gap) var(--gap);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55);
 }
 
 /* ----------------------------------------------------------------- the tabs */
-.tabs {
-  display: flex;
-  justify-content: center;
-  gap: 4px;
-  border-bottom: 1px solid var(--hair);
-}
+.tabs { display: flex; justify-content: center; gap: 2px; border-bottom: 1px solid var(--edge); }
 
 .tab {
-  appearance: none;
-  border: 0;
-  background: transparent;
+  appearance: none; border: 0; background: transparent;
   color: var(--on-surface-variant);
-  font-family: inherit;
-  font-size: 14px;
-  padding: 12px 34px 10px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 7px;
+  font-family: var(--ui);
+  font-size: 11px; font-weight: 500;
+  text-transform: uppercase; letter-spacing: 0.12em;
+  padding: 13px 24px 11px;
+  display: flex; align-items: center; gap: 9px;
   cursor: pointer;
   border-bottom: 2px solid transparent;
   margin-bottom: -1px;
-  transition: color 160ms ease, border-color 160ms ease;
+  transition: color 150ms ease, border-color 150ms ease;
 }
-
-.tab i { font-size: 18px; line-height: 1; }
+.tab i { font-size: 14px; line-height: 1; }
 .tab:hover { color: var(--on-surface); }
 .tab[aria-selected="true"] { color: var(--primary); border-bottom-color: var(--primary); }
-.tab:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 8px; }
+/* Keyboard focus only. A plain outline stayed visible after a CLICK in Chrome,
+   which drew a bright box around the last-pressed tab -- most of what made
+   draft two look unfinished. */
+.tab:focus { outline: none; }
+.tab:focus-visible { box-shadow: inset 0 0 0 2px var(--primary); border-radius: var(--r-inner); }
 
-.pane { display: none; padding-top: 18px; }
+.pane { display: none; padding-top: var(--gap); }
 .pane[data-active] { display: block; }
 
-/* ---------------------------------------------------------------- the cards */
-.card {
+/* ----------------------------------------------------------------- the tile */
+.tile {
   background: var(--surface-container);
-  border-radius: var(--r-card);
-  padding: 18px;
+  border: 1px solid var(--edge);
+  border-radius: var(--r-tile);
+  padding: var(--pad);
 }
 
-/* Dashboard grid: three columns, with the left and middle stacking two rows.
-   Mirrors the reference's arrangement rather than inventing one. */
+/* Every tile is named. One uppercase micro-label turns a grid of boxes into an
+   instrument panel, and it is the cheapest structure available. */
+.label {
+  font-size: 10.5px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.14em;
+  color: var(--outline);
+  margin-bottom: 10px;
+}
+
+/* Every numeral in the panel is mono and tabular -- the bar's own face. */
+.num { font-family: var(--data); font-variant-numeric: tabular-nums; }
+
+/* ------------------------------------------------------- SIGNATURE: prompt */
+/* The machine describing itself in its own vernacular. Replaces the
+   reference's avatar-and-rows card, and absorbs the weather, which is ambient
+   status exactly like uptime. */
+.prompt {
+  display: flex; align-items: center; flex-wrap: wrap;
+  gap: 0 10px;
+  font-family: var(--data);
+  font-size: 12.5px;
+  padding: 10px var(--pad);
+  background: var(--surface-container);
+  border: 1px solid var(--edge);
+  border-radius: var(--r-tile);
+  margin-bottom: var(--gap);
+  white-space: nowrap;
+}
+.prompt__host { color: var(--primary); }
+.prompt__sep  { color: var(--edge-strong); }
+.prompt__k    { color: var(--outline); }
+.prompt__v    { color: var(--on-surface); }
+
+/* --------------------------------------------------------------- dashboard */
+/* Direct user feedback: "i feel like there are wasted space. Try to either
+   fit in more buttons/macros and information or reduce the sizing." -- both.
+   The scale came down a step, and the height the calendar and now-playing
+   tiles set is now filled by THREE tiles in the left column instead of two
+   stretched ones. */
 .dash {
   display: grid;
-  grid-template-columns: 300px minmax(0, 1fr) 300px;
-  grid-template-rows: auto auto;
-  gap: 14px;
+  grid-template-columns: 232px minmax(0, 1fr) 252px;
+  grid-template-rows: auto auto auto;
+  gap: var(--gap);
 }
+.dash__time    { grid-column: 1; grid-row: 1; }
+.dash__mix     { grid-column: 1; grid-row: 2; }
+.dash__actions { grid-column: 1; grid-row: 3; }
+.dash__cal     { grid-column: 2; grid-row: 1 / span 3; }
+.dash__media   { grid-column: 3; grid-row: 1 / span 3; }
 
-.dash__weather { grid-column: 1; grid-row: 1; display: flex; align-items: center; gap: 18px; }
-.dash__host    { grid-column: 2; grid-row: 1; display: flex; align-items: center; gap: 18px; }
-.dash__media   { grid-column: 3; grid-row: 1 / span 2; }
-.dash__clock   { grid-column: 1; grid-row: 2; }
-.dash__cal     { grid-column: 2; grid-row: 2; display: grid; grid-template-columns: minmax(0,1fr) 96px; gap: 16px; }
-
-/* weather */
-.weather__icon { font-size: 54px; color: var(--on-surface-variant); line-height: 1; }
-.weather__temp { font-size: 40px; font-weight: 300; letter-spacing: -0.02em; line-height: 1.05; }
-.weather__desc { color: var(--on-surface-variant); font-size: 14px; margin-top: 2px; }
-
-/* host */
-.host__avatar {
-  width: 84px; height: 84px; flex: 0 0 auto;
-  border-radius: var(--r-full);
-  object-fit: cover;
-  background: var(--surface-container-high);
-}
-.host__rows { display: grid; gap: 9px; font-size: 15px; }
-.host__row { display: flex; align-items: center; gap: 12px; }
-.host__row i { width: 20px; text-align: center; color: var(--primary); font-size: 15px; }
-.host__row span { color: var(--on-surface); }
-
-/* clock */
-.clock { text-align: center; padding: 22px 18px; }
-.clock__hh, .clock__mm {
-  font-family: var(--mono);
-  font-size: 46px;
-  font-weight: 600;
-  line-height: 1.02;
-  font-variant-numeric: tabular-nums;
-}
-.clock__sep { color: var(--outline); letter-spacing: 5px; font-size: 20px; line-height: 1; margin: 2px 0 4px; }
-.clock__date { color: var(--on-surface-variant); font-size: 14px; margin-top: 10px; }
+/* time -- one of three tiles in the column now, so it sits at its natural
+   height rather than being stretched and centred over air. */
+.time__body { margin-top: 2px; }
+/* 62px mono overflowed the 250px column and clipped the seconds. The seconds
+   are secondary anyway, so they drop to a small superscript-ish figure --
+   which also lets the minutes stay large. */
+.time__clock { font-size: 40px; font-weight: 600; line-height: 1; letter-spacing: -0.01em; }
+.time__secs  { color: var(--outline); font-size: 18px; font-weight: 400; margin-left: 3px; }
+.time__date  { margin-top: 8px; font-size: 12px; color: var(--on-surface-variant); font-family: var(--data); }
 
 /* calendar */
-.cal { width: 100%; border-collapse: collapse; }
+/* The calendar spans all three rows of the left column, so the table FILLS
+   its tile rather than floating centred with air above and below. A table
+   given a height distributes it across its rows, which is exactly the wanted
+   behaviour -- the weeks breathe instead of the tile being padded out. */
+.dash__cal { display: flex; flex-direction: column; }
+.cal { width: 100%; height: 100%; border-collapse: collapse; }
 .cal th {
-  font-size: 13px; font-weight: 600; color: var(--on-surface);
-  padding-bottom: 8px;
+  font-size: 10.5px; font-weight: 600; color: var(--outline);
+  text-transform: uppercase; letter-spacing: 0.1em;
+  padding-bottom: 10px;
 }
 .cal td {
-  text-align: center;
-  padding: 5px 0;
-  font-size: 14px;
-  color: var(--on-surface-variant);
-  font-variant-numeric: tabular-nums;
+  text-align: center; padding: 6px 0;
+  font-family: var(--data); font-variant-numeric: tabular-nums;
+  font-size: 13px; color: var(--on-surface-variant);
 }
-.cal td.is-muted { color: var(--outline); opacity: 0.55; }
+.cal td.is-muted { color: var(--outline); opacity: 0.45; }
+/* THE one accent on this pane. */
 .cal td.is-today span {
   display: inline-flex; align-items: center; justify-content: center;
-  width: 28px; height: 28px; border-radius: var(--r-full);
+  width: 26px; height: 26px; border-radius: var(--r-inner);
   background: var(--primary); color: var(--on-primary); font-weight: 600;
 }
 
-/* audio sliders -- vertical, value from the bottom, icon beneath */
-.mix { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; }
-.mix__col { display: flex; flex-direction: column; align-items: center; gap: 10px; flex: 1; }
-.mix__track {
-  width: 9px; height: 150px;
-  border-radius: var(--r-full);
-  background: var(--track);
-  display: flex; align-items: flex-end;
-  overflow: hidden;
-}
-.mix__fill { width: 100%; border-radius: var(--r-full); background: var(--primary); }
-.mix__col i { color: var(--on-surface-variant); font-size: 13px; }
+/* levels -- horizontal rows, not vertical bars. Vertical sliders forced a
+   narrow column that never sat well beside the calendar, and a labelled row
+   says which channel it is without a legend. */
+.mix__row { display: grid; grid-template-columns: 15px minmax(0,1fr) 26px; align-items: center; gap: 9px; }
+.mix__row + .mix__row { margin-top: 9px; }
+.mix__row i { color: var(--outline); font-size: 12px; text-align: center; }
+.mix__track { height: 4px; border-radius: var(--r-full); background: var(--track); overflow: hidden; }
+.mix__fill { height: 100%; border-radius: var(--r-full); background: var(--on-surface-variant); }
+.mix__val { font-family: var(--data); font-size: 11.5px; color: var(--outline); text-align: right; }
 
-/* media card (dashboard) */
-.media-mini { display: flex; flex-direction: column; align-items: center; text-align: center; height: 100%; }
-/* Rounded SQUARE, per the brief -- the reference used a circle with a
-   visualizer ring, which is deliberately dropped. */
-.media-mini__art {
-  width: 168px; height: 168px;
-  border-radius: var(--r-card);
+/* quick actions -- REAL ones this setup already has, not filler. The first
+   two are the exact scripts bound in ~/.config/whkdrc (alt+w, ctrl+alt+w);
+   the rest are things the pack or the WM can already do. A macro row is the
+   right use of reclaimed space on a panel you summon and dismiss in seconds. */
+.acts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.act {
+  appearance: none; border: 1px solid var(--edge);
+  background: transparent; color: var(--on-surface-variant);
+  border-radius: var(--r-inner);
+  padding: 9px 0 7px;
+  display: flex; flex-direction: column; align-items: center; gap: 5px;
+  font-family: var(--ui); font-size: 9px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+.act i { font-size: 13px; }
+.act:hover { background: var(--surface-container-high); color: var(--on-surface); border-color: var(--edge-strong); }
+.act:focus { outline: none; }
+.act:focus-visible { box-shadow: inset 0 0 0 2px var(--primary); }
+
+/* now playing */
+.np { display: flex; flex-direction: column; }
+.np__art {
+  width: 100%; aspect-ratio: 1;
+  border-radius: var(--r-tile);
   object-fit: cover;
   background: var(--surface-container-high);
 }
-.media-mini__title {
-  margin-top: 14px; font-size: 15px; font-weight: 600; color: var(--primary);
-  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.media-mini__album, .media-mini__artist { font-size: 13px; color: var(--on-surface-variant); margin-top: 3px; }
-.media-mini__controls { display: flex; align-items: center; gap: 18px; margin-top: 12px; }
+.np__title  { margin-top: 12px; font-size: 14px; font-weight: 600; color: var(--on-surface); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.np__artist { margin-top: 2px; font-size: 12px; color: var(--on-surface-variant); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The progress was Media-tab-only before, which left this tile with a gap
+   under the controls. It is the single most useful thing to add here. */
+.np__scrub { margin-top: 12px; }
+.np__track { height: 3px; border-radius: var(--r-full); background: var(--track); overflow: hidden; }
+.np__fill { height: 100%; background: var(--on-surface-variant); border-radius: var(--r-full); }
+.np__times { display: flex; justify-content: space-between; margin-top: 6px; font-family: var(--data); font-size: 10.5px; color: var(--outline); }
+.np__controls { display: flex; align-items: center; gap: 4px; margin-top: 8px; }
 
 .iconbtn {
   appearance: none; border: 0; background: transparent;
-  color: var(--on-surface); font-size: 15px; cursor: pointer;
-  width: 34px; height: 34px; border-radius: var(--r-inner);
+  color: var(--on-surface-variant); font-size: 13px; cursor: pointer;
+  width: 32px; height: 32px; border-radius: var(--r-inner);
   display: inline-flex; align-items: center; justify-content: center;
-  transition: background 160ms ease, color 160ms ease;
+  transition: background 150ms ease, color 150ms ease;
 }
-.iconbtn:hover { background: var(--surface-container-high); color: var(--primary); }
-.iconbtn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.iconbtn:hover { background: var(--surface-container-high); color: var(--on-surface); }
+.iconbtn:focus { outline: none; }
+.iconbtn:focus-visible { box-shadow: inset 0 0 0 2px var(--primary); }
 
-.bongo { margin-top: auto; padding-top: 14px; color: var(--on-surface-variant); font-size: 12px; }
-
-/* ----------------------------------------------------------------- media tab */
-.media {
-  display: grid;
-  grid-template-columns: 300px minmax(0, 1fr) 300px;
-  gap: 24px;
-  align-items: center;
-  padding: 26px 10px 34px;
-}
+/* --------------------------------------------------------------- media tab */
+/* Direct user feedback: "save some space for bongo cat". A third column,
+   sized so the art and the cat balance either side of the controls. */
+.media { display: grid; grid-template-columns: 240px minmax(0, 1fr) 196px; gap: var(--gap); }
 .media__art {
-  width: 260px; height: 260px;
-  border-radius: 28px;
+  width: 240px; height: 240px;
+  border-radius: var(--r-tile);
   object-fit: cover;
-  justify-self: center;
   background: var(--surface-container-high);
+  border: 1px solid var(--edge);
 }
-.media__meta { text-align: center; }
-.media__title { font-size: 22px; font-weight: 600; color: var(--primary); }
-.media__album { font-size: 15px; color: var(--on-surface-variant); margin-top: 6px; }
-.media__artist { font-size: 15px; color: var(--on-surface-variant); margin-top: 4px; }
-.media__controls { display: flex; align-items: center; justify-content: center; gap: 22px; margin-top: 18px; }
+.media__panel { display: flex; flex-direction: column; justify-content: center; }
+.media__title  { font-size: 22px; font-weight: 600; line-height: 1.2; }
+
+/* The cat gets its own tile, so it reads as a deliberate companion rather
+   than an image floating in leftover space. Placeholder until the asset
+   arrives -- it is labelled rather than blank so it is obviously reserved. */
+.bongo { display: flex; align-items: center; justify-content: center; padding: 0; }
+.bongo img { width: 100%; height: auto; display: block; }
+.bongo__ph {
+  width: 100%; height: 100%;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--outline); font-size: 10px;
+  text-transform: uppercase; letter-spacing: 0.12em;
+}
+.media__album  { margin-top: 6px; font-size: 14px; color: var(--on-surface-variant); }
+.media__artist { margin-top: 2px;  font-size: 14px; color: var(--outline); }
+
+.scrub { margin-top: 26px; }
+.scrub__track { height: 4px; border-radius: var(--r-full); background: var(--track); position: relative; }
+.scrub__fill { position: absolute; inset: 0 auto 0 0; border-radius: var(--r-full); background: var(--primary); }
+.scrub__times { display: flex; justify-content: space-between; margin-top: 8px; font-family: var(--data); font-size: 11.5px; color: var(--outline); }
+
+.media__controls { display: flex; align-items: center; gap: 10px; margin-top: 22px; }
+/* THE one accent on this pane. */
 .media__play {
-  width: 56px; height: 56px; border-radius: var(--r-full);
+  width: 46px; height: 46px; border-radius: var(--r-full);
   background: var(--primary); color: var(--on-primary);
-  font-size: 18px; border: 0; cursor: pointer;
+  font-size: 15px; border: 0; cursor: pointer;
   display: inline-flex; align-items: center; justify-content: center;
 }
-.media__play:focus-visible { outline: 2px solid var(--on-surface); outline-offset: 3px; }
-
-.scrub { margin-top: 22px; }
-.scrub__track { height: 6px; border-radius: var(--r-full); background: var(--track); position: relative; }
-.scrub__fill { position: absolute; inset: 0 auto 0 0; border-radius: var(--r-full); background: var(--primary); }
-.scrub__knob {
-  position: absolute; top: 50%; width: 12px; height: 12px; border-radius: var(--r-full);
-  background: var(--primary); transform: translate(-50%, -50%);
-}
-.scrub__times { display: flex; justify-content: space-between; margin-top: 8px; font-size: 12px; color: var(--on-surface-variant); font-variant-numeric: tabular-nums; }
-
-.source { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 18px; }
-.source__pill {
-  display: inline-flex; align-items: center; gap: 9px;
-  padding: 9px 20px; border-radius: var(--r-full);
-  background: var(--accent-soft); color: var(--on-surface);
-  border: 0; font-family: inherit; font-size: 14px; cursor: pointer;
-}
-.source__pill i { color: var(--primary); }
-
-.bongo-art {
-  justify-self: center; text-align: center;
-  color: var(--on-surface-variant);
-  font-size: 13px; line-height: 1.5;
-}
-.bongo-art__box {
-  width: 200px; height: 140px;
-  border: 1px dashed var(--hair);
-  border-radius: var(--r-card);
-  display: flex; align-items: center; justify-content: center;
+.media__play:focus { outline: none; }
+.media__play:focus-visible { box-shadow: 0 0 0 3px var(--surface), 0 0 0 5px var(--primary); }
+.media__source {
+  margin-left: auto;
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em;
   color: var(--outline);
 }
+.media__source i { font-size: 13px; }
 
 /* ------------------------------------------------------------ performance */
-.perf { display: flex; justify-content: space-around; align-items: center; gap: 16px; padding: 30px 10px 40px; }
-/* Gauge and its secondary stat are SIBLINGS, not overlapping layers. The first
-   pass absolutely positioned the stat over the ring and it collided with the
-   stroke -- in the reference it sits clear of the ring, lower-right. */
-.perf__item { display: flex; align-items: flex-end; gap: 10px; }
-.gauge { position: relative; width: 210px; height: 210px; display: grid; place-items: center; flex: 0 0 auto; }
+/* Thin arcs, mono readouts, and the secondary figure as a labelled row inside
+   the tile -- draft two floated it beside the ring where it looked orphaned. */
+.perf { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gap); }
+/* The gauges alone left the lower half of this pane empty. These are the
+   figures a gauge cannot show: rates and totals. */
+.perf__strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--gap); margin-top: var(--gap); }
+.stat { display: flex; flex-direction: column; gap: 4px; }
+.stat__v { font-family: var(--data); font-variant-numeric: tabular-nums; font-size: 17px; font-weight: 600; }
+.stat__k { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.12em; color: var(--outline); }
+/* Ring BESIDE its readings rather than above them. Stacking label / ring /
+   footer is what made each tile so tall for so little information. */
+.perf__tile { display: flex; flex-direction: row; align-items: center; gap: var(--pad); }
+.perf__body { flex: 1; min-width: 0; }
+/* Direct user feedback: "this could be a lot more compact". The ring was
+   carrying far more height than the figure inside it needed. */
+.gauge { position: relative; width: 112px; height: 112px; display: grid; place-items: center; flex: 0 0 auto; }
 .gauge svg { position: absolute; inset: 0; transform: rotate(-90deg); }
-.gauge__bg { fill: none; stroke: var(--track); stroke-width: 10; stroke-linecap: round; }
-.gauge__val { fill: none; stroke: var(--primary); stroke-width: 10; stroke-linecap: round; }
-.gauge__mid { text-align: center; }
-.gauge__num { font-size: 38px; font-weight: 300; letter-spacing: -0.02em; }
-.gauge__label { font-size: 14px; color: var(--on-surface-variant); margin-top: 2px; }
-.gauge__side { text-align: left; padding-bottom: 34px; }
-.gauge__side b { display: block; font-size: 17px; font-weight: 500; }
-.gauge__side span { font-size: 12px; color: var(--on-surface-variant); }
+.gauge__bg  { fill: none; stroke: var(--track); stroke-width: 5; stroke-linecap: round; }
+.gauge__val { fill: none; stroke: var(--on-surface-variant); stroke-width: 5; stroke-linecap: round; }
+.gauge__num { font-family: var(--data); font-variant-numeric: tabular-nums; font-size: 20px; font-weight: 600; }
+.perf__foot {
+  width: 100%; margin-top: 9px; padding-top: 9px;
+  border-top: 1px solid var(--edge);
+  display: flex; align-items: baseline; justify-content: space-between;
+}
+.perf__foot span { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--outline); }
+.perf__foot b { font-family: var(--data); font-size: 14px; font-weight: 600; color: var(--on-surface-variant); }
 
 /* ------------------------------------------------------------- workspaces */
-/* Not in the reference screenshots, so this is built from what komorebi
-   actually exposes: nine workspaces, the apps on each, and which is focused. */
-.ws { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; padding: 4px 0 10px; }
+.ws { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gap); }
 .ws__cell {
   background: var(--surface-container);
-  border-radius: var(--r-inner);
-  padding: 14px;
-  min-height: 104px;
-  border: 1px solid transparent;
-  display: flex; flex-direction: column; gap: 10px;
-  cursor: pointer;
-  text-align: left;
-  font-family: inherit;
-  color: inherit;
+  border: 1px solid var(--edge);
+  border-radius: var(--r-tile);
+  padding: 12px var(--pad);
+  min-height: 72px;
+  display: flex; flex-direction: column; gap: 12px;
+  cursor: pointer; text-align: left; font-family: inherit; color: inherit;
+  transition: background 150ms ease, border-color 150ms ease;
 }
 .ws__cell:hover { background: var(--surface-container-high); }
+/* THE one accent on this pane. */
 .ws__cell[data-focused] { border-color: var(--primary); background: var(--accent-soft); }
-.ws__n { font-family: var(--mono); font-size: 13px; color: var(--outline); }
+.ws__cell:focus { outline: none; }
+.ws__cell:focus-visible { box-shadow: inset 0 0 0 2px var(--primary); }
+.ws__n { font-family: var(--data); font-size: 11px; color: var(--outline); letter-spacing: 0.1em; }
 .ws__cell[data-focused] .ws__n { color: var(--primary); }
-.ws__apps { display: flex; gap: 7px; flex-wrap: wrap; }
+.ws__apps { display: flex; gap: 6px; flex-wrap: wrap; }
 .ws__app {
-  width: 28px; height: 28px; border-radius: 9px;
+  width: 26px; height: 26px; border-radius: 7px;
   background: var(--surface-container-high);
   display: grid; place-items: center;
-  font-size: 12px; color: var(--on-surface-variant);
+  font-family: var(--data); font-size: 11px; color: var(--on-surface-variant);
 }
-.ws__empty { color: var(--outline); font-size: 13px; }
+.ws__empty { font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--edge-strong); }
 
-@media (prefers-reduced-motion: reduce) {
-  * { transition: none !important; animation: none !important; }
-}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 </head>
 <body>
@@ -358,73 +409,103 @@ html, body {
 
     <!-- ============================================================ DASHBOARD -->
     <section class="pane" data-pane="dashboard" data-active role="tabpanel">
+
+      <div class="prompt">
+        <span class="prompt__host">hwoi</span>
+        <span class="prompt__sep">~</span>
+        <span class="prompt__k">komorebi</span><span class="prompt__v">[bsp]</span>
+        <span class="prompt__sep">~</span>
+        <span class="prompt__k">up</span><span class="prompt__v">1h 23m</span>
+        <span class="prompt__sep">~</span>
+        <span class="prompt__k">net</span><span class="prompt__v">702 Mbps</span>
+        <span class="prompt__sep">~</span>
+        <span class="prompt__v">15&deg;C</span><span class="prompt__k">clear</span>
+      </div>
+
       <div class="dash">
 
-        <div class="card dash__weather">
-          <i class="fa-solid weather__icon">&#xf185;</i>
-          <div>
-            <div class="weather__temp">15&deg;C</div>
-            <div class="weather__desc">Clear</div>
+        <div class="tile dash__time">
+          <div class="label">Time</div>
+          <div class="time__body">
+            <div class="time__clock num">21:06<span class="time__secs">:44</span></div>
+            <div class="time__date">Sat 7 Aug 2026</div>
           </div>
         </div>
 
-        <div class="card dash__host">
-          <img class="host__avatar" src="./assets/media-art-placeholder.png" alt="">
-          <div class="host__rows">
-            <div class="host__row"><i class="fa-brands">&#xf17a;</i><span>Windows 11 Pro</span></div>
-            <div class="host__row"><i class="fa-solid">&#xf2d2;</i><span>komorebi</span></div>
-            <div class="host__row"><i class="fa-solid">&#xf2f2;</i><span>up 1 hour, 23 minutes</span></div>
+        <div class="tile dash__cal">
+          <div class="label">August 2026</div>
+          <table class="cal">
+            <thead><tr><th>Mo</th><th>Tu</th><th>We</th><th>Th</th><th>Fr</th><th>Sa</th><th>Su</th></tr></thead>
+            <tbody>
+              <tr><td class="is-muted">26</td><td class="is-muted">27</td><td class="is-muted">28</td><td class="is-muted">29</td><td class="is-muted">30</td><td class="is-muted">31</td><td>1</td></tr>
+              <tr><td>2</td><td>3</td><td>4</td><td>5</td><td>6</td><td class="is-today"><span>7</span></td><td>8</td></tr>
+              <tr><td>9</td><td>10</td><td>11</td><td>12</td><td>13</td><td>14</td><td>15</td></tr>
+              <tr><td>16</td><td>17</td><td>18</td><td>19</td><td>20</td><td>21</td><td>22</td></tr>
+              <tr><td>23</td><td>24</td><td>25</td><td>26</td><td>27</td><td>28</td><td>29</td></tr>
+              <tr><td>30</td><td class="is-muted">1</td><td class="is-muted">2</td><td class="is-muted">3</td><td class="is-muted">4</td><td class="is-muted">5</td><td class="is-muted">6</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="tile dash__actions">
+          <div class="label">Quick actions</div>
+          <div class="acts">
+            <button class="act" title="Switch to the next wallpaper and retheme (alt+w)">
+              <i class="fa-solid">&#xf03e;</i>Wallpaper
+            </button>
+            <button class="act" title="Re-apply the theme from the current wallpaper (ctrl+alt+w)">
+              <i class="fa-solid">&#xf1fc;</i>Retheme
+            </button>
+            <button class="act" title="Restart the zebar widgets">
+              <i class="fa-solid">&#xf2f1;</i>Reload
+            </button>
+            <button class="act" title="Lock the session">
+              <i class="fa-solid">&#xf023;</i>Lock
+            </button>
+            <button class="act" title="Sleep">
+              <i class="fa-solid">&#xf186;</i>Sleep
+            </button>
+            <button class="act" title="Power off">
+              <i class="fa-solid">&#xf011;</i>Power
+            </button>
           </div>
         </div>
 
-        <div class="card dash__clock clock">
-          <div class="clock__hh">21</div>
-          <div class="clock__sep">&bull;&bull;&bull;</div>
-          <div class="clock__mm">06</div>
-          <div class="clock__date">Sat, 7</div>
-        </div>
-
-        <div class="dash__cal">
-          <div class="card">
-            <table class="cal">
-              <thead><tr><th>Mon</th><th>Tue</th><th>Wed</th><th>Thu</th><th>Fri</th><th>Sat</th><th>Sun</th></tr></thead>
-              <tbody>
-                <tr><td class="is-muted">26</td><td class="is-muted">27</td><td class="is-muted">28</td><td class="is-muted">29</td><td class="is-muted">30</td><td class="is-muted">31</td><td>1</td></tr>
-                <tr><td>2</td><td>3</td><td>4</td><td>5</td><td>6</td><td class="is-today"><span>7</span></td><td>8</td></tr>
-                <tr><td>9</td><td>10</td><td>11</td><td>12</td><td>13</td><td>14</td><td>15</td></tr>
-                <tr><td>16</td><td>17</td><td>18</td><td>19</td><td>20</td><td>21</td><td>22</td></tr>
-                <tr><td>23</td><td>24</td><td>25</td><td>26</td><td>27</td><td>28</td><td>29</td></tr>
-                <tr><td>30</td><td class="is-muted">1</td><td class="is-muted">2</td><td class="is-muted">3</td><td class="is-muted">4</td><td class="is-muted">5</td><td class="is-muted">6</td></tr>
-              </tbody>
-            </table>
+        <div class="tile dash__media np">
+          <div class="label">Now playing</div>
+          <img class="np__art" src="./assets/media-art-placeholder.png" alt="Album art">
+          <div class="np__title">&#x7d2f;&#x304e;&#x3066;</div>
+          <div class="np__artist">rintaro soma &mdash; Tsunagite</div>
+          <div class="np__scrub">
+            <div class="np__track"><div class="np__fill" style="width:18%"></div></div>
+            <div class="np__times"><span>0:57</span><span>5:17</span></div>
           </div>
-          <div class="card mix">
-            <div class="mix__col">
-              <div class="mix__track"><div class="mix__fill" style="height:12%"></div></div>
-              <i class="fa-solid">&#xf013;</i>
-            </div>
-            <div class="mix__col">
-              <div class="mix__track"><div class="mix__fill" style="height:46%"></div></div>
-              <i class="fa-solid">&#xf001;</i>
-            </div>
-            <div class="mix__col">
-              <div class="mix__track"><div class="mix__fill" style="height:72%"></div></div>
-              <i class="fa-solid">&#xf130;</i>
-            </div>
-          </div>
-        </div>
-
-        <div class="card dash__media media-mini">
-          <img class="media-mini__art" src="./assets/media-art-placeholder.png" alt="Album art">
-          <div class="media-mini__title">&#x7d2f;&#x304e;&#x3066;</div>
-          <div class="media-mini__album">Tsunagite</div>
-          <div class="media-mini__artist">rintaro soma</div>
-          <div class="media-mini__controls">
+          <div class="np__controls">
             <button class="iconbtn" aria-label="Previous track"><i class="fa-solid">&#xf048;</i></button>
             <button class="iconbtn" aria-label="Play"><i class="fa-solid">&#xf04b;</i></button>
             <button class="iconbtn" aria-label="Next track"><i class="fa-solid">&#xf051;</i></button>
           </div>
-          <div class="bongo">bongo cat goes here</div>
+        </div>
+
+        <div class="tile dash__mix">
+          <div class="label">Levels</div>
+          <div>
+          <div class="mix__row">
+            <i class="fa-solid">&#xf028;</i>
+            <div class="mix__track"><div class="mix__fill" style="width:46%"></div></div>
+            <div class="mix__val">46</div>
+          </div>
+          <div class="mix__row">
+            <i class="fa-solid">&#xf130;</i>
+            <div class="mix__track"><div class="mix__fill" style="width:72%"></div></div>
+            <div class="mix__val">72</div>
+          </div>
+          <div class="mix__row">
+            <i class="fa-solid">&#xf013;</i>
+            <div class="mix__track"><div class="mix__fill" style="width:12%"></div></div>
+            <div class="mix__val">12</div>
+          </div>
+        </div>
         </div>
 
       </div>
@@ -435,82 +516,80 @@ html, body {
       <div class="media">
         <img class="media__art" src="./assets/media-art-placeholder.png" alt="Album art">
 
-        <div class="media__meta">
+        <div class="tile media__panel">
+          <div class="label">Now playing</div>
           <div class="media__title">&#x7d2f;&#x304e;&#x3066;</div>
           <div class="media__album">Tsunagite</div>
           <div class="media__artist">rintaro soma</div>
+
+          <div class="scrub">
+            <div class="scrub__track"><div class="scrub__fill" style="width:18%"></div></div>
+            <div class="scrub__times"><span>0:57</span><span>5:17</span></div>
+          </div>
 
           <div class="media__controls">
             <button class="iconbtn" aria-label="Previous track"><i class="fa-solid">&#xf048;</i></button>
             <button class="media__play" aria-label="Pause"><i class="fa-solid">&#xf04c;</i></button>
             <button class="iconbtn" aria-label="Next track"><i class="fa-solid">&#xf051;</i></button>
-          </div>
-
-          <div class="scrub">
-            <div class="scrub__track">
-              <div class="scrub__fill" style="width:18%"></div>
-              <div class="scrub__knob" style="left:18%"></div>
-            </div>
-            <div class="scrub__times"><span>0:57</span><span>5:17</span></div>
-          </div>
-
-          <div class="source">
-            <button class="iconbtn" aria-label="Show queue"><i class="fa-solid">&#xf03a;</i></button>
-            <button class="source__pill"><i class="fa-brands">&#xf1bc;</i>Spotify</button>
-            <button class="iconbtn" aria-label="Clear"><i class="fa-solid">&#xf2ed;</i></button>
+            <span class="media__source"><i class="fa-brands">&#xf1bc;</i>Spotify</span>
           </div>
         </div>
 
-        <div class="bongo-art">
-          <div class="bongo-art__box">bongo cat</div>
-        </div>
+        <div class="tile bongo"><div class="bongo__ph">bongo cat</div></div>
       </div>
     </section>
 
     <!-- ========================================================== PERFORMANCE -->
     <section class="pane" data-pane="performance" role="tabpanel">
       <div class="perf">
-        <div class="perf__item">
+        <div class="tile perf__tile">
           <div class="gauge">
-          <svg viewBox="0 0 220 220" aria-hidden="true">
-            <circle class="gauge__bg"  cx="110" cy="110" r="96"></circle>
-            <circle class="gauge__val" cx="110" cy="110" r="96" stroke-dasharray="603" stroke-dashoffset="380"></circle>
-          </svg>
-          <div class="gauge__mid">
-            <div class="gauge__num">54&deg;C</div>
-            <div class="gauge__label">GPU temp</div>
+            <svg viewBox="0 0 168 168" aria-hidden="true">
+              <circle class="gauge__bg"  cx="84" cy="84" r="74"></circle>
+              <circle class="gauge__val" cx="84" cy="84" r="74" stroke-dasharray="465" stroke-dashoffset="293"></circle>
+            </svg>
+            <div class="gauge__num">54&deg;</div>
           </div>
+          <div class="perf__body">
+            <div class="label">GPU</div>
+            <div class="perf__foot"><span>Usage</span><b>4%</b></div>
           </div>
-          <div class="gauge__side"><b>4%</b><span>Usage</span></div>
         </div>
 
-        <div class="perf__item">
+        <div class="tile perf__tile">
           <div class="gauge">
-          <svg viewBox="0 0 220 220" aria-hidden="true">
-            <circle class="gauge__bg"  cx="110" cy="110" r="96"></circle>
-            <circle class="gauge__val" cx="110" cy="110" r="96" stroke-dasharray="603" stroke-dashoffset="420"></circle>
-          </svg>
-          <div class="gauge__mid">
-            <div class="gauge__num">41&deg;C</div>
-            <div class="gauge__label">CPU temp</div>
+            <svg viewBox="0 0 168 168" aria-hidden="true">
+              <circle class="gauge__bg"  cx="84" cy="84" r="74"></circle>
+              <circle class="gauge__val" cx="84" cy="84" r="74" stroke-dasharray="465" stroke-dashoffset="323"></circle>
+            </svg>
+            <div class="gauge__num">41&deg;</div>
           </div>
+          <div class="perf__body">
+            <div class="label">CPU</div>
+            <div class="perf__foot"><span>Usage</span><b>3%</b></div>
           </div>
-          <div class="gauge__side"><b>3%</b><span>Usage</span></div>
         </div>
 
-        <div class="perf__item">
+        <div class="tile perf__tile">
           <div class="gauge">
-          <svg viewBox="0 0 220 220" aria-hidden="true">
-            <circle class="gauge__bg"  cx="110" cy="110" r="96"></circle>
-            <circle class="gauge__val" cx="110" cy="110" r="96" stroke-dasharray="603" stroke-dashoffset="330"></circle>
-          </svg>
-          <div class="gauge__mid">
-            <div class="gauge__num">5.4GiB</div>
-            <div class="gauge__label">Memory</div>
+            <svg viewBox="0 0 168 168" aria-hidden="true">
+              <circle class="gauge__bg"  cx="84" cy="84" r="74"></circle>
+              <circle class="gauge__val" cx="84" cy="84" r="74" stroke-dasharray="465" stroke-dashoffset="255"></circle>
+            </svg>
+            <div class="gauge__num">5.4<span style="font-size:16px">GiB</span></div>
           </div>
+          <div class="perf__body">
+            <div class="label">Memory</div>
+            <div class="perf__foot"><span>Storage free</span><b>230GiB</b></div>
           </div>
-          <div class="gauge__side"><b>230GiB</b><span>Storage</span></div>
         </div>
+      </div>
+
+      <div class="perf__strip">
+        <div class="tile stat"><div class="stat__v">352<span style="font-size:13px">GB</span></div><div class="stat__k">Disk free</div></div>
+        <div class="tile stat"><div class="stat__v">4.6<span style="font-size:13px">kB/s</span></div><div class="stat__k">Download</div></div>
+        <div class="tile stat"><div class="stat__v">710<span style="font-size:13px">B/s</span></div><div class="stat__k">Upload</div></div>
+        <div class="tile stat"><div class="stat__v">1h 23m</div><div class="stat__k">Uptime</div></div>
       </div>
     </section>
 
@@ -518,17 +597,17 @@ html, body {
     <section class="pane" data-pane="workspaces" role="tabpanel">
       <div class="ws">
         <button class="ws__cell" data-focused>
-          <span class="ws__n">1</span>
+          <span class="ws__n">01</span>
           <span class="ws__apps"><span class="ws__app">W</span><span class="ws__app">W</span><span class="ws__app">C</span></span>
         </button>
-        <button class="ws__cell"><span class="ws__n">2</span><span class="ws__apps"><span class="ws__app">D</span></span></button>
-        <button class="ws__cell"><span class="ws__n">3</span><span class="ws__empty">Empty</span></button>
-        <button class="ws__cell"><span class="ws__n">4</span><span class="ws__apps"><span class="ws__app">S</span><span class="ws__app">f</span></span></button>
-        <button class="ws__cell"><span class="ws__n">5</span><span class="ws__empty">Empty</span></button>
-        <button class="ws__cell"><span class="ws__n">6</span><span class="ws__empty">Empty</span></button>
-        <button class="ws__cell"><span class="ws__n">7</span><span class="ws__empty">Empty</span></button>
-        <button class="ws__cell"><span class="ws__n">8</span><span class="ws__empty">Empty</span></button>
-        <button class="ws__cell"><span class="ws__n">9</span><span class="ws__empty">Empty</span></button>
+        <button class="ws__cell"><span class="ws__n">02</span><span class="ws__apps"><span class="ws__app">D</span></span></button>
+        <button class="ws__cell"><span class="ws__n">03</span><span class="ws__empty">Empty</span></button>
+        <button class="ws__cell"><span class="ws__n">04</span><span class="ws__apps"><span class="ws__app">S</span><span class="ws__app">f</span></span></button>
+        <button class="ws__cell"><span class="ws__n">05</span><span class="ws__empty">Empty</span></button>
+        <button class="ws__cell"><span class="ws__n">06</span><span class="ws__empty">Empty</span></button>
+        <button class="ws__cell"><span class="ws__n">07</span><span class="ws__empty">Empty</span></button>
+        <button class="ws__cell"><span class="ws__n">08</span><span class="ws__empty">Empty</span></button>
+        <button class="ws__cell"><span class="ws__n">09</span><span class="ws__empty">Empty</span></button>
       </div>
     </section>
 
@@ -536,7 +615,6 @@ html, body {
 </div>
 
 <script>
-  // Mockup-only tab switching, so the four panes can actually be reviewed.
   const tabs = [...document.querySelectorAll('.tab')];
   const panes = [...document.querySelectorAll('.pane')];
   function show(name) {
@@ -548,9 +626,8 @@ html, body {
   }
   for (const t of tabs) t.addEventListener('click', () => show(t.dataset.tab));
 
-  // Mockup convenience: #media / #performance / #workspaces opens straight to
-  // that pane, so each can be screenshotted for review without clicking.
-  const initial = location.hash.replace("#", "");
+  // #media / #performance / #workspaces opens straight to that pane.
+  const initial = location.hash.replace('#', '');
   if (tabs.some((t) => t.dataset.tab === initial)) show(initial);
 </script>
 </body>
