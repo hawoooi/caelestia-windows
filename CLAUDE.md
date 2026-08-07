@@ -80,6 +80,67 @@ restart.
   value. `Apply-Theme`'s own call to `Update-KomorebiBorderTheme` is additionally wrapped in
   try/catch as defence in depth.
 
+## The Windows taskbar
+
+`Update-WindowsAccentTheme` (`scripts/Apply-Theme.ps1`) themes the taskbar, Start menu and window
+title bars from the wallpaper palette on every apply. Windows has **no supported API** for this --
+the accent colour is a user setting, and the only route is the same HKCU keys the Settings app
+writes, followed by a `WM_SETTINGCHANGE`/`ImmersiveColorSet` broadcast (`SendMessageTimeout` with
+`SMTO_ABORTIFHUNG`, so one hung window cannot stall a theme apply). All HKCU -- no elevation, and
+nothing outside this user account. An explorer restart would also work and is deliberately NOT
+used: it closes every File Explorer window and blanks the taskbar, on every wallpaper change.
+
+**Two encodings, three keys apart, in opposite byte orders.** Both were established by DECODING
+this machine's own pre-existing values before writing anything, not taken from documentation:
+
+| key | order | example (the old teal, RGB 0,215,215) |
+|---|---|---|
+| `Explorer\Accent\AccentColorMenu`, `StartColorMenu`, `DWM\AccentColor` | **ABGR** (0xAABBGGRR) | `0xFFD7D700` |
+| `DWM\ColorizationColor`, `ColorizationAfterglow` | **ARGB** (0xAARRGGBB) | `0xC400D7D7` |
+| `Explorer\Accent\AccentPalette` | 8 x **R,G,B,A** bytes (32 total) | entry 4 = the Start/taskbar shade |
+
+Confusing the first two swaps red and blue -- a colour that is wrong but plausible, never obviously
+broken. `ConvertTo-AbgrDword`/`ConvertTo-ArgbDword` are separate functions with separate tests
+pinning both against those exact decoded values. Don't merge them.
+
+The `AccentPalette` byte order and the meaning of entry 4 were confirmed the same way: the old
+palette's entry 4 decoded to RGB(0,113,113) and `StartColorMenu` read `0xFF717100` -- the same
+colour -- which is what identified entry 4 as the shade Windows paints the Start/taskbar surface
+with.
+
+**Mapping.** Deliberately splits accent from surface, which is what lets the taskbar match the bar
+without turning every highlight in Windows monochrome:
+
+- `AccentPalette` / `AccentColorMenu` / `DWM\AccentColor` -> `primary` (selection, focus, hover)
+- `StartColorMenu` -> `surface_container` -- the one that actually paints the taskbar surface
+- `ColorizationColor` / `Afterglow` -> `surface_container_high` (title bars, one step lighter,
+  the same reasoning as the komorebi border mapping and deliberately consistent with it)
+- `ColorPrevalence` is forced to 1 in both `DWM` and `Themes\Personalize`. It was 0 on this
+  machine, and without it Windows ignores the accent for Start and the taskbar entirely -- the
+  whole step would silently do nothing visible.
+
+**Recovery.** A registry write has no equivalent of "the old bytes are still on disk until they are
+replaced", which every file target in this pipeline relies on. `New-PreApplySnapshot` therefore
+writes the previous values to `state/pre-apply/windows-accent.json` (binary as a hex string). That
+file is the ONLY way back to the pre-pipeline taskbar colours, and they are a user setting this
+pipeline did not create -- treat it accordingly.
+
+**Verifying this is genuinely hard here, and the obvious approaches all fail:**
+
+- `PrintWindow` on `Shell_TrayWnd` returns **solid black**. The Windows 11 taskbar is XAML/DWM
+  composited and does not render that way, even with `PW_RENDERFULLCONTENT` (nFlags 2).
+- The taskbar is in auto-hide mode, so only ~2px of it is ever on screen -- and **the desktop
+  frame's own bottom band covers exactly those 2px**. A screen grab at y=1438 samples the `edges`
+  widget (`var(--surface)`), not the taskbar. This is easy to mistake for a successful read.
+- What DOES work: `DwmGetColorizationColor` is a live system read rather than an echo of the write,
+  so it confirms Windows actually absorbed the change. DWM applies its own slight darkening --
+  expect a near miss, not an exact match (`#252b2b` written -> `#212727` reported).
+- Beyond that, the taskbar has to be seen by hovering it. Nothing in this repo can screenshot it.
+
+**A consequence worth knowing:** on this desktop the taskbar is auto-hidden *and* its visible
+sliver is covered by the frame, so this retheme mostly shows up in the Start menu, in title bars,
+and while hovering the bottom edge -- not in normal use.
+
 ## The desktop frame (branch `feat/corner-overlays`, UNMERGED)
 
 A Caelestia-style coloured frame around the desktop, plus a reworked bar. All of it lives on
@@ -195,6 +256,9 @@ Switch-Wallpaper.ps1
           (`komorebic border-colour`, fail-soft) and persisted into ~/komorebi.json's
           border_colours field -- see "Window borders and gaps" above. Entirely fail-soft; never
           affects this run's own Success/Failed result.
+       -> Update-WindowsAccentTheme: theme the Windows taskbar/Start/title bars from the same
+          palette, by writing HKCU accent keys + broadcasting WM_SETTINGCHANGE. Also entirely
+          fail-soft. See "The Windows taskbar" below.
   -> writes state/current.json ({ wallpaper, preview, appliedUtc }) -- also now the -Image
      fallback source: `Apply-Theme` with no -Image reads this file's `preview` field
 ```

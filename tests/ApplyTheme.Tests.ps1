@@ -945,3 +945,124 @@ Describe "Apply-Theme -DryRun leaves ~/komorebi.json untouched" {
         (Get-Item $komorebiJson).LastWriteTimeUtc | Should -Be $before
     }
 }
+
+Describe "Windows accent colour conversion (taskbar theming)" {
+    # The two DWORD encodings sit three registry keys apart and are opposite
+    # byte orders. Confusing them swaps red and blue, which yields a colour
+    # that is wrong but plausible -- so both are pinned against values decoded
+    # from this machine's own pre-existing registry state before anything was
+    # written: AccentColorMenu read 0xFFD7D700 and ColorizationColor read
+    # 0xC400D7D7, both being RGB(0,215,215), the teal that was on screen.
+
+    # Expected values go through [Convert]::ToUInt32(...,16), not a 0x...
+    # literal: PowerShell 5.1 parses a hex literal above Int32.MaxValue as a
+    # NEGATIVE Int32, so [uint32]0xFFD7D700 throws "too large or too small"
+    # before the assertion is ever reached.
+    It "encodes an accent DWORD as ABGR, red in the low byte" {
+        ConvertTo-AbgrDword -Hex '#00d7d7' | Should -Be ([Convert]::ToUInt32('FFD7D700', 16))
+    }
+
+    It "encodes a DWM colorization DWORD as ARGB, red in the high byte" {
+        ConvertTo-ArgbDword -Hex '#00d7d7' -Alpha 0xC4 | Should -Be ([Convert]::ToUInt32('C400D7D7', 16))
+    }
+
+    It "does not encode the two the same way round" {
+        # The regression this guards: a colour whose red and blue differ must
+        # produce different DWORDs through the two converters. Using a grey
+        # here would pass no matter how badly they were confused.
+        $abgr = ConvertTo-AbgrDword -Hex '#112233'
+        $argb = ConvertTo-ArgbDword -Hex '#112233'
+        $abgr | Should -Not -Be $argb
+    }
+
+    It "honours the alpha it is given" {
+        ConvertTo-AbgrDword -Hex '#000000' -Alpha 0x00 | Should -Be ([uint32]0)
+        ConvertTo-ArgbDword -Hex '#ffffff' -Alpha 0xFF | Should -Be ([Convert]::ToUInt32('FFFFFFFF', 16))
+    }
+
+    It "returns null for a malformed colour rather than throwing" {
+        # ConvertFrom-HexColor throws by design (it serves the komorebi path,
+        # where a bad value should be loud). The accent path is fail-soft, so
+        # the wrapper must swallow that -- a bad colour skips the taskbar
+        # retheme, it does not fail the whole apply.
+        ConvertTo-AbgrDword -Hex 'nonsense' | Should -BeNullOrEmpty
+        ConvertTo-ArgbDword -Hex '#GGGGGG' | Should -BeNullOrEmpty
+        { ConvertTo-AbgrDword -Hex 'nonsense' } | Should -Not -Throw
+    }
+
+    It "builds a 32-byte, 8-entry accent palette" {
+        $p = New-AccentPalette -Hex '#00d7d7'
+        $p.Length | Should -Be 32
+    }
+
+    It "stores palette entries as R,G,B,A with zero alpha" {
+        # Verified against the machine's own prior value: its entry 4 decoded
+        # to RGB(0,113,113) and StartColorMenu read 0xFF717100 -- the same
+        # colour -- which is what established this byte order.
+        $p = New-AccentPalette -Hex '#00d7d7'
+        $p[12] | Should -Be 0x00      # entry 3 R
+        $p[13] | Should -Be 0xd7      # entry 3 G
+        $p[14] | Should -Be 0xd7      # entry 3 B
+        $p[15] | Should -Be 0x00      # entry 3 A
+    }
+
+    It "puts the source colour at entry 3, unmodified" {
+        $p = New-AccentPalette -Hex '#4080c0'
+        $p[12] | Should -Be 0x40
+        $p[13] | Should -Be 0x80
+        $p[14] | Should -Be 0xc0
+    }
+
+    It "ramps monotonically from light to dark" {
+        # Windows picks different entries for different surfaces; a flat ramp
+        # would leave every shaded element the same tone as its background.
+        $p = New-AccentPalette -Hex '#00d7d7'
+        $greens = 0..7 | ForEach-Object { $p[($_ * 4) + 1] }
+        for ($i = 1; $i -lt 8; $i++) {
+            $greens[$i] | Should -BeLessThan $greens[$i - 1]
+        }
+    }
+
+    It "returns null for a palette built from a malformed colour" {
+        New-AccentPalette -Hex 'not-a-colour' | Should -BeNullOrEmpty
+    }
+
+    It "snapshots every value the accent update writes" {
+        # The snapshot is the ONLY way back: a registry write leaves no old
+        # bytes on disk the way a file target does. If the two lists drift,
+        # something gets overwritten with no record of its previous value.
+        $snapshot = Get-WindowsAccentSnapshot
+        $keys = @($snapshot.Keys)
+        $keys | Should -Contain 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Accent|AccentPalette'
+        $keys | Should -Contain 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Accent|StartColorMenu'
+        $keys | Should -Contain 'HKCU:\Software\Microsoft\Windows\DWM|ColorizationColor'
+        $keys | Should -Contain 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize|ColorPrevalence'
+    }
+
+    It "renders binary snapshot values as hex strings so they survive JSON" {
+        $snapshot = Get-WindowsAccentSnapshot
+        $palette = $snapshot['HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Accent|AccentPalette']
+        if ($null -ne $palette) {
+            $palette | Should -BeOfType [string]
+            $palette | Should -Match '^[0-9a-f]+$'
+        }
+    }
+
+    It "does nothing and warns when the staged colours are missing" {
+        # Fail-soft: a missing render must not throw out into Apply-Theme.
+        { Update-WindowsAccentTheme -StagedPath (Join-Path $TestDrive 'nope.json') -WarningAction SilentlyContinue } |
+            Should -Not -Throw
+    }
+
+    It "does nothing and warns when the staged colours are malformed" {
+        $bad = Join-Path $TestDrive 'bad.json'
+        Set-Content -Path $bad -Value 'not json at all'
+        { Update-WindowsAccentTheme -StagedPath $bad -WarningAction SilentlyContinue } | Should -Not -Throw
+    }
+
+    It "does nothing when the staged colours are valid JSON but missing their fields" {
+        $partial = Join-Path $TestDrive 'partial.json'
+        Set-Content -Path $partial -Value '{"surface":"#000000"}'
+        { Update-WindowsAccentTheme -StagedPath $partial -WarningAction SilentlyContinue } | Should -Not -Throw
+    }
+}

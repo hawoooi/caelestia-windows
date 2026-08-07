@@ -354,6 +354,20 @@ function New-PreApplySnapshot {
     if (Test-Path $KomorebiJsonPath) {
         Copy-Item $KomorebiJsonPath (Join-Path $PreApplyDir 'komorebi.json') -Force
     }
+
+    # Windows' accent colours live in the REGISTRY, so there is no live file
+    # whose old bytes survive until they are overwritten -- the mechanism every
+    # other target here relies on. This JSON snapshot is therefore the only way
+    # back to the pre-apply taskbar colours, which matters more than usual
+    # because those are a user setting this pipeline did not create.
+    # Fail-soft: a snapshot that cannot be taken must not abort an apply.
+    try {
+        $accent = Get-WindowsAccentSnapshot
+        $json = $accent | ConvertTo-Json -Depth 5
+        [System.IO.File]::WriteAllText((Join-Path $PreApplyDir 'windows-accent.json'), $json, (New-Object System.Text.UTF8Encoding($false)))
+    } catch {
+        Write-Warning "Could not snapshot the Windows accent registry values: $($_.Exception.Message). The apply continues, but there will be no pre-apply record of the previous taskbar colours."
+    }
 }
 
 function Restore-PreApplySnapshot {
@@ -927,6 +941,279 @@ function Set-KomorebiBorderColours {
     }
 }
 
+# --- Windows accent / taskbar theming ------------------------------------
+#
+# Every value Update-WindowsAccentTheme writes, in one place, so the snapshot
+# (New-PreApplySnapshot) and the write cover exactly the same set and cannot
+# drift apart. All HKCU: no elevation, nothing outside this user account.
+$script:AccentKeys = @(
+    @{ Path = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Accent'
+       Names = @('AccentPalette', 'AccentColorMenu', 'StartColorMenu') }
+    @{ Path = 'HKCU:\Software\Microsoft\Windows\DWM'
+       Names = @('AccentColor', 'ColorizationColor', 'ColorizationAfterglow', 'ColorPrevalence') }
+    @{ Path = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize'
+       Names = @('ColorPrevalence') }
+)
+
+function ConvertTo-AccentRgb {
+    <#
+      ConvertFrom-HexColor THROWS on a malformed colour (it is the komorebi
+      path's converter, where a bad value should be loud). Everything in this
+      section is fail-soft instead, so this wraps it and returns $null.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Hex)
+    try { return ConvertFrom-HexColor -Hex $Hex } catch { return $null }
+}
+
+function ConvertTo-AbgrDword {
+    <#
+      Windows stores an accent colour as a DWORD in ABGR order (0xAABBGGRR) --
+      red in the LOW byte. Confirmed by decoding this machine's own existing
+      values before writing any: AccentColorMenu read 0xFFD7D700, which is
+      RGB(0,215,215), the teal that was actually on screen.
+
+      NOT the same order as ColorizationColor two keys away, which is ARGB --
+      see ConvertTo-ArgbDword. Getting them the same way round swaps red and
+      blue, which produces a colour that is merely wrong rather than obviously
+      broken, so the two converters stay separate and separately tested.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Hex, [byte]$Alpha = 0xFF)
+    $rgb = ConvertTo-AccentRgb -Hex $Hex
+    if ($null -eq $rgb) { return $null }
+    return [uint32](([uint32]$Alpha -shl 24) -bor ([uint32]$rgb.B -shl 16) -bor ([uint32]$rgb.G -shl 8) -bor [uint32]$rgb.R)
+}
+
+function ConvertTo-ArgbDword {
+    <#
+      DWM's ColorizationColor/ColorizationAfterglow use ARGB (0xAARRGGBB) --
+      the conventional order, and the opposite of the Accent* keys. Confirmed
+      the same way: ColorizationColor read 0xC400D7D7, i.e. alpha 196 over
+      RGB(0,215,215) -- the same teal, stored the other way round.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Hex, [byte]$Alpha = 0xFF)
+    $rgb = ConvertTo-AccentRgb -Hex $Hex
+    if ($null -eq $rgb) { return $null }
+    return [uint32](([uint32]$Alpha -shl 24) -bor ([uint32]$rgb.R -shl 16) -bor ([uint32]$rgb.G -shl 8) -bor [uint32]$rgb.B)
+}
+
+function Get-AccentShade {
+    <#
+      Blends a colour toward white ($Amount > 0) or black ($Amount < 0). The
+      AccentPalette below is a ramp of one hue from light to dark, and Windows
+      picks different entries for different surfaces -- a single flat colour
+      repeated eight times leaves every shaded element the same tone as its
+      own background.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Rgb, [Parameter(Mandatory)][double]$Amount)
+
+    $channel = {
+        param($c)
+        if ($Amount -ge 0) { return [byte][math]::Round($c + (255 - $c) * $Amount) }
+        return [byte][math]::Round($c * (1 + $Amount))
+    }
+    return [PSCustomObject]@{
+        R = (& $channel $Rgb.R)
+        G = (& $channel $Rgb.G)
+        B = (& $channel $Rgb.B)
+    }
+}
+
+function New-AccentPalette {
+    <#
+      The 32-byte AccentPalette value: 8 colours, 4 bytes each, stored R,G,B,A
+      (little-endian ABGR). Verified against this machine's existing value
+      before writing anything: its entry 4 decoded to RGB(0,113,113), and
+      StartColorMenu read 0xFF717100 = RGB(0,113,113) -- the same colour. That
+      is what confirmed both the byte order AND that entry 4 is the shade
+      Windows paints the Start/taskbar surface with.
+
+      Entries 0-2 are lighter than the source, 3 is the source, 4-7 get
+      progressively darker. Alpha is 0 throughout, matching what Windows
+      writes itself.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Hex)
+
+    $rgb = ConvertTo-AccentRgb -Hex $Hex
+    if ($null -eq $rgb) { return $null }
+
+    $amounts = @(0.70, 0.45, 0.20, 0.0, -0.25, -0.45, -0.65, -0.80)
+    $bytes = New-Object byte[] 32
+    for ($i = 0; $i -lt 8; $i++) {
+        $shade = Get-AccentShade -Rgb $rgb -Amount $amounts[$i]
+        $o = $i * 4
+        $bytes[$o]     = $shade.R
+        $bytes[$o + 1] = $shade.G
+        $bytes[$o + 2] = $shade.B
+        $bytes[$o + 3] = 0
+    }
+    return ,$bytes
+}
+
+function Get-WindowsAccentSnapshot {
+    <#
+      Reads every value Update-WindowsAccentTheme is about to overwrite.
+      A registry write has no equivalent of "the old bytes are still on disk
+      until they are replaced", which every file target in this pipeline
+      relies on -- so this snapshot is the ONLY recovery path for the accent
+      colours, and it is written into state/pre-apply/ alongside them.
+
+      Binary values are stored as a hex string so the snapshot round-trips
+      through JSON.
+    #>
+    [CmdletBinding()]
+    param()
+    $snapshot = [ordered]@{}
+    foreach ($spec in $script:AccentKeys) {
+        $props = Get-ItemProperty -Path $spec.Path -ErrorAction SilentlyContinue
+        foreach ($name in $spec.Names) {
+            $value = $null
+            if ($props -and ($props.PSObject.Properties.Name -contains $name)) { $value = $props.$name }
+            if ($value -is [byte[]]) { $value = ($value | ForEach-Object { $_.ToString('x2') }) -join '' }
+            $snapshot["$($spec.Path)|$name"] = $value
+        }
+    }
+    return $snapshot
+}
+
+function Publish-ColorSettingChange {
+    <#
+      Tells the shell to re-read its colour settings so the taskbar recolours
+      without an explorer restart. Restarting explorer would work too, but it
+      is user-hostile -- every File Explorer window closes and the taskbar
+      blanks -- and this runs on every wallpaper change.
+
+      WM_SETTINGCHANGE with "ImmersiveColorSet" is the documented signal for
+      exactly this. SendMessageTimeout rather than SendMessage: one hung
+      top-level window would otherwise block the entire theme apply
+      indefinitely, and SMTO_ABORTIFHUNG plus a short timeout bounds it.
+    #>
+    [CmdletBinding()]
+    param([int]$TimeoutMs = 1000)
+
+    try {
+        if (-not ('CaelestiaColorBroadcast' -as [type])) {
+            Add-Type -Namespace '' -Name 'CaelestiaColorBroadcast' -MemberDefinition @'
+[DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+public static extern System.IntPtr SendMessageTimeout(
+    System.IntPtr hWnd, uint Msg, System.IntPtr wParam, string lParam,
+    uint fuFlags, uint uTimeout, out System.UIntPtr lpdwResult);
+'@ -ErrorAction Stop
+        }
+        $HWND_BROADCAST   = [IntPtr]0xFFFF
+        $WM_SETTINGCHANGE = 0x001A
+        $SMTO_ABORTIFHUNG = 0x0002
+        $result = [UIntPtr]::Zero
+        foreach ($topic in @('ImmersiveColorSet', 'WindowsThemeElement')) {
+            [void][CaelestiaColorBroadcast]::SendMessageTimeout(
+                $HWND_BROADCAST, $WM_SETTINGCHANGE, [IntPtr]::Zero, $topic,
+                $SMTO_ABORTIFHUNG, [uint32]$TimeoutMs, [ref]$result)
+        }
+    } catch {
+        Write-Warning "Could not broadcast the colour-settings change ($($_.Exception.Message)) -- the registry values were written, but the shell may not repaint until the next sign-in."
+    }
+}
+
+function Update-WindowsAccentTheme {
+    <#
+      Themes the Windows taskbar, Start menu and title bars from this run's
+      palette. Direct user request: "now try to retheme the taskbar".
+
+      Windows exposes no supported API for this. The accent colour is a user
+      setting, and the only programmatic route is the same HKCU keys the
+      Settings app writes, followed by a WM_SETTINGCHANGE broadcast.
+
+      The mapping deliberately splits ACCENT from SURFACE, which is what lets
+      the taskbar match the bar without flattening every highlight in Windows:
+
+        AccentPalette / AccentColorMenu / DWM AccentColor -> primary
+            the vivid colour, used for selection, focus and hover throughout
+            the shell. Keeping this on the accent is what stops the retheme
+            turning the whole UI monochrome.
+        StartColorMenu -> surface_container
+            the shade Windows paints the Start/taskbar SURFACE with (proved by
+            decoding this machine's own values -- see New-AccentPalette), so
+            this is the one that actually makes the taskbar match the bar.
+        ColorizationColor / Afterglow -> surface_container_high
+            window title bars, one step lighter so a focused title bar reads
+            against the frame -- the same reasoning as the komorebi border
+            mapping, and deliberately consistent with it.
+
+      ColorPrevalence is turned ON (it was 0 on this machine), because without
+      it Windows ignores the accent for Start and the taskbar entirely and this
+      whole step would silently do nothing visible.
+
+      Entirely fail-soft, exactly like Update-KomorebiBorderTheme: any failure
+      warns and leaves the rest of the apply alone. A theming run must never
+      fail because a registry key moved between Windows builds.
+    #>
+    [CmdletBinding()]
+    param([string]$StagedPath = (Join-Path $script:Staging 'windows-accent.json'))
+
+    if (-not (Test-Path $StagedPath)) {
+        Write-Warning "windows-accent.json was not rendered to $StagedPath -- taskbar colours not themed this run."
+        return
+    }
+
+    try {
+        $colors = [System.IO.File]::ReadAllText($StagedPath) | ConvertFrom-Json
+    } catch {
+        Write-Warning "Could not parse $StagedPath ($($_.Exception.Message)) -- taskbar colours not themed this run."
+        return
+    }
+    if (-not $colors -or -not $colors.accent -or -not $colors.taskbar) {
+        Write-Warning "$StagedPath is missing its accent/taskbar fields -- taskbar colours not themed this run."
+        return
+    }
+
+    $titlebarHex = $colors.taskbar
+    if ($colors.titlebar) { $titlebarHex = $colors.titlebar }
+
+    $palette       = New-AccentPalette   -Hex $colors.accent
+    $accentDword   = ConvertTo-AbgrDword -Hex $colors.accent
+    $taskbarDword  = ConvertTo-AbgrDword -Hex $colors.taskbar
+    $titlebarDword = ConvertTo-ArgbDword -Hex $titlebarHex -Alpha 0xC4
+
+    if ($null -eq $palette -or $null -eq $accentDword -or $null -eq $taskbarDword -or $null -eq $titlebarDword) {
+        Write-Warning "Could not convert the staged accent colours (accent='$($colors.accent)', taskbar='$($colors.taskbar)') -- taskbar colours not themed this run."
+        return
+    }
+
+    $writes = @(
+        @{ Path = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Accent';   Name = 'AccentPalette';         Value = $palette;       Type = 'Binary' }
+        @{ Path = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Accent';   Name = 'AccentColorMenu';       Value = $accentDword;   Type = 'DWord' }
+        @{ Path = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Accent';   Name = 'StartColorMenu';        Value = $taskbarDword;  Type = 'DWord' }
+        @{ Path = 'HKCU:\Software\Microsoft\Windows\DWM';                              Name = 'AccentColor';           Value = $accentDword;   Type = 'DWord' }
+        @{ Path = 'HKCU:\Software\Microsoft\Windows\DWM';                              Name = 'ColorizationColor';     Value = $titlebarDword; Type = 'DWord' }
+        @{ Path = 'HKCU:\Software\Microsoft\Windows\DWM';                              Name = 'ColorizationAfterglow'; Value = $titlebarDword; Type = 'DWord' }
+        @{ Path = 'HKCU:\Software\Microsoft\Windows\DWM';                              Name = 'ColorPrevalence';       Value = 1;              Type = 'DWord' }
+        @{ Path = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize'; Name = 'ColorPrevalence';      Value = 1;              Type = 'DWord' }
+    )
+
+    $failed = 0
+    foreach ($w in $writes) {
+        try {
+            if (-not (Test-Path $w.Path)) { New-Item -Path $w.Path -Force | Out-Null }
+            New-ItemProperty -Path $w.Path -Name $w.Name -Value $w.Value -PropertyType $w.Type -Force -ErrorAction Stop | Out-Null
+        } catch {
+            $failed++
+            Write-Warning "Could not write $($w.Path)\$($w.Name): $($_.Exception.Message)"
+        }
+    }
+
+    if ($failed -eq $writes.Count) {
+        Write-Warning "No Windows accent value could be written -- taskbar colours unchanged."
+        return
+    }
+
+    Publish-ColorSettingChange
+    Write-Host "Windows accent themed: accent $($colors.accent), taskbar surface $($colors.taskbar)."
+}
+
 function Update-KomorebiBorderTheme {
     <#
       Ties the border-colour role mapping (single->surface_container_high,
@@ -1228,6 +1515,16 @@ function Apply-Theme {
         Update-KomorebiBorderTheme
     } catch {
         Write-Warning "Update-KomorebiBorderTheme threw unexpectedly: $($_.Exception.Message). Border colours were not themed this run, but the rest of the apply succeeded."
+    }
+
+    # Theme the Windows taskbar/Start/title bars from the same palette. Same
+    # fail-soft contract and the same defence-in-depth try/catch as the border
+    # step above -- a registry key moving between Windows builds must never
+    # fail an otherwise-good theme apply.
+    try {
+        Update-WindowsAccentTheme
+    } catch {
+        Write-Warning "Update-WindowsAccentTheme threw unexpectedly: $($_.Exception.Message). Taskbar colours were not themed this run, but the rest of the apply succeeded."
     }
 
     return [PSCustomObject]@{ Success = $true; Failed = @() }
