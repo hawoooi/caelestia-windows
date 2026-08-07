@@ -6,18 +6,12 @@ export function workspaceState(komorebi) {
   return komorebi.currentWorkspaces.map(w => ({ name: w.name, focused: w.name === focused }));
 }
 
-// komorebic's `focus-workspace <TARGET>` takes a zero-indexed *position*
-// (verified against `komorebic focus-workspace --help`), not the workspace
-// *name* the buttons display ("1".."9" in komorebi.json, but names are
-// arbitrary text as far as komorebic is concerned -- the two numbering
-// schemes only look the same here because this config happens to name
-// workspaces after their 1-indexed position). The command is always built
-// from the button's array position, never from `w.name`.
-export const KOMOREBIC_PATH = 'C:\\Users\\PC\\scoop\\shims\\komorebic.exe';
-
-export function focusWorkspaceCommand(index) {
-  return { program: KOMOREBIC_PATH, args: ['focus-workspace', String(index)] };
-}
+// The command builder moved to ../../komorebi-commands.js when the dashboard
+// became its third caller -- see that file for why (and for the full account
+// of why the target is a zero-indexed position, never the displayed name).
+// Re-exported here so this module's existing importers keep working.
+export { KOMOREBIC_PATH, focusWorkspaceCommand } from '../../komorebi-commands.js';
+import { focusWorkspaceCommand } from '../../komorebi-commands.js';
 
 register('workspaces', ({ shell }) => {
   const el = document.createElement('div');

@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>caelestia dashboard</title>
+    <link rel="stylesheet" href="../bar/theme.css" />
+    <link rel="stylesheet" href="../bar/vendor/fontawesome/fontawesome.css" />
+    <link rel="stylesheet" href="./dashboard.css" />
+  </head>
+  <body>
+
+<div class="stage">
+  <div class="panel">
+
+    <div class="tabs" role="tablist" aria-label="Dashboard sections">
+      <button class="tab" role="tab" aria-selected="true"  data-tab="dashboard"><i class="fa-solid">&#xf009;</i>Dashboard</button>
+      <button class="tab" role="tab" aria-selected="false" data-tab="media"><i class="fa-solid">&#xf001;</i>Media</button>
+      <button class="tab" role="tab" aria-selected="false" data-tab="performance"><i class="fa-solid">&#xf625;</i>Performance</button>
+      <button class="tab" role="tab" aria-selected="false" data-tab="workspaces"><i class="fa-solid">&#xf00a;</i>Workspaces</button>
+    </div>
+
+    <!-- ============================================================ DASHBOARD -->
+    <section class="pane" data-pane="dashboard" data-active role="tabpanel">
+
+      <!-- The signature element, built by dashboard.js from whatever is
+           actually available. Empty here on purpose: shipping the mockup's
+           sample values as markup would flash fake readings on every open. -->
+      <div class="prompt" id="prompt"></div>
+
+      <div class="dash">
+
+        <div class="tile dash__time" id="timeTile">
+          <div class="label">Time</div>
+          <div class="time__body">
+            <div class="time__clock num" id="clock">--:--<span class="time__secs" id="clockSecs">:--</span></div>
+            <div class="time__date" id="clockDate"></div>
+          </div>
+        </div>
+
+        <div class="tile dash__cal" id="calTile">
+          <div class="label" id="calLabel"></div>
+          <table class="cal">
+            <thead><tr><th>Mo</th><th>Tu</th><th>We</th><th>Th</th><th>Fr</th><th>Sa</th><th>Su</th></tr></thead>
+            <tbody id="calBody"></tbody>
+          </table>
+        </div>
+
+        <div class="tile dash__actions">
+          <div class="label">Quick actions</div>
+          <div class="acts" id="acts">
+            <button class="act" data-act="wallpaper" title="Switch to the next wallpaper and retheme (alt+w)"><i class="fa-solid">&#xf03e;</i>Wallpaper</button>
+            <button class="act" data-act="retheme" title="Re-apply the theme from the current wallpaper (ctrl+alt+w)"><i class="fa-solid">&#xf1fc;</i>Retheme</button>
+            <button class="act" data-act="reload" title="Restart the zebar widgets"><i class="fa-solid">&#xf2f1;</i>Reload</button>
+            <button class="act" data-act="lock" title="Lock the session"><i class="fa-solid">&#xf023;</i>Lock</button>
+            <button class="act" data-act="sleep" title="Sleep"><i class="fa-solid">&#xf186;</i>Sleep</button>
+            <button class="act" data-act="power" title="Power off"><i class="fa-solid">&#xf011;</i>Power</button>
+          </div>
+        </div>
+
+        <div class="tile dash__media np" id="npTile">
+          <div class="label">Now playing</div>
+          <div class="np__art art--empty" id="npArt"><i class="fa-solid">&#xf001;</i></div>
+          <div class="np__title" id="npTitle"></div>
+          <div class="np__artist" id="npArtist"></div>
+          <div class="np__scrub">
+            <div class="np__track"><div class="np__fill" id="npFill" style="width:0%"></div></div>
+            <div class="np__times"><span id="npPos">0:00</span><span id="npDur">0:00</span></div>
+          </div>
+          <div class="np__controls">
+            <button class="iconbtn" data-media="prev" aria-label="Previous track"><i class="fa-solid">&#xf048;</i></button>
+            <button class="iconbtn" data-media="toggle" id="npToggle" aria-label="Play"><i class="fa-solid">&#xf04b;</i></button>
+            <button class="iconbtn" data-media="next" aria-label="Next track"><i class="fa-solid">&#xf051;</i></button>
+          </div>
+        </div>
+
+        <div class="tile dash__mix" id="mixTile">
+          <div class="label">Levels</div>
+          <div id="mixRows"></div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ================================================================ MEDIA -->
+    <section class="pane" data-pane="media" role="tabpanel">
+      <div class="media" id="mediaPane">
+        <div class="media__art art--empty" id="mediaArt"><i class="fa-solid">&#xf001;</i></div>
+
+        <div class="tile media__panel">
+          <div class="label">Now playing</div>
+          <div class="media__title" id="mediaTitle"></div>
+          <div class="media__album" id="mediaAlbum"></div>
+          <div class="media__artist" id="mediaArtist"></div>
+
+          <div class="scrub">
+            <div class="scrub__track"><div class="scrub__fill" id="mediaFill" style="width:0%"></div></div>
+            <div class="scrub__times"><span id="mediaPos">0:00</span><span id="mediaDur">0:00</span></div>
+          </div>
+
+          <div class="media__controls">
+            <button class="iconbtn" data-media="prev" aria-label="Previous track"><i class="fa-solid">&#xf048;</i></button>
+            <button class="media__play" data-media="toggle" id="mediaToggle" aria-label="Play"><i class="fa-solid">&#xf04b;</i></button>
+            <button class="iconbtn" data-media="next" aria-label="Next track"><i class="fa-solid">&#xf051;</i></button>
+            <span class="media__source" id="mediaSource"></span>
+          </div>
+        </div>
+
+        <!-- Reserved, per direct user request ("save some space for bongo
+             cat"). Labelled rather than blank so it is obviously held, not
+             broken, until the asset arrives. -->
+        <div class="tile bongo" id="bongo"><div class="bongo__ph">bongo cat</div></div>
+      </div>
+    </section>
+
+    <!-- ========================================================== PERFORMANCE -->
+    <section class="pane" data-pane="performance" role="tabpanel">
+      <div class="perf" id="perfPane"></div>
+
+      <div class="perf__strip" id="perfStrip"></div>
+    </section>
+
+    <!-- =========================================================== WORKSPACES -->
+    <section class="pane" data-pane="workspaces" role="tabpanel">
+      <div class="ws" id="wsPane"></div>
+    </section>
+
+  </div>
+</div>
+    <script type="module" src="./dashboard.js"></script>
+  </body>
+</html>

@@ -24,11 +24,11 @@ export {
   normalizeLayoutString,
 };
 
-export const KOMOREBIC_PATH = 'C:\\Users\\PC\\scoop\\shims\\komorebic.exe';
-
-export function changeLayoutCommand(layout) {
-  return { program: KOMOREBIC_PATH, args: ['change-layout', layout] };
-}
+// Moved to ../../komorebi-commands.js, alongside focus-workspace, so the one
+// binary path is not spelled out in three widgets. Re-exported for this
+// module's existing importers.
+export { KOMOREBIC_PATH, changeLayoutCommand } from '../../komorebi-commands.js';
+import { changeLayoutCommand } from '../../komorebi-commands.js';
 
 // nextLayout()/LAYOUT_CYCLE's ordering are kept exported (and still tested,
 // see tests/js/entries.test.mjs) even though the click handler below no

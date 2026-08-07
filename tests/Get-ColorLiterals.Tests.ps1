@@ -82,6 +82,17 @@ Describe "The zebar bar's zero-color-literal invariant (I5)" {
         # var(--surface), so a literal here would be exactly the bug the
         # user asked to have fixed.
         $script:dockCss = "$PSScriptRoot\..\zebar\caelestia\dock\dock.css"
+        # Top-hover-dashboard pass. dashboard.css is the largest structural
+        # stylesheet in the pack and the one at most risk here: it was ported
+        # from mockups/dashboard.html, which legitimately INLINES the palette
+        # (so it opens standalone) and used rgba() literals for its hairline
+        # edges and track fills. The port had to convert every one of those to
+        # color-mix() over a theme var; this test is what stops the mockup's
+        # literals being carried across again on the next design pass.
+        $script:dashboardCss = "$PSScriptRoot\..\zebar\caelestia\dashboard\dashboard.css"
+        # The hot-zone widget paints nothing at all, which is exactly why a
+        # stray debug colour could sit in it unnoticed.
+        $script:dashTriggerCss = "$PSScriptRoot\..\zebar\caelestia\dashtrigger\trigger.css"
     }
 
     It "style.css contains zero colour literals" {
@@ -106,6 +117,14 @@ Describe "The zebar bar's zero-color-literal invariant (I5)" {
 
     It "dock.css contains zero colour literals" {
         @(Get-ColorLiterals -Path $script:dockCss).Count | Should -Be 0
+    }
+
+    It "dashboard.css contains zero colour literals" {
+        @(Get-ColorLiterals -Path $script:dashboardCss).Count | Should -Be 0
+    }
+
+    It "trigger.css contains zero colour literals" {
+        @(Get-ColorLiterals -Path $script:dashTriggerCss).Count | Should -Be 0
     }
 
     It "fontawesome.css contains zero colour literals" {

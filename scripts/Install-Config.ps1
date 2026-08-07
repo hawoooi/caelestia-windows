@@ -345,6 +345,25 @@ ctrl + alt + w                : Start-Process powershell -WindowStyle Hidden -Ar
     # while a MISSING one makes the tray button (and the rest) do nothing.
     $panelsPreset = 'default'
 
+    # Top-hover-dashboard pass: TWO widgets, and both are required for either
+    # to be useful.
+    #
+    # "dashtrigger" is a 560x16 strip at the top centre that paints nothing and
+    # never changes geometry -- it exists solely to own a hover hot zone.
+    # "dashboard" is the panel it opens, parked at 1x1 until then.
+    #
+    # They are separate because a WebView2 window loses its hover state on ANY
+    # geometry change (resize or move) under a stationary cursor, so a window
+    # that resizes itself open cannot also be the thing detecting "the pointer
+    # is still here" -- it oscillates. The dock hit this and was fixed by never
+    # resizing at all; this panel is far too large for that, so the two jobs
+    # live in two windows. Full account in zebar/caelestia/dashboard/dashboard.js.
+    #
+    # A missing autostart is silent for BOTH: with no trigger, hovering the top
+    # edge does nothing; with no panel, the trigger posts into the void.
+    $dashTriggerPreset = 'default'
+    $dashboardPreset = 'default'
+
     if ($DryRun) {
         # I1: the junction/settings.json steps below must ALSO be a no-op
         # under -DryRun, for BOTH the install and the uninstall direction.
@@ -367,6 +386,8 @@ ctrl + alt + w                : Start-Process powershell -WindowStyle Hidden -Ar
             "would remove startupConfigs entries for caelestia/statusmenu (all presets) from $ZebarSettingsPath"
             "would remove startupConfigs entries for caelestia/dock (all presets) from $ZebarSettingsPath"
             "would remove startupConfigs entries for caelestia/panels (all presets) from $ZebarSettingsPath"
+            "would remove startupConfigs entries for caelestia/dashtrigger (all presets) from $ZebarSettingsPath"
+            "would remove startupConfigs entries for caelestia/dashboard (all presets) from $ZebarSettingsPath"
         } else {
             "would create/verify junction $JunctionLink -> $JunctionTarget"
             "would add startupConfigs entry for caelestia/bar to $ZebarSettingsPath"
@@ -376,6 +397,8 @@ ctrl + alt + w                : Start-Process powershell -WindowStyle Hidden -Ar
             "would add startupConfigs entry for caelestia/statusmenu ($statusMenuPreset) to $ZebarSettingsPath"
             "would add startupConfigs entry for caelestia/dock ($dockPreset) to $ZebarSettingsPath"
             "would add startupConfigs entry for caelestia/panels ($panelsPreset) to $ZebarSettingsPath"
+            "would add startupConfigs entry for caelestia/dashtrigger ($dashTriggerPreset) to $ZebarSettingsPath"
+            "would add startupConfigs entry for caelestia/dashboard ($dashboardPreset) to $ZebarSettingsPath"
         }
         return
     }
@@ -391,6 +414,8 @@ ctrl + alt + w                : Start-Process powershell -WindowStyle Hidden -Ar
         Remove-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'statusmenu'
         Remove-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'dock'
         Remove-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'panels'
+        Remove-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'dashtrigger'
+        Remove-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'dashboard'
     } else {
         Set-ManagedJunction -LinkPath $JunctionLink -TargetPath $JunctionTarget | Out-Null
         Set-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'bar' -Preset 'default'
@@ -411,5 +436,7 @@ ctrl + alt + w                : Start-Process powershell -WindowStyle Hidden -Ar
         Set-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'statusmenu' -Preset $statusMenuPreset
         Set-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'dock' -Preset $dockPreset
         Set-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'panels' -Preset $panelsPreset
+        Set-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'dashtrigger' -Preset $dashTriggerPreset
+        Set-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'dashboard' -Preset $dashboardPreset
     }
 }
