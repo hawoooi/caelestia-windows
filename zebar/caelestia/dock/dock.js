@@ -40,10 +40,18 @@ import { startFullscreenWatch } from '../fullscreen.js';
 // says how much of placeWindow's permanent footprint costs nothing.
 export const DEAD_STRIP_H = 16;
 
-// The dock's own height when open, and the gap it leaves above the very bottom
-// of the screen so it reads as sitting ON the frame rather than hanging off
-// the edge of it.
-export const DOCK_H = 56;
+// The dock's height -- which is also, because the window is static, exactly
+// how far up the screen the hover trigger reaches AND how tall the permanent
+// click-dead footprint is. Those three being one number is why it is worth
+// keeping small.
+//
+// Direct user feedback: "we should put the activation a little lower since it
+// activates wayy too soon and might block the way for some apps". At 56 the
+// dock armed 56px above the bottom edge; at 40 it arms at y = screen - 40,
+// and since DEAD_STRIP_H (16px) of that was already dead territory, the part
+// that actually costs a click drops from 40px to 24px. The icon sizing in
+// dock.css is tuned to this number and has to move with it.
+export const DOCK_H = 40;
 
 // The dock's fixed width. Fixed, and deliberately not derived from content.
 //
