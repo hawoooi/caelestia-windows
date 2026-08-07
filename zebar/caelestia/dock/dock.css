@@ -62,6 +62,11 @@ body.open .dock { transform: translateY(0); }
    (and therefore the hot zone) stays, so nothing pops up over a game. */
 body.fullscreen-hidden .dock { display: none; }
 
+/* And the trigger stops listening entirely, so a fullscreen desktop does not
+   even deliver the hover -- see slideIn() in dock.js for why hiding the
+   content alone was not enough. */
+body.fullscreen-hidden .dock-trigger { pointer-events: none; }
+
 .dock__item {
   position: relative;
   flex: 0 0 auto;
@@ -88,6 +93,10 @@ body.fullscreen-hidden .dock { display: none; }
    .workspace--focused uses in the bar -- so focus reads the same way in both
    places rather than inventing a second convention. */
 .dock__item--focused { background: var(--surface-container); }
+
+/* A minimized app is still open, so it keeps its slot -- just dimmed, the way
+   a taskbar distinguishes 'running' from 'on screen'. */
+.dock__item--minimized .dock__icon { opacity: 0.45; }
 
 .dock__icon {
   width: var(--icon);

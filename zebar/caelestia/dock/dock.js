@@ -30,7 +30,10 @@
 // wins the hit test, so a hot zone living only inside it is unreachable.
 
 import * as zebar from '../bar/vendor/zebar.js';
-import { dockItems, dockSignature, focusCommand, isSafeExeName } from '../dock-items.js';
+import {
+  dockItems, dockSignature, focusCommand, isSafeHandle,
+  listWindowsCommand, parseWindowList,
+} from '../dock-items.js';
 import { appName, fetchIcon } from '../bar/entries/activeWindow.js';
 import { startFullscreenWatch } from '../fullscreen.js';
 
@@ -130,9 +133,49 @@ function loadIcon(exe, onResolve) {
     .catch(() => onResolve(null));
 }
 
-let rendered = new Map();     // exe key -> { root, img, badge }
+// The OS window list, refreshed only while the dock is open. komorebi pushes
+// its own changes, but nothing pushes "an ignored app opened a window", so
+// this half has to be polled -- and, per this pack's standing rule, a poll
+// must not exist while nothing is looking at it.
+const WINDOW_POLL_MS = 1000;
+let windowList = [];
+let windowTimer = null;
+let windowInFlight = false;
+
+async function refreshWindows() {
+  if (windowInFlight || !shell) return;
+  windowInFlight = true;
+  try {
+    const cmd = listWindowsCommand();
+    const res = await shell.shellExec(cmd.program, cmd.args);
+    windowList = parseWindowList(res && res.stdout);
+    render();
+  } catch (e) {
+    // Nonzero exit means "nothing to report"; leave the last list in place.
+  } finally {
+    windowInFlight = false;
+  }
+}
+
+function stopWindowPoll() {
+  if (windowTimer !== null) { clearInterval(windowTimer); windowTimer = null; }
+}
+function startWindowPoll() {
+  stopWindowPoll();
+  refreshWindows();
+  windowTimer = setInterval(refreshWindows, WINDOW_POLL_MS);
+}
+
+let rendered = new Map();     // exe key -> { root, img, badge, hwnd }
 let lastSignature = null;
 let latestItems = [];
+
+// Both sources feed one render. Called from the komorebi provider tick AND
+// from the window-list poll, so whichever updates first is reflected.
+function render() {
+  latestItems = dockItems(providers.outputMap.komorebi, windowList);
+  renderItems(latestItems);
+}
 
 function renderItems(items) {
   const signature = dockSignature(items);
@@ -160,9 +203,9 @@ function renderItems(items) {
       badge.className = 'dock__badge';
 
       root.append(img, badge);
-      root.addEventListener('click', () => focus(item.exe));
+      root.addEventListener('click', () => focus(rendered.get(item.key)?.hwnd ?? item.hwnd));
       dock.append(root);
-      refs = { root, img, badge };
+      refs = { root, img, badge, hwnd: item.hwnd };
       rendered.set(item.key, refs);
 
       // One app-icon.exe at a time, cached per exe -- see loadIcon above.
@@ -172,9 +215,11 @@ function renderItems(items) {
       });
     }
 
+    refs.hwnd = item.hwnd;
     const label = appName(item.exe);
     refs.root.title = item.count > 1 ? `${label} (${item.count} windows)` : label;
     refs.root.classList.toggle('dock__item--focused', item.focused);
+    refs.root.classList.toggle('dock__item--minimized', item.minimized);
     refs.badge.textContent = item.count > 1 ? String(item.count) : '';
     refs.badge.classList.toggle('dock__badge--hidden', item.count <= 1);
   }
@@ -188,12 +233,12 @@ function renderItems(items) {
   return true;
 }
 
-function focus(exe) {
-  if (!shell || !isSafeExeName(exe)) return;
-  const { program, args } = focusCommand(exe);
+function focus(hwnd) {
+  if (!shell || !isSafeHandle(hwnd)) return;
+  const { program, args } = focusCommand(hwnd);
   // Fail-soft, like every other shell-out in this pack: a failed focus warns
   // and never throws out of a click handler.
-  shell.shellExec(program, args).catch((e) => console.warn(`eager-focus ${exe} failed`, e));
+  shell.shellExec(program, args).catch((e) => console.warn(`focus ${hwnd} failed`, e));
 }
 
 async function init() {
@@ -228,6 +273,7 @@ async function init() {
   const px = (n) => Math.round(n * scale);
 
   let open = false;
+  let fullscreen = false;
 
   // Both states are anchored to the BOTTOM of the monitor and differ only in
   // height, so the dock grows upward out of the edge rather than sliding along
@@ -275,11 +321,29 @@ async function init() {
   let closeTimer = null;
 
   function slideIn() {
+    // Direct user feedback: "the bottom custom taskbar hover shouldn't
+    // activate when i am in fullscreen. this goes with any other
+    // hover-activation widgets."
+    //
+    // Hiding the content with CSS was not enough: the trigger still fired,
+    // the open class still toggled, and the transition still ran -- invisible,
+    // but it WAS activating. Opening is now refused outright while a
+    // fullscreen window is up, so the hover is genuinely inert rather than
+    // merely unseen. dock.css also drops pointer-events on the trigger, so in
+    // practice the event does not even arrive; this is the belt to that
+    // braces, and the one that keeps the state machine honest.
+    // Reads the CLASS, not just the flag, so there is one source of truth --
+    // the flag alone could drift from what the DOM says if anything else ever
+    // sets the class, and the two disagreeing is exactly the kind of silent
+    // divergence that makes this look fixed while still activating.
+    if (fullscreen || document.body.classList.contains('fullscreen-hidden')) return;
     if (closeTimer !== null) { clearTimeout(closeTimer); closeTimer = null; }
     if (open) return;
     open = true;
     debugLog('open');
     document.body.classList.add('open');
+    // The list only has to be current while it is being looked at.
+    startWindowPoll();
   }
 
   function slideOut() {
@@ -293,6 +357,7 @@ async function init() {
       open = false;
       debugLog('close');
       document.body.classList.remove('open');
+      stopWindowPoll();
     }, CLOSE_DELAY_MS);
   }
 
@@ -307,12 +372,10 @@ async function init() {
   dock.addEventListener('click', slideOut);
 
   providers.onOutput(() => {
-    latestItems = dockItems(providers.outputMap.komorebi);
-    renderItems(latestItems);
+    render();
   });
 
-  latestItems = dockItems(providers.outputMap.komorebi);
-  renderItems(latestItems);
+  render();
   // Placed once, and never again -- see placeWindow.
   await placeWindow();
 
@@ -320,7 +383,17 @@ async function init() {
   // and the frame -- a hot zone that pops a dock over a fullscreen game would
   // be worse than the taskbar this replaces.
   startFullscreenWatch(shell, (isFullscreen) => {
+    fullscreen = isFullscreen;
     document.body.classList.toggle('fullscreen-hidden', isFullscreen);
+    // Something going fullscreen while the dock is already open must retract
+    // it, not leave it sitting over the top of the fullscreen window.
+    if (isFullscreen && open) {
+      if (closeTimer !== null) { clearTimeout(closeTimer); closeTimer = null; }
+      open = false;
+      debugLog('close:fullscreen');
+      document.body.classList.remove('open');
+      stopWindowPoll();
+    }
   });
 }
 

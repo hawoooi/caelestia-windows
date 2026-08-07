@@ -369,16 +369,16 @@
                         "privileges":  {
                                            "shellCommands":  [
                                                                  {
-                                                                     "program":  "C:\\Users\\PC\\scoop\\shims\\komorebic.exe",
-                                                                     "argsRegex":  "^eager-focus [\\w.\\-]+\\.exe$"
-                                                                 },
-                                                                 {
                                                                      "program":  "C:\\Users\\PC\\Documents\\git\\setup\\zebar\\caelestia\\tools\\app-icon.exe",
                                                                      "argsRegex":  "^[\\w.\\-]+\\.exe$"
                                                                  },
                                                                  {
                                                                      "program":  "C:\\Users\\PC\\Documents\\git\\setup\\zebar\\caelestia\\tools\\fullscreen-detect.exe",
                                                                      "argsRegex":  "^$"
+                                                                 },
+                                                                 {
+                                                                     "program":  "C:\\Users\\PC\\Documents\\git\\setup\\zebar\\caelestia\\tools\\window-list.exe",
+                                                                     "argsRegex":  "^(list|focus \\d{1,19})$"
                                                                  }
                                                              ]
                                        },

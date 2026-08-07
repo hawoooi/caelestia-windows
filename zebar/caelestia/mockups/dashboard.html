@@ -1,0 +1,557 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Caelestia dashboard &mdash; mockup</title>
+<link rel="stylesheet" href="../bar/vendor/fontawesome/fontawesome.css">
+<style>
+/* ==========================================================================
+   MOCKUP ONLY -- not wired into zebar yet, pending review.
+
+   This recreates the Caelestia shell's top hover dashboard from the reference
+   screenshots: four tabs (Dashboard / Media / Performance / Workspaces), and
+   the card layout inside each.
+
+   Two deliberate departures from the reference, both asked for:
+     * the media art is a ROUNDED SQUARE, not a circle, and there is no
+       visualizer ring around it;
+     * the palette is this desktop's, not Caelestia's light pink. Every colour
+       below is the live matugen palette, so the panel reads as part of the
+       same desktop as the bar and the dock. When this is wired up for real it
+       links ../bar/theme.css instead of redeclaring, exactly like every other
+       widget -- the values are inlined here only so the file opens standalone
+       in a browser for review.
+
+   Adapted for this machine rather than copied: the reference's Arch Linux /
+   Hyprland / uptime rows become Windows 11 / komorebi / uptime, and the
+   workspace tab is built from komorebi's nine workspaces.
+   ========================================================================== */
+
+:root {
+  /* Live matugen palette -- mirrors zebar/caelestia/bar/theme.css */
+  --surface: #0e1415;
+  --on-surface: #dde4e4;
+  --on-surface-variant: #bec8c9;
+  --primary: #80d4d9;
+  --on-primary: #003739;
+  --outline: #899393;
+  --surface-container: #1a2121;
+  --surface-container-high: #252b2b;
+
+  /* Derived, all from the palette above */
+  --hair: rgba(137, 147, 147, 0.16);
+  --accent-soft: rgba(128, 212, 217, 0.12);
+  --track: rgba(137, 147, 147, 0.22);
+
+  --r-panel: 26px;
+  --r-card: 20px;
+  --r-inner: 14px;
+  --r-full: 999px;
+
+  --font: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --mono: "0xProto Nerd Font", ui-monospace, "Cascadia Mono", monospace;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+  font-family: var(--font);
+  /* Stand-in for the wallpaper, so the panel can be judged against something
+     rather than floating on white. Not part of the widget. */
+  background:
+    radial-gradient(120% 90% at 20% 0%, #16302f 0%, #0b1112 60%),
+    #0b1112;
+  color: var(--on-surface);
+}
+
+.stage {
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 0 24px 64px;
+}
+
+/* --------------------------------------------------------------- the panel */
+/* Slides down from the top edge, so only the BOTTOM corners are round -- the
+   same logic the dock uses at the bottom of the screen. */
+.panel {
+  width: min(1280px, 100%);
+  background: var(--surface);
+  border-bottom-left-radius: var(--r-panel);
+  border-bottom-right-radius: var(--r-panel);
+  padding: 10px 22px 22px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+}
+
+/* ----------------------------------------------------------------- the tabs */
+.tabs {
+  display: flex;
+  justify-content: center;
+  gap: 4px;
+  border-bottom: 1px solid var(--hair);
+}
+
+.tab {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--on-surface-variant);
+  font-family: inherit;
+  font-size: 14px;
+  padding: 12px 34px 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: color 160ms ease, border-color 160ms ease;
+}
+
+.tab i { font-size: 18px; line-height: 1; }
+.tab:hover { color: var(--on-surface); }
+.tab[aria-selected="true"] { color: var(--primary); border-bottom-color: var(--primary); }
+.tab:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 8px; }
+
+.pane { display: none; padding-top: 18px; }
+.pane[data-active] { display: block; }
+
+/* ---------------------------------------------------------------- the cards */
+.card {
+  background: var(--surface-container);
+  border-radius: var(--r-card);
+  padding: 18px;
+}
+
+/* Dashboard grid: three columns, with the left and middle stacking two rows.
+   Mirrors the reference's arrangement rather than inventing one. */
+.dash {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr) 300px;
+  grid-template-rows: auto auto;
+  gap: 14px;
+}
+
+.dash__weather { grid-column: 1; grid-row: 1; display: flex; align-items: center; gap: 18px; }
+.dash__host    { grid-column: 2; grid-row: 1; display: flex; align-items: center; gap: 18px; }
+.dash__media   { grid-column: 3; grid-row: 1 / span 2; }
+.dash__clock   { grid-column: 1; grid-row: 2; }
+.dash__cal     { grid-column: 2; grid-row: 2; display: grid; grid-template-columns: minmax(0,1fr) 96px; gap: 16px; }
+
+/* weather */
+.weather__icon { font-size: 54px; color: var(--on-surface-variant); line-height: 1; }
+.weather__temp { font-size: 40px; font-weight: 300; letter-spacing: -0.02em; line-height: 1.05; }
+.weather__desc { color: var(--on-surface-variant); font-size: 14px; margin-top: 2px; }
+
+/* host */
+.host__avatar {
+  width: 84px; height: 84px; flex: 0 0 auto;
+  border-radius: var(--r-full);
+  object-fit: cover;
+  background: var(--surface-container-high);
+}
+.host__rows { display: grid; gap: 9px; font-size: 15px; }
+.host__row { display: flex; align-items: center; gap: 12px; }
+.host__row i { width: 20px; text-align: center; color: var(--primary); font-size: 15px; }
+.host__row span { color: var(--on-surface); }
+
+/* clock */
+.clock { text-align: center; padding: 22px 18px; }
+.clock__hh, .clock__mm {
+  font-family: var(--mono);
+  font-size: 46px;
+  font-weight: 600;
+  line-height: 1.02;
+  font-variant-numeric: tabular-nums;
+}
+.clock__sep { color: var(--outline); letter-spacing: 5px; font-size: 20px; line-height: 1; margin: 2px 0 4px; }
+.clock__date { color: var(--on-surface-variant); font-size: 14px; margin-top: 10px; }
+
+/* calendar */
+.cal { width: 100%; border-collapse: collapse; }
+.cal th {
+  font-size: 13px; font-weight: 600; color: var(--on-surface);
+  padding-bottom: 8px;
+}
+.cal td {
+  text-align: center;
+  padding: 5px 0;
+  font-size: 14px;
+  color: var(--on-surface-variant);
+  font-variant-numeric: tabular-nums;
+}
+.cal td.is-muted { color: var(--outline); opacity: 0.55; }
+.cal td.is-today span {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; border-radius: var(--r-full);
+  background: var(--primary); color: var(--on-primary); font-weight: 600;
+}
+
+/* audio sliders -- vertical, value from the bottom, icon beneath */
+.mix { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; }
+.mix__col { display: flex; flex-direction: column; align-items: center; gap: 10px; flex: 1; }
+.mix__track {
+  width: 9px; height: 150px;
+  border-radius: var(--r-full);
+  background: var(--track);
+  display: flex; align-items: flex-end;
+  overflow: hidden;
+}
+.mix__fill { width: 100%; border-radius: var(--r-full); background: var(--primary); }
+.mix__col i { color: var(--on-surface-variant); font-size: 13px; }
+
+/* media card (dashboard) */
+.media-mini { display: flex; flex-direction: column; align-items: center; text-align: center; height: 100%; }
+/* Rounded SQUARE, per the brief -- the reference used a circle with a
+   visualizer ring, which is deliberately dropped. */
+.media-mini__art {
+  width: 168px; height: 168px;
+  border-radius: var(--r-card);
+  object-fit: cover;
+  background: var(--surface-container-high);
+}
+.media-mini__title {
+  margin-top: 14px; font-size: 15px; font-weight: 600; color: var(--primary);
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.media-mini__album, .media-mini__artist { font-size: 13px; color: var(--on-surface-variant); margin-top: 3px; }
+.media-mini__controls { display: flex; align-items: center; gap: 18px; margin-top: 12px; }
+
+.iconbtn {
+  appearance: none; border: 0; background: transparent;
+  color: var(--on-surface); font-size: 15px; cursor: pointer;
+  width: 34px; height: 34px; border-radius: var(--r-inner);
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: background 160ms ease, color 160ms ease;
+}
+.iconbtn:hover { background: var(--surface-container-high); color: var(--primary); }
+.iconbtn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+.bongo { margin-top: auto; padding-top: 14px; color: var(--on-surface-variant); font-size: 12px; }
+
+/* ----------------------------------------------------------------- media tab */
+.media {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr) 300px;
+  gap: 24px;
+  align-items: center;
+  padding: 26px 10px 34px;
+}
+.media__art {
+  width: 260px; height: 260px;
+  border-radius: 28px;
+  object-fit: cover;
+  justify-self: center;
+  background: var(--surface-container-high);
+}
+.media__meta { text-align: center; }
+.media__title { font-size: 22px; font-weight: 600; color: var(--primary); }
+.media__album { font-size: 15px; color: var(--on-surface-variant); margin-top: 6px; }
+.media__artist { font-size: 15px; color: var(--on-surface-variant); margin-top: 4px; }
+.media__controls { display: flex; align-items: center; justify-content: center; gap: 22px; margin-top: 18px; }
+.media__play {
+  width: 56px; height: 56px; border-radius: var(--r-full);
+  background: var(--primary); color: var(--on-primary);
+  font-size: 18px; border: 0; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.media__play:focus-visible { outline: 2px solid var(--on-surface); outline-offset: 3px; }
+
+.scrub { margin-top: 22px; }
+.scrub__track { height: 6px; border-radius: var(--r-full); background: var(--track); position: relative; }
+.scrub__fill { position: absolute; inset: 0 auto 0 0; border-radius: var(--r-full); background: var(--primary); }
+.scrub__knob {
+  position: absolute; top: 50%; width: 12px; height: 12px; border-radius: var(--r-full);
+  background: var(--primary); transform: translate(-50%, -50%);
+}
+.scrub__times { display: flex; justify-content: space-between; margin-top: 8px; font-size: 12px; color: var(--on-surface-variant); font-variant-numeric: tabular-nums; }
+
+.source { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 18px; }
+.source__pill {
+  display: inline-flex; align-items: center; gap: 9px;
+  padding: 9px 20px; border-radius: var(--r-full);
+  background: var(--accent-soft); color: var(--on-surface);
+  border: 0; font-family: inherit; font-size: 14px; cursor: pointer;
+}
+.source__pill i { color: var(--primary); }
+
+.bongo-art {
+  justify-self: center; text-align: center;
+  color: var(--on-surface-variant);
+  font-size: 13px; line-height: 1.5;
+}
+.bongo-art__box {
+  width: 200px; height: 140px;
+  border: 1px dashed var(--hair);
+  border-radius: var(--r-card);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--outline);
+}
+
+/* ------------------------------------------------------------ performance */
+.perf { display: flex; justify-content: space-around; align-items: center; gap: 16px; padding: 30px 10px 40px; }
+/* Gauge and its secondary stat are SIBLINGS, not overlapping layers. The first
+   pass absolutely positioned the stat over the ring and it collided with the
+   stroke -- in the reference it sits clear of the ring, lower-right. */
+.perf__item { display: flex; align-items: flex-end; gap: 10px; }
+.gauge { position: relative; width: 210px; height: 210px; display: grid; place-items: center; flex: 0 0 auto; }
+.gauge svg { position: absolute; inset: 0; transform: rotate(-90deg); }
+.gauge__bg { fill: none; stroke: var(--track); stroke-width: 10; stroke-linecap: round; }
+.gauge__val { fill: none; stroke: var(--primary); stroke-width: 10; stroke-linecap: round; }
+.gauge__mid { text-align: center; }
+.gauge__num { font-size: 38px; font-weight: 300; letter-spacing: -0.02em; }
+.gauge__label { font-size: 14px; color: var(--on-surface-variant); margin-top: 2px; }
+.gauge__side { text-align: left; padding-bottom: 34px; }
+.gauge__side b { display: block; font-size: 17px; font-weight: 500; }
+.gauge__side span { font-size: 12px; color: var(--on-surface-variant); }
+
+/* ------------------------------------------------------------- workspaces */
+/* Not in the reference screenshots, so this is built from what komorebi
+   actually exposes: nine workspaces, the apps on each, and which is focused. */
+.ws { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; padding: 4px 0 10px; }
+.ws__cell {
+  background: var(--surface-container);
+  border-radius: var(--r-inner);
+  padding: 14px;
+  min-height: 104px;
+  border: 1px solid transparent;
+  display: flex; flex-direction: column; gap: 10px;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  color: inherit;
+}
+.ws__cell:hover { background: var(--surface-container-high); }
+.ws__cell[data-focused] { border-color: var(--primary); background: var(--accent-soft); }
+.ws__n { font-family: var(--mono); font-size: 13px; color: var(--outline); }
+.ws__cell[data-focused] .ws__n { color: var(--primary); }
+.ws__apps { display: flex; gap: 7px; flex-wrap: wrap; }
+.ws__app {
+  width: 28px; height: 28px; border-radius: 9px;
+  background: var(--surface-container-high);
+  display: grid; place-items: center;
+  font-size: 12px; color: var(--on-surface-variant);
+}
+.ws__empty { color: var(--outline); font-size: 13px; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="panel">
+
+    <div class="tabs" role="tablist" aria-label="Dashboard sections">
+      <button class="tab" role="tab" aria-selected="true"  data-tab="dashboard"><i class="fa-solid">&#xf009;</i>Dashboard</button>
+      <button class="tab" role="tab" aria-selected="false" data-tab="media"><i class="fa-solid">&#xf001;</i>Media</button>
+      <button class="tab" role="tab" aria-selected="false" data-tab="performance"><i class="fa-solid">&#xf625;</i>Performance</button>
+      <button class="tab" role="tab" aria-selected="false" data-tab="workspaces"><i class="fa-solid">&#xf00a;</i>Workspaces</button>
+    </div>
+
+    <!-- ============================================================ DASHBOARD -->
+    <section class="pane" data-pane="dashboard" data-active role="tabpanel">
+      <div class="dash">
+
+        <div class="card dash__weather">
+          <i class="fa-solid weather__icon">&#xf185;</i>
+          <div>
+            <div class="weather__temp">15&deg;C</div>
+            <div class="weather__desc">Clear</div>
+          </div>
+        </div>
+
+        <div class="card dash__host">
+          <img class="host__avatar" src="./assets/media-art-placeholder.png" alt="">
+          <div class="host__rows">
+            <div class="host__row"><i class="fa-brands">&#xf17a;</i><span>Windows 11 Pro</span></div>
+            <div class="host__row"><i class="fa-solid">&#xf2d2;</i><span>komorebi</span></div>
+            <div class="host__row"><i class="fa-solid">&#xf2f2;</i><span>up 1 hour, 23 minutes</span></div>
+          </div>
+        </div>
+
+        <div class="card dash__clock clock">
+          <div class="clock__hh">21</div>
+          <div class="clock__sep">&bull;&bull;&bull;</div>
+          <div class="clock__mm">06</div>
+          <div class="clock__date">Sat, 7</div>
+        </div>
+
+        <div class="dash__cal">
+          <div class="card">
+            <table class="cal">
+              <thead><tr><th>Mon</th><th>Tue</th><th>Wed</th><th>Thu</th><th>Fri</th><th>Sat</th><th>Sun</th></tr></thead>
+              <tbody>
+                <tr><td class="is-muted">26</td><td class="is-muted">27</td><td class="is-muted">28</td><td class="is-muted">29</td><td class="is-muted">30</td><td class="is-muted">31</td><td>1</td></tr>
+                <tr><td>2</td><td>3</td><td>4</td><td>5</td><td>6</td><td class="is-today"><span>7</span></td><td>8</td></tr>
+                <tr><td>9</td><td>10</td><td>11</td><td>12</td><td>13</td><td>14</td><td>15</td></tr>
+                <tr><td>16</td><td>17</td><td>18</td><td>19</td><td>20</td><td>21</td><td>22</td></tr>
+                <tr><td>23</td><td>24</td><td>25</td><td>26</td><td>27</td><td>28</td><td>29</td></tr>
+                <tr><td>30</td><td class="is-muted">1</td><td class="is-muted">2</td><td class="is-muted">3</td><td class="is-muted">4</td><td class="is-muted">5</td><td class="is-muted">6</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="card mix">
+            <div class="mix__col">
+              <div class="mix__track"><div class="mix__fill" style="height:12%"></div></div>
+              <i class="fa-solid">&#xf013;</i>
+            </div>
+            <div class="mix__col">
+              <div class="mix__track"><div class="mix__fill" style="height:46%"></div></div>
+              <i class="fa-solid">&#xf001;</i>
+            </div>
+            <div class="mix__col">
+              <div class="mix__track"><div class="mix__fill" style="height:72%"></div></div>
+              <i class="fa-solid">&#xf130;</i>
+            </div>
+          </div>
+        </div>
+
+        <div class="card dash__media media-mini">
+          <img class="media-mini__art" src="./assets/media-art-placeholder.png" alt="Album art">
+          <div class="media-mini__title">&#x7d2f;&#x304e;&#x3066;</div>
+          <div class="media-mini__album">Tsunagite</div>
+          <div class="media-mini__artist">rintaro soma</div>
+          <div class="media-mini__controls">
+            <button class="iconbtn" aria-label="Previous track"><i class="fa-solid">&#xf048;</i></button>
+            <button class="iconbtn" aria-label="Play"><i class="fa-solid">&#xf04b;</i></button>
+            <button class="iconbtn" aria-label="Next track"><i class="fa-solid">&#xf051;</i></button>
+          </div>
+          <div class="bongo">bongo cat goes here</div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ================================================================ MEDIA -->
+    <section class="pane" data-pane="media" role="tabpanel">
+      <div class="media">
+        <img class="media__art" src="./assets/media-art-placeholder.png" alt="Album art">
+
+        <div class="media__meta">
+          <div class="media__title">&#x7d2f;&#x304e;&#x3066;</div>
+          <div class="media__album">Tsunagite</div>
+          <div class="media__artist">rintaro soma</div>
+
+          <div class="media__controls">
+            <button class="iconbtn" aria-label="Previous track"><i class="fa-solid">&#xf048;</i></button>
+            <button class="media__play" aria-label="Pause"><i class="fa-solid">&#xf04c;</i></button>
+            <button class="iconbtn" aria-label="Next track"><i class="fa-solid">&#xf051;</i></button>
+          </div>
+
+          <div class="scrub">
+            <div class="scrub__track">
+              <div class="scrub__fill" style="width:18%"></div>
+              <div class="scrub__knob" style="left:18%"></div>
+            </div>
+            <div class="scrub__times"><span>0:57</span><span>5:17</span></div>
+          </div>
+
+          <div class="source">
+            <button class="iconbtn" aria-label="Show queue"><i class="fa-solid">&#xf03a;</i></button>
+            <button class="source__pill"><i class="fa-brands">&#xf1bc;</i>Spotify</button>
+            <button class="iconbtn" aria-label="Clear"><i class="fa-solid">&#xf2ed;</i></button>
+          </div>
+        </div>
+
+        <div class="bongo-art">
+          <div class="bongo-art__box">bongo cat</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========================================================== PERFORMANCE -->
+    <section class="pane" data-pane="performance" role="tabpanel">
+      <div class="perf">
+        <div class="perf__item">
+          <div class="gauge">
+          <svg viewBox="0 0 220 220" aria-hidden="true">
+            <circle class="gauge__bg"  cx="110" cy="110" r="96"></circle>
+            <circle class="gauge__val" cx="110" cy="110" r="96" stroke-dasharray="603" stroke-dashoffset="380"></circle>
+          </svg>
+          <div class="gauge__mid">
+            <div class="gauge__num">54&deg;C</div>
+            <div class="gauge__label">GPU temp</div>
+          </div>
+          </div>
+          <div class="gauge__side"><b>4%</b><span>Usage</span></div>
+        </div>
+
+        <div class="perf__item">
+          <div class="gauge">
+          <svg viewBox="0 0 220 220" aria-hidden="true">
+            <circle class="gauge__bg"  cx="110" cy="110" r="96"></circle>
+            <circle class="gauge__val" cx="110" cy="110" r="96" stroke-dasharray="603" stroke-dashoffset="420"></circle>
+          </svg>
+          <div class="gauge__mid">
+            <div class="gauge__num">41&deg;C</div>
+            <div class="gauge__label">CPU temp</div>
+          </div>
+          </div>
+          <div class="gauge__side"><b>3%</b><span>Usage</span></div>
+        </div>
+
+        <div class="perf__item">
+          <div class="gauge">
+          <svg viewBox="0 0 220 220" aria-hidden="true">
+            <circle class="gauge__bg"  cx="110" cy="110" r="96"></circle>
+            <circle class="gauge__val" cx="110" cy="110" r="96" stroke-dasharray="603" stroke-dashoffset="330"></circle>
+          </svg>
+          <div class="gauge__mid">
+            <div class="gauge__num">5.4GiB</div>
+            <div class="gauge__label">Memory</div>
+          </div>
+          </div>
+          <div class="gauge__side"><b>230GiB</b><span>Storage</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- =========================================================== WORKSPACES -->
+    <section class="pane" data-pane="workspaces" role="tabpanel">
+      <div class="ws">
+        <button class="ws__cell" data-focused>
+          <span class="ws__n">1</span>
+          <span class="ws__apps"><span class="ws__app">W</span><span class="ws__app">W</span><span class="ws__app">C</span></span>
+        </button>
+        <button class="ws__cell"><span class="ws__n">2</span><span class="ws__apps"><span class="ws__app">D</span></span></button>
+        <button class="ws__cell"><span class="ws__n">3</span><span class="ws__empty">Empty</span></button>
+        <button class="ws__cell"><span class="ws__n">4</span><span class="ws__apps"><span class="ws__app">S</span><span class="ws__app">f</span></span></button>
+        <button class="ws__cell"><span class="ws__n">5</span><span class="ws__empty">Empty</span></button>
+        <button class="ws__cell"><span class="ws__n">6</span><span class="ws__empty">Empty</span></button>
+        <button class="ws__cell"><span class="ws__n">7</span><span class="ws__empty">Empty</span></button>
+        <button class="ws__cell"><span class="ws__n">8</span><span class="ws__empty">Empty</span></button>
+        <button class="ws__cell"><span class="ws__n">9</span><span class="ws__empty">Empty</span></button>
+      </div>
+    </section>
+
+  </div>
+</div>
+
+<script>
+  // Mockup-only tab switching, so the four panes can actually be reviewed.
+  const tabs = [...document.querySelectorAll('.tab')];
+  const panes = [...document.querySelectorAll('.pane')];
+  function show(name) {
+    for (const t of tabs) t.setAttribute('aria-selected', String(t.dataset.tab === name));
+    for (const p of panes) {
+      if (p.dataset.pane === name) p.setAttribute('data-active', '');
+      else p.removeAttribute('data-active');
+    }
+  }
+  for (const t of tabs) t.addEventListener('click', () => show(t.dataset.tab));
+
+  // Mockup convenience: #media / #performance / #workspaces opens straight to
+  // that pane, so each can be screenshotted for review without clicking.
+  const initial = location.hash.replace("#", "");
+  if (tabs.some((t) => t.dataset.tab === initial)) show(initial);
+</script>
+</body>
+</html>

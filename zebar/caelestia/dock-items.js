@@ -1,28 +1,25 @@
-// Turns the komorebi provider's workspace tree into the flat, app-grouped
-// list the dock renders. Direct user feedback: the Windows taskbar should be
-// replaced by something that keeps "only opened apps on it" and matches the
-// left bar.
+// Builds the dock's app list by MERGING TWO SOURCES, because neither one
+// knows about all the windows on its own.
 //
-// Pure and DOM-free, so the shape-walking -- which is where this gets fiddly,
-// because a window can live in four different places in that tree -- is
-// assertable against real captured provider output in
-// tests/js/dockItems.test.mjs.
+// Direct user feedback: "the taskbar should also show hidden and ignored apps
+// as well". The dock was originally built on komorebi's provider alone, which
+// cannot satisfy that, and the two gaps have different causes:
 //
-// The tree, read live off this machine rather than assumed:
+//   * IGNORED apps -- anything matched by ~/komorebi.json's ignore_rules
+//     (PowerToys, Taskmgr, Lively, foobar2000 on this machine) is not in
+//     komorebi's model at all, so no amount of reading its state finds them.
+//     tools/window-list.exe enumerates the OS's own alt-tab windows and does.
 //
-//   focusedWorkspace.tilingContainers[] -> .windows[]   normal tiled windows
-//   focusedWorkspace.floatingWindows[]                  floated windows
-//   focusedWorkspace.maximizedWindow                    a single maximized one
-//   focusedWorkspace.monocleContainer -> .windows[]     monocle mode
+//   * HIDDEN apps -- windows on a workspace that is not currently displayed.
+//     komorebi hides these at the OS level, so IsWindowVisible is false and
+//     window-list.exe cannot see them either. Verified live rather than
+//     assumed: with Chrome on another workspace, window-list returned only
+//     foobar2000 and WezTerm. komorebi's allWorkspaces DOES have them.
 //
-// A window object is { id, class, exe, hwnd, title, role, subrole, iconPath }.
-// Only `exe`, `hwnd` and `title` are used here; `iconPath` is always null on
-// this build (checked), which is why icons come from tools/app-icon.exe
-// instead.
+// So: komorebi supplies every managed window across every workspace, and
+// window-list supplies everything komorebi is not managing. Merged and grouped
+// per executable, that is the full taskbar set.
 
-// Windows that are on screen but are not "apps" in the taskbar sense. The bar
-// and its flyouts are themselves windows, and a dock that listed itself would
-// be both silly and, for the flyouts, flickery -- they appear and disappear.
 const HIDDEN_EXES = new Set(['zebar.exe']);
 
 function windowsOfContainer(container) {
@@ -30,7 +27,9 @@ function windowsOfContainer(container) {
   return container.windows.filter(Boolean);
 }
 
-// Every window on a workspace, from all four places komorebi can put one.
+// Every window on one workspace, from all four places komorebi can put one:
+// tiling containers, floating windows, a maximized window, or a monocle
+// container.
 export function workspaceWindows(workspace) {
   if (!workspace || typeof workspace !== 'object') return [];
   const out = [];
@@ -44,22 +43,25 @@ export function workspaceWindows(workspace) {
   if (workspace.maximizedWindow) out.push(workspace.maximizedWindow);
   out.push(...windowsOfContainer(workspace.monocleContainer));
 
-  // A maximized or monocled window can also still appear in tilingContainers
-  // depending on how it got there, so dedupe by hwnd -- otherwise the dock
-  // shows a phantom second copy of whatever is currently maximized.
-  const seen = new Set();
-  return out.filter((w) => {
-    if (!w || typeof w.exe !== 'string' || w.exe === '') return false;
-    const key = w.hwnd ?? `${w.exe}:${w.title}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+  return out.filter((w) => w && typeof w.exe === 'string' && w.exe !== '');
 }
 
-// Which exe currently has focus, so the dock can mark it. focusedContainerIndex
-// indexes tilingContainers, NOT a flat window list -- an easy and silent
-// off-by-one if you assume otherwise.
+// Every managed window on EVERY workspace -- which is what makes windows on
+// other workspaces ("hidden") appear in the dock. Falls back to the focused
+// workspace alone if allWorkspaces is missing, so an older provider shape
+// degrades to the previous behaviour rather than to nothing.
+export function managedWindows(komorebi) {
+  const all = komorebi?.allWorkspaces;
+  const spaces = Array.isArray(all) && all.length ? all : [komorebi?.focusedWorkspace];
+  const out = [];
+  for (const space of spaces) out.push(...workspaceWindows(space));
+  return out;
+}
+
+// Which exe currently has focus per komorebi. focusedContainerIndex indexes
+// tilingContainers, NOT a flat window list -- an easy and silent off-by-one.
+// Only used as a fallback: window-list reports the real foreground window,
+// which is authoritative and also covers ignored apps.
 export function focusedExe(workspace) {
   if (!workspace) return null;
   if (workspace.maximizedWindow?.exe) return workspace.maximizedWindow.exe.toLowerCase();
@@ -74,58 +76,121 @@ export function focusedExe(workspace) {
   return windows[0].exe.toLowerCase();
 }
 
-// Groups windows by executable, the way a taskbar with combined buttons does.
-// One icon per app, with a count when an app has several windows -- which is
-// the common case here (two WezTerm windows, several Chrome windows).
-//
-// Order is FIRST-APPEARANCE, not alphabetical: a dock whose icons re-sort
-// themselves as windows open and close is unusable, because the thing you are
-// aiming at moves. First appearance follows komorebi's own container order,
-// which is stable for as long as the windows are.
-export function dockItems(komorebi, { hidden = HIDDEN_EXES } = {}) {
-  const workspace = komorebi?.focusedWorkspace;
-  const windows = workspaceWindows(workspace);
-  const focused = focusedExe(workspace);
+// Parses tools/window-list.exe's stdout. Never throws: it is another process's
+// output and can be empty or truncated if it is killed mid-write.
+export function parseWindowList(stdout) {
+  if (typeof stdout !== 'string' || stdout.trim() === '') return [];
+  let parsed;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch (e) {
+    return [];
+  }
+  if (!parsed || !Array.isArray(parsed.windows)) return [];
+  return parsed.windows
+    .filter((w) => w && typeof w.exe === 'string' && w.exe !== '' && Number.isFinite(Number(w.hwnd)))
+    .map((w) => ({
+      hwnd: Number(w.hwnd),
+      exe: w.exe,
+      title: typeof w.title === 'string' ? w.title : '',
+      minimized: Boolean(w.minimized),
+      focused: Boolean(w.focused),
+    }));
+}
 
+// Groups both sources into one entry per executable, the way a taskbar with
+// combined buttons does.
+//
+// Order is FIRST-APPEARANCE, not alphabetical: a dock whose icons re-sort as
+// windows open and close is unusable, because the thing you are aiming at
+// moves. komorebi's windows come first (they are the ones in the tiling order
+// the user arranged), then anything only the OS knows about.
+export function dockItems(komorebi, windowList = [], { hidden = HIDDEN_EXES } = {}) {
   const byExe = new Map();
-  for (const w of windows) {
-    const exe = w.exe.toLowerCase();
-    if (hidden.has(exe)) continue;
-    let item = byExe.get(exe);
+
+  const add = (exe, { hwnd = null, title = '', focused = false, minimized = false } = {}) => {
+    const key = String(exe).toLowerCase();
+    if (hidden.has(key)) return;
+    let item = byExe.get(key);
     if (!item) {
-      item = { exe: w.exe, key: exe, count: 0, titles: [], focused: false };
-      byExe.set(exe, item);
+      item = { exe, key, count: 0, titles: [], focused: false, minimized: true, hwnd: null };
+      byExe.set(key, item);
     }
     item.count += 1;
-    if (typeof w.title === 'string' && w.title !== '') item.titles.push(w.title);
-    if (focused && exe === focused) item.focused = true;
+    if (title) item.titles.push(title);
+    if (focused) item.focused = true;
+    // An app counts as minimized only when EVERY one of its windows is; one
+    // restored window means the app is on screen somewhere.
+    if (!minimized) item.minimized = false;
+    if (item.hwnd === null && hwnd !== null) item.hwnd = hwnd;
+  };
+
+  const komorebiFocus = focusedExe(komorebi?.focusedWorkspace);
+  for (const w of managedWindows(komorebi)) {
+    add(w.exe, {
+      hwnd: Number.isFinite(Number(w.hwnd)) ? Number(w.hwnd) : null,
+      title: typeof w.title === 'string' ? w.title : '',
+      focused: komorebiFocus !== null && w.exe.toLowerCase() === komorebiFocus,
+      minimized: false,
+    });
   }
+
+  // Only add OS windows for apps komorebi did not already account for.
+  // Counting both would double every managed window, since window-list sees
+  // the ones on the displayed workspace too.
+  const known = new Set(byExe.keys());
+  for (const w of windowList) {
+    if (known.has(w.exe.toLowerCase())) {
+      // Still let the real foreground window win the focus marker: it is
+      // authoritative, and it is the only source that can mark an IGNORED app
+      // as focused.
+      if (w.focused) {
+        const item = byExe.get(w.exe.toLowerCase());
+        if (item) item.focused = true;
+      }
+      continue;
+    }
+    add(w.exe, { hwnd: w.hwnd, title: w.title, focused: w.focused, minimized: w.minimized });
+  }
+
+  // Exactly one item can be focused. window-list's foreground window is the
+  // truth; komorebi's guess is dropped when the two disagree.
+  const osFocused = windowList.find((w) => w.focused);
+  if (osFocused) {
+    const winner = osFocused.exe.toLowerCase();
+    for (const item of byExe.values()) item.focused = item.key === winner;
+  }
+
   return [...byExe.values()];
 }
 
 // A stable identity for the rendered set, so the dock only rebuilds its DOM
-// when the apps actually change -- not on every provider emit, which would
-// restart the icon fetches and make the row flicker under the cursor.
-// Deliberately ignores titles and window counts... except that it does not:
-// the count is part of the badge, so it has to be here. Titles are not, since
-// they only ever reach a tooltip.
+// when something visible actually changes -- not on every poll, which would
+// restart the icon fetches and flicker the row under the cursor.
 export function dockSignature(items) {
-  return items.map((i) => `${i.key}:${i.count}:${i.focused ? 1 : 0}`).join('|');
+  return items.map((i) => `${i.key}:${i.count}:${i.focused ? 1 : 0}:${i.minimized ? 1 : 0}`).join('|');
 }
 
-// `komorebic eager-focus <exe>` -- "Focus the first managed window matching
-// the given exe". Grouping by exe is what makes this the right call: the dock
-// has one button per app, and this focuses that app. There is no focus-by-hwnd
-// subcommand on this komorebic build (checked against `komorebic --help`).
-export const KOMOREBIC_PATH = 'C:\\Users\\PC\\scoop\\shims\\komorebic.exe';
+export const WINDOW_LIST_PATH =
+  'C:\\Users\\PC\\Documents\\git\\setup\\zebar\\caelestia\\tools\\window-list.exe';
 
-export function focusCommand(exe) {
-  return { program: KOMOREBIC_PATH, args: ['eager-focus', exe] };
+export function listWindowsCommand() {
+  return { program: WINDOW_LIST_PATH, args: ['list'] };
 }
 
-// The dock only ever passes an exe name that came from the provider, but that
-// value still ends up on a command line, so it is validated against the same
-// shape the registered argsRegex allows rather than trusted.
-export function isSafeExeName(exe) {
-  return typeof exe === 'string' && /^[\w.\-]+\.exe$/i.test(exe);
+// Focus by WINDOW HANDLE rather than by exe.
+//
+// The dock used `komorebic eager-focus <exe>` before, which cannot focus what
+// komorebi does not manage -- i.e. exactly the ignored apps this change adds.
+// window-list.exe's own focus verb works for every window, managed or not, and
+// restores it first if minimized.
+export function focusCommand(hwnd) {
+  return { program: WINDOW_LIST_PATH, args: ['focus', String(hwnd)] };
+}
+
+// The handle comes from the helper's own output, but it still ends up on a
+// command line, so it is validated against the shape the registered argsRegex
+// allows rather than trusted.
+export function isSafeHandle(hwnd) {
+  return Number.isInteger(hwnd) && hwnd > 0 && hwnd <= Number.MAX_SAFE_INTEGER;
 }
