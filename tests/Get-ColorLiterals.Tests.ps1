@@ -77,6 +77,11 @@ Describe "The zebar bar's zero-color-literal invariant (I5)" {
         # panel, hover, the secondary --outline detail line and the value
         # column, so it is the likeliest to acquire a literal by accident.
         $script:statusMenuCss = "$PSScriptRoot\..\zebar\caelestia\statusmenu\statusmenu.css"
+        # Taskbar-replacement pass: dock.css is the widget that replaces the
+        # Windows taskbar. Its whole point is matching the bar's own
+        # var(--surface), so a literal here would be exactly the bug the
+        # user asked to have fixed.
+        $script:dockCss = "$PSScriptRoot\..\zebar\caelestia\dock\dock.css"
     }
 
     It "style.css contains zero colour literals" {
@@ -97,6 +102,10 @@ Describe "The zebar bar's zero-color-literal invariant (I5)" {
 
     It "statusmenu.css contains zero colour literals" {
         @(Get-ColorLiterals -Path $script:statusMenuCss).Count | Should -Be 0
+    }
+
+    It "dock.css contains zero colour literals" {
+        @(Get-ColorLiterals -Path $script:dockCss).Count | Should -Be 0
     }
 
     It "fontawesome.css contains zero colour literals" {

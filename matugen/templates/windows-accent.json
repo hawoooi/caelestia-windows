@@ -1,6 +1,6 @@
 {
   "accent": "{{colors.primary.default.hex}}",
-  "taskbar": "{{colors.surface_container.default.hex}}",
+  "taskbar": "{{colors.surface.default.hex}}",
   "surface": "{{colors.surface.default.hex}}",
   "titlebar": "{{colors.surface_container_high.default.hex}}"
 }

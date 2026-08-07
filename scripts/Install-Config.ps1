@@ -331,6 +331,13 @@ ctrl + alt + w                : Start-Process powershell -WindowStyle Hidden -Ar
     # dead pixel while a MISSING one makes the pill's chevron do nothing.
     $statusMenuPreset = 'default'
 
+    # Taskbar-replacement pass: the "dock" widget replaces the Windows
+    # taskbar (open apps only, bottom-left, slide-out on hover). Unlike the
+    # flyouts it is NEVER fully parked -- it keeps a few-pixel hot zone so it
+    # can notice the cursor -- so a missing autostart is immediately obvious
+    # rather than silent: hovering the bottom-left simply does nothing.
+    $dockPreset = 'default'
+
     # The unified "panels" flyout (system tray, and -- as they land -- volume,
     # network, quick settings). Same one-preset, must-autostart-with-the-bar
     # reasoning as layoutmenu/statusmenu above: it parks at 1x1 until a bar
@@ -358,6 +365,7 @@ ctrl + alt + w                : Start-Process powershell -WindowStyle Hidden -Ar
             "would remove startupConfigs entries for caelestia/edges (all presets) from $ZebarSettingsPath"
             "would remove startupConfigs entries for caelestia/layoutmenu (all presets) from $ZebarSettingsPath"
             "would remove startupConfigs entries for caelestia/statusmenu (all presets) from $ZebarSettingsPath"
+            "would remove startupConfigs entries for caelestia/dock (all presets) from $ZebarSettingsPath"
             "would remove startupConfigs entries for caelestia/panels (all presets) from $ZebarSettingsPath"
         } else {
             "would create/verify junction $JunctionLink -> $JunctionTarget"
@@ -366,6 +374,7 @@ ctrl + alt + w                : Start-Process powershell -WindowStyle Hidden -Ar
             "would prune and re-add startupConfigs entries for caelestia/edges ($($edgePresets -join ', ')) in $ZebarSettingsPath -- any stale preset (e.g. the removed bar-link-top/bar-link-bottom) is removed first"
             "would add startupConfigs entry for caelestia/layoutmenu ($layoutMenuPreset) to $ZebarSettingsPath"
             "would add startupConfigs entry for caelestia/statusmenu ($statusMenuPreset) to $ZebarSettingsPath"
+            "would add startupConfigs entry for caelestia/dock ($dockPreset) to $ZebarSettingsPath"
             "would add startupConfigs entry for caelestia/panels ($panelsPreset) to $ZebarSettingsPath"
         }
         return
@@ -380,6 +389,7 @@ ctrl + alt + w                : Start-Process powershell -WindowStyle Hidden -Ar
         Remove-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'edges'
         Remove-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'layoutmenu'
         Remove-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'statusmenu'
+        Remove-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'dock'
         Remove-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'panels'
     } else {
         Set-ManagedJunction -LinkPath $JunctionLink -TargetPath $JunctionTarget | Out-Null
@@ -399,6 +409,7 @@ ctrl + alt + w                : Start-Process powershell -WindowStyle Hidden -Ar
         }
         Set-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'layoutmenu' -Preset $layoutMenuPreset
         Set-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'statusmenu' -Preset $statusMenuPreset
+        Set-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'dock' -Preset $dockPreset
         Set-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'panels' -Preset $panelsPreset
     }
 }
