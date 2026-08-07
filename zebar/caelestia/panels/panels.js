@@ -23,12 +23,18 @@ import { PANELS_CMD_KEY, PANELS_ACK_KEY, createChannel } from '../widget-channel
 import { menuPlacement, isAnchorOnMonitor } from '../flyout-placement.js';
 import { STATUS_ITEMS } from '../status-catalogue.js';
 import { createMixer, sessionsSignature } from '../audio-mixer.js';
+import { createNetStats, formatRate, formatLink } from '../net-stats.js';
 
 // How often the per-app mixer is re-read while the volume panel is open.
 // ONLY while it is open -- see stopMixerPoll. Core Audio has no push
 // notification reachable from here, so this is a genuine poll, and this pack's
 // hard-won rule is that a poll must not exist when nothing is looking at it.
 const MIXER_POLL_MS = 1000;
+
+// The network sampler needs at least one interval before it can report a
+// rate at all, so it is quicker than the mixer -- the panel would otherwise
+// show "--" for a noticeable beat after opening.
+const NET_POLL_MS = 800;
 
 export const MENU_DISMISS_MS = 8000;
 export const PARKED_SIZE = 1;
@@ -63,9 +69,30 @@ function startMixerPoll(fn) {
   mixerTimer = setInterval(() => fn(false), MIXER_POLL_MS);
 }
 
+// Live network sampler. Same non-overlap + poll-only-while-open discipline
+// as the mixer above; see ../net-stats.js.
+const netStats = createNetStats(zebar.shellExec ? zebar : null);
+let netTimer = null;
+function stopNetPoll() {
+  if (netTimer !== null) { clearInterval(netTimer); netTimer = null; }
+  // Forget the previous sample, or reopening the panel would difference
+  // against a minutes-old read and report the whole gap as a current rate.
+  netStats.reset();
+}
+function startNetPoll(fn) {
+  stopNetPoll();
+  fn();
+  netTimer = setInterval(fn, NET_POLL_MS);
+}
+
+// Lets a panel dismiss the whole flyout from inside a builder (the Wi-Fi
+// button hands off to Windows' own picker, so keeping this open over the top
+// of it would be wrong). Set by init().
+let dismissFromPanel = () => {};
+
 // Set by init() so a builder can ask the window to re-fit after its content
-// changes height (apps appearing/disappearing), without reaching into init's
-// closure. No-op until then.
+// changes height (an app row appearing, a rate label widening), without
+// reaching into init's closure. No-op until then.
 let onContentResized = () => {};
 
 // --- tiny DOM helper ------------------------------------------------------
@@ -277,15 +304,66 @@ function buildNetwork(out) {
   status.append(glyph, txt);
   panel.append(status);
 
-  // Current connection only, for now -- the zebar network provider is
-  // read-only (no scan/connect), so the SSID list + connect will arrive on a
-  // `netsh wlan` helper in a later pass.
+  // Live throughput (direct user feedback: "Add network stats like download
+  // and upload in there"). These come from tools/net-stats.exe, NOT from the
+  // zebar provider: its transmitSpeed/receiveSpeed are the negotiated LINK
+  // RATE, not traffic (866700000 on this Wi-Fi 6E adapter is exactly 866.7
+  // Mbps). Nothing in the provider counts bytes.
+  const rates = el('div', 'net-rates');
+  const downCell = el('div', 'net-rate');
+  const downGlyph = el('span', 'net-rate__glyph fa-solid', '\uF063');   // arrow-down
+  const downVal = el('span', 'net-rate__val', '--');
+  downCell.append(downGlyph, downVal);
+  const upCell = el('div', 'net-rate');
+  const upGlyph = el('span', 'net-rate__glyph fa-solid', '\uF062');     // arrow-up
+  const upVal = el('span', 'net-rate__val', '--');
+  upCell.append(upGlyph, upVal);
+  rates.append(downCell, upCell);
+  panel.append(rates);
+
+  // The escape hatch for everything this pack cannot do itself. Scanning for
+  // networks needs Windows Location services (machine consent reads Deny here;
+  // netsh reports an elevation error without it), so rather than ask the user
+  // to loosen a privacy setting for a bar widget, this hands off to the OS
+  // picker that already holds the permission.
+  const actions = el('div', 'net-actions');
+  const wifiBtn = el('button', 'net-btn');
+  wifiBtn.type = 'button';
+  wifiBtn.append(el('span', 'net-btn__glyph fa-solid', '\uF1EB'), el('span', null, 'Wi-Fi networks'));
+  wifiBtn.title = 'Open the Windows network picker (scan, signal, connect)';
+  wifiBtn.addEventListener('click', () => { netStats.openWifiSettings(); dismissFromPanel(); });
+  actions.append(wifiBtn);
+  panel.append(actions);
+
+  async function pollStats() {
+    const sample = await netStats.sample();
+    if (!sample) return;
+    // Prefer the helper's own name (the real SSID, via the Network List
+    // Manager) over the zebar provider's, which reports the ADAPTER name
+    // ("Wi-Fi") rather than the network's.
+    if (sample.stats.name) {
+      name.textContent = sample.stats.name;
+      const bits = [sample.stats.ipv4, formatLink(sample.stats.linkBps)].filter(Boolean);
+      detail.textContent = bits.join('  ·  ');
+      detail.style.display = bits.length ? '' : 'none';
+    }
+    downVal.textContent = formatRate(sample.rates ? sample.rates.down : null);
+    upVal.textContent = formatRate(sample.rates ? sample.rates.up : null);
+    onContentResized();
+  }
+
+  startNetPoll(pollStats);
+
   function update(o) {
     glyph.textContent = STATUS_ITEMS.network.glyph(o);
-    name.textContent = STATUS_ITEMS.network.value(o) || 'Disconnected';
-    const d = STATUS_ITEMS.network.detail(o);
-    detail.textContent = d || '';
-    detail.style.display = d ? '' : 'none';
+    // Only used until the first helper sample lands, and as the fallback when
+    // the helper cannot read an adapter at all.
+    if (!name.textContent) {
+      name.textContent = STATUS_ITEMS.network.value(o) || 'Disconnected';
+      const d = STATUS_ITEMS.network.detail(o);
+      detail.textContent = d || '';
+      detail.style.display = d ? '' : 'none';
+    }
   }
   update(out);
   return update;
@@ -365,12 +443,14 @@ async function init() {
   // Lets a panel builder ask for a re-fit when its own content changes
   // size (the mixer gaining or losing an app row).
   onContentResized = () => { fit(false).catch((e) => console.warn('panels: could not resize', e)); };
+  dismissFromPanel = () => { dismiss(); };
 
   function buildPanel(panelId) {
     const builder = BUILDERS[panelId];
     if (!builder) { console.warn('panels: unknown panel', panelId); return false; }
     // Switching panels must stop whatever the outgoing one was polling.
     stopMixerPoll();
+    stopNetPoll();
     currentPanel = panelId;
     currentUpdate = builder(providers.outputMap) || (() => {});
     return true;
@@ -389,6 +469,7 @@ async function init() {
     clearDismissTimer();
     if (!open) return;
     stopMixerPoll();
+    stopNetPoll();
     open = false;
     document.body.classList.remove('open');
     if (notify) channel.post({ closed: true });

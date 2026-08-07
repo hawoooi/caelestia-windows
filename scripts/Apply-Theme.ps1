@@ -663,10 +663,10 @@ function Restart-ZebarWidgets {
     # fullscreen-detect.exe is -- it inherits the same CreateProcess
     # handle-inheritance risk, so it gets the same reap, not a separate
     # bespoke check.
-    $orphans = Get-Process fullscreen-detect, app-icon, audio-mixer -ErrorAction SilentlyContinue
+    $orphans = Get-Process fullscreen-detect, app-icon, audio-mixer, net-stats -ErrorAction SilentlyContinue
     if ($orphans) {
         $orphanIds = ($orphans | ForEach-Object { "$($_.ProcessName) (PID $($_.Id))" }) -join ', '
-        Write-Warning "Reaping $(@($orphans).Count) surviving fullscreen-detect.exe/app-icon.exe/audio-mixer.exe process(es) ($orphanIds) before restarting zebar widgets -- see docs/zebar-bar.md's port-$AssetServerPort troubleshooting entry. This is expected occasionally (a poll outliving its parent zebar), not itself a sign of a new bug."
+        Write-Warning "Reaping $(@($orphans).Count) surviving fullscreen-detect.exe/app-icon.exe/audio-mixer.exe/net-stats.exe process(es) ($orphanIds) before restarting zebar widgets -- see docs/zebar-bar.md's port-$AssetServerPort troubleshooting entry. This is expected occasionally (a poll outliving its parent zebar), not itself a sign of a new bug."
         $orphans | Stop-Process -Force -ErrorAction SilentlyContinue
         Start-Sleep -Milliseconds 200
     }

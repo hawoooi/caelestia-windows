@@ -255,3 +255,78 @@ body.open .panel-flyout {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* ---- network stats + Wi-Fi handoff --------------------------------------- */
+/* Direct user feedback: "Add network stats like download and upload in there"
+   and "put a button that shortcuts to the actual wifi scanning page in windows
+   settings". The rates come from tools/net-stats.exe (the zebar provider's
+   transmitSpeed is the LINK rate, not traffic); the button hands off to
+   Windows' own picker because scanning needs Location services this machine
+   has set to Deny. */
+
+.net-rates {
+  display: flex;
+  gap: var(--space-sm);
+  padding: 0 var(--space-sm) var(--space-sm);
+}
+
+.net-rate {
+  flex: 1 1 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm);
+  border-radius: var(--radius-sm);
+  background: var(--surface-container-high);
+}
+
+.net-rate__glyph {
+  font-size: 12px;
+  line-height: 1;
+  color: var(--primary);
+}
+
+/* Tabular figures and a floor width so the two cells stop swapping size as
+   the rate crosses digit and unit boundaries -- otherwise the whole flyout
+   re-fits its window every second while traffic flows. */
+.net-rate__val {
+  font-size: 13px;
+  line-height: 1;
+  color: var(--on-surface);
+  font-variant-numeric: tabular-nums;
+  min-width: 72px;
+  text-align: right;
+}
+
+.net-actions {
+  padding: 0 var(--space-sm) var(--space-sm);
+}
+
+.net-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--surface-container-high);
+  color: var(--on-surface);
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+
+.net-btn:hover {
+  background: var(--primary);
+  color: var(--on-primary);
+}
+
+/* Only font-SIZE here; `.fa-solid` owns family/weight (the .bar-btn lesson). */
+.net-btn__glyph {
+  font-size: 13px;
+  line-height: 1;
+}
