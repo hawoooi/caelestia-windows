@@ -46,6 +46,12 @@ export const CMD_KEY = 'caelestia.layoutMenu.cmd';
 export const ACK_KEY = 'caelestia.layoutMenu.ack';
 export const STATUS_CMD_KEY = 'caelestia.statusMenu.cmd';
 export const STATUS_ACK_KEY = 'caelestia.statusMenu.ack';
+// The unified panels flyout (system tray, volume, network, quick settings).
+// One key pair for the one flyout, even though several bar triggers drive it:
+// each trigger posts { open, panel: '<id>', ...anchor } and the flyout renders
+// the requested panel. See panels/panels.js.
+export const PANELS_CMD_KEY = 'caelestia.panels.cmd';
+export const PANELS_ACK_KEY = 'caelestia.panels.ack';
 
 // `storage` events do NOT fire when setItem writes a value byte-identical
 // to the one already stored (HTML spec: the event is only fired when the

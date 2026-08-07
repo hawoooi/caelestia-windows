@@ -1,0 +1,257 @@
+/* Structural stylesheet for the panels flyout (system tray, and -- as they
+   land -- volume, network, quick settings). Like the bar's other stylesheets
+   this file must contain ZERO colour literals: every colour comes from
+   ../bar/theme.css through a var(--...) token, enforced by
+   tests/Get-ColorLiterals.Tests.ps1. */
+
+:root {
+  --space-sm: 6px;
+  --space-md: 10px;
+  --space-lg: 16px;
+  --radius-lg: 18px;
+  --radius-sm: 10px;
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --dur: 300ms;   /* keep in step with panels.js FADE_MS */
+  --slide: 10px;  /* keep in step with flyout-placement.js SLIDE_PX */
+  /* Tray tiles: sized to sit close to the ~16px Windows tray icons rather than
+     looming at a bar-glyph size. 30px tile / 18px icon reads as a real tray. */
+  --tile: 30px;
+  --gap-tight: 4px;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+}
+
+/* Measured inside a 1x1 window to size that window to it (panels.js), so the
+   panel's layout size must depend only on its content: position: absolute and
+   width: max-content, same contract statusmenu.css documents. */
+.panel-flyout {
+  position: absolute;
+  top: 0;
+  left: var(--slide);
+  width: max-content;
+  background: var(--surface-container);
+  border-radius: var(--radius-lg);
+  color: var(--on-surface);
+  padding: var(--space-md);
+  font-family: "0xProto Nerd Font", monospace;
+
+  opacity: 0;
+  transform: translateX(calc(-1 * var(--slide)));
+  transition: opacity var(--dur) var(--ease), transform var(--dur) var(--ease);
+}
+
+body.open .panel-flyout {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.panel-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-lg);
+  margin-bottom: var(--space-sm);
+  padding: 0 var(--space-sm);
+}
+.panel-head h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--on-surface);
+}
+.panel-head .sub {
+  font-size: 11px;
+  color: var(--outline);
+}
+
+/* ---- system tray -------------------------------------------------------- */
+
+/* Five columns, mirroring the Windows hidden-icons flyout the tray replaces,
+   so a dozen-odd icons read as three tidy rows rather than a tall 4-wide
+   column. Tight gap -- a real tray packs its icons, it does not space them
+   out like bar buttons. */
+.tray-grid {
+  display: grid;
+  grid-template-columns: repeat(5, var(--tile));
+  gap: var(--gap-tight);
+}
+.tile {
+  width: var(--tile);
+  height: var(--tile);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  cursor: pointer;
+  transition: background var(--dur) var(--ease), transform var(--dur) var(--ease);
+}
+.tile:hover { background: var(--surface-container-high); }
+.tile:active { transform: scale(0.9); }
+/* The tray icon is a real per-app image handed over by the systray provider
+   (a blob: URL), not a Font Awesome glyph -- pointer-events off it so a click
+   always lands on the .tile button, never the child <img>. */
+.tile img {
+  width: 18px;
+  height: 18px;
+  display: block;
+  pointer-events: none;
+}
+
+.tray-empty {
+  font-size: 12px;
+  color: var(--outline);
+  padding: var(--space-sm) var(--space-md);
+}
+
+/* ---- volume ------------------------------------------------------------- */
+
+.vol-master {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-sm);
+  min-width: 220px;
+}
+/* Mute toggle. Only font-SIZE is set here; `.fa-solid` owns family/weight, and
+   a `font:` shorthand would silently reset them (the .bar-btn lesson). */
+.vol-mute {
+  flex: 0 0 auto;
+  width: 24px; height: 24px;
+  display: flex; align-items: center; justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--on-surface);
+  font-size: 16px;
+  line-height: 1;
+  padding: 0;
+  cursor: pointer;
+}
+.vol-mute:hover { color: var(--primary); }
+/* Native range, tinted with accent-color -- keeps this file colour-literal
+   free (accent-color takes a var()) while still colouring track-fill + thumb
+   in the theme's primary. */
+.vol-slider {
+  flex: 1;
+  height: 6px;
+  cursor: pointer;
+  accent-color: var(--primary);
+}
+.vol-val {
+  flex: 0 0 auto;
+  min-width: 42px;
+  text-align: right;
+  font-size: 13px;
+  color: var(--on-surface-variant);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- network ------------------------------------------------------------ */
+
+.net-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-sm);
+  min-width: 200px;
+}
+.net-glyph {
+  flex: 0 0 auto;
+  width: 24px;
+  text-align: center;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--primary);
+}
+.net-txt {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.net-name {
+  font-size: 14px;
+  color: var(--on-surface);
+  white-space: nowrap;
+}
+.net-detail {
+  font-size: 11px;
+  color: var(--outline);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- per-app mixer rows -------------------------------------------------- */
+/* Direct user feedback: "The volume panel is too basic." The master row above
+   is zebar's audio provider; everything below it comes from
+   tools/audio-mixer.exe, because the provider has no concept of per-app
+   sessions. Laid out to match the reference: icon + name on the left, slider
+   in the middle, level right-aligned in a tabular column. */
+
+.vol-sep {
+  height: 1px;
+  margin: var(--space-sm) var(--space-sm);
+  background: var(--surface-container-high);
+}
+
+.vol-apps {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  /* The list is the tallest thing in this panel and the one part that grows
+     without bound (one row per sounding app). Capping it keeps the flyout from
+     running off a 1440px screen when a dozen apps are playing; the window
+     re-fits to the content below that cap. */
+  max-height: 340px;
+  overflow-y: auto;
+}
+
+.vol-apps--empty { display: none; }
+
+.vol-app {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-sm);
+  border-radius: var(--radius-sm);
+}
+
+.vol-app:hover { background: var(--surface-container-high); }
+
+/* Fixed width so every slider starts at the same x regardless of app-name
+   length -- the reference's strongest visual cue is that the sliders form one
+   clean column. */
+.vol-app__meta {
+  flex: 0 0 132px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+
+.vol-app__icon {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+}
+
+/* Some processes refuse MainModule access (elevated ones -- LEDKeeper2 on this
+   machine), so the helper legitimately returns no icon. Reserve the space
+   rather than letting the name shift left, so the column stays aligned. */
+.vol-app__icon--missing { visibility: hidden; }
+
+.vol-app__name {
+  font-size: 13px;
+  color: var(--on-surface);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

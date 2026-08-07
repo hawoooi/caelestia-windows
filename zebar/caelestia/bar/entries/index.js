@@ -18,6 +18,9 @@ import './vesktop.js';
 // -- the retired copy had already drifted (it picked a volume glyph purely
 // by level, ignoring the device's isMuted flag).
 import './statusCluster.js';
+// The system-tray trigger: a bar button that opens the panels flyout's 'tray'
+// panel. Independent of statusCluster (no shared state) -- just another entry.
+import './trayToggle.js';
 
 register('spacer', () => ({
   el: Object.assign(document.createElement('div'), { className: 'entry--spacer' }),

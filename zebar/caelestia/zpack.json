@@ -298,6 +298,48 @@
                                                            }
                                         }
                                     ]
+                    },
+                    {
+                        "name":  "panels",
+                        "htmlPath":  "./panels/index.html",
+                        "zOrder":  "top_most",
+                        "shownInTaskbar":  false,
+                        "focused":  false,
+                        "resizable":  true,
+                        "transparent":  true,
+                        "includeFiles":  [
+                                             "*"
+                                         ],
+                        "caching":  {
+                                        "defaultDuration":  0,
+                                        "rules":  [
+
+                                                  ]
+                                    },
+                        "privileges":  {
+                                           "shellCommands":  [
+                                                                 {
+                                                                     "program":  "C:\\Users\\PC\\Documents\\git\\setup\\zebar\\caelestia\\tools\\audio-mixer.exe",
+                                                                     "argsRegex":  "^(list( --no-icons)?|set \\d{1,7} \\d{1,3}|mute \\d{1,7} [01])$"
+                                                                 }
+                                                             ]
+                                       },
+                        "presets":  [
+                                        {
+                                            "name":  "default",
+                                            "anchor":  "top_left",
+                                            "offsetX":  "0px",
+                                            "offsetY":  "0px",
+                                            "width":  "1px",
+                                            "height":  "1px",
+                                            "monitorSelection":  {
+                                                                     "type":  "all"
+                                                                 },
+                                            "dockToEdge":  {
+                                                               "enabled":  false
+                                                           }
+                                        }
+                                    ]
                     }
                 ]
 }

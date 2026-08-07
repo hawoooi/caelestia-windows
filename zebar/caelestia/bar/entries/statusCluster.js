@@ -1,6 +1,6 @@
 import { register, create } from './registry.js';
 import { statusRows } from '../../status-catalogue.js';
-import { STATUS_CMD_KEY, STATUS_ACK_KEY, createChannel } from '../../widget-channel.js';
+import { STATUS_CMD_KEY, STATUS_ACK_KEY, PANELS_CMD_KEY, PANELS_ACK_KEY, createChannel } from '../../widget-channel.js';
 
 // Change 1 (lower-cluster restyle): Caelestia's visual language groups
 // related lower-bar items onto ONE elevated rounded surface, not one boxed
@@ -29,12 +29,13 @@ import { STATUS_CMD_KEY, STATUS_ACK_KEY, createChannel } from '../../widget-chan
 // affordance that opens an empty panel would be exactly the lie that rule
 // exists to prevent.
 
-// FA6 Free Solid: chevron-right () collapsed, chevron-left ()
-// while open -- the panel opens to the RIGHT of the bar, so the glyph points
-// the way the panel will appear and then back toward the bar to close it.
-// \uXXXX escapes, never pasted PUA glyphs (CLAUDE.md's Nerd Font rule).
-export const CHEVRON_CLOSED = '\uF054';
-export const CHEVRON_OPEN = '\uF053';
+// FA6 Free Solid gauge-high (U+F625) -- a performance/monitor gauge for the
+// system-stats dropdown (cpu/memory/disk/battery). Deliberately NOT a chevron:
+// the tray trigger below now owns the > / < chevrons, so a chevron here would
+// make the two adjacent controls look identical. Static glyph -- the panel
+// appearing is the open/close feedback, and the title still toggles.
+// \uXXXX escape, verified present in the vendored fa-solid webfont.
+export const MONITOR_GLYPH = '\uF625';
 
 // Pure open/closed state for the dropdown, kept DOM-free and localStorage-
 // free so it can be driven directly in tests -- same split as
@@ -85,8 +86,8 @@ register('statusCluster', (ctx) => {
     toggle = document.createElement('button');
     toggle.type = 'button';
     toggle.className = 'status-more bar-btn fa-solid';
-    toggle.textContent = CHEVRON_CLOSED;
-    toggle.title = 'More status';
+    toggle.textContent = MONITOR_GLYPH;
+    toggle.title = 'System stats';
     el.appendChild(toggle);
   }
 
@@ -111,6 +112,60 @@ register('statusCluster', (ctx) => {
     };
   }
 
+  // --- panel triggers -------------------------------------------------------
+  // Pinned glyphs that map to a panel (network -> the network panel, volume ->
+  // the volume panel) become clickable: a click opens that panel in the shared
+  // `panels` flyout, anchored beside the glyph. This is separate from the
+  // dropdown chevron above -- that drives the statusmenu readout (cpu/mem/...),
+  // this drives the interactive panels. A pinned glyph with no panel stays a
+  // plain, non-interactive readout, so the affordance never lies.
+  const PANEL_FOR = { network: 'network', volume: 'volume' };
+  const panelsChannel = createChannel(localStorage, window, {
+    sendKey: PANELS_CMD_KEY,
+    receiveKey: PANELS_ACK_KEY,
+  });
+  let openPanel = null;
+
+  function glyphAnchor(node) {
+    const rect = node.getBoundingClientRect();
+    const scale = window.devicePixelRatio || 1;
+    return {
+      anchorX: Math.round(winOrigin.x + window.innerWidth * scale),
+      anchorY: Math.round(winOrigin.y + (rect.top + rect.height / 2) * scale),
+    };
+  }
+  function onPanelDocClick(e) {
+    // Clicks inside the pill's pinned row switch panels (handled by the glyph's
+    // own listener); a click anywhere else closes.
+    if (!pinnedEl.contains(e.target)) {
+      if (openPanel !== null) { openPanel = null; panelsChannel.post({ open: false }); renderPinned(lastOut); }
+      document.removeEventListener('click', onPanelDocClick, true);
+    }
+  }
+  function togglePanel(panelId, node) {
+    if (openPanel === panelId) {
+      openPanel = null;
+      panelsChannel.post({ open: false });
+      document.removeEventListener('click', onPanelDocClick, true);
+    } else {
+      openPanel = panelId;
+      panelsChannel.post({ open: true, panel: panelId, ...glyphAnchor(node) });
+      document.addEventListener('click', onPanelDocClick, true);
+    }
+    renderPinned(lastOut);
+  }
+  // The flyout acks a real close (its dismiss timer, or the "I just restarted"
+  // message it posts on startup). Any ack means "not open any more" -- clear
+  // the active tint and the stuck flag, matching how the chevron handles its
+  // own ack above.
+  panelsChannel.subscribe(() => {
+    if (openPanel !== null) {
+      openPanel = null;
+      document.removeEventListener('click', onPanelDocClick, true);
+      renderPinned(lastOut);
+    }
+  });
+
   // The most recent provider output, so the open dropdown can be refreshed
   // on every tick without the tick handler needing to know whether it is
   // open (update() below just calls postRows when it is).
@@ -126,8 +181,8 @@ register('statusCluster', (ctx) => {
   function syncToggleGlyph() {
     if (!toggle) return;
     const open = controller.isOpen();
-    toggle.textContent = open ? CHEVRON_OPEN : CHEVRON_CLOSED;
-    toggle.title = open ? 'Hide status' : 'More status';
+    toggle.textContent = MONITOR_GLYPH;
+    toggle.title = open ? 'Hide system stats' : 'System stats';
   }
 
   function onDocumentClick(e) {
@@ -160,13 +215,25 @@ register('statusCluster', (ctx) => {
   function renderPinned(out) {
     const rows = statusRows(pinned, out);
     pinnedEl.replaceChildren(...rows.map((row) => {
-      const d = document.createElement('div');
-      d.className = 'status-icons__glyph fa-solid';
-      d.textContent = row.glyph;
+      const panelId = PANEL_FOR[row.id];
+      // A pinned glyph that maps to a panel is a real button (clickable
+      // affordance, honest per style.css's .bar-btn rule); one that does not
+      // stays a plain readout div.
+      const node = document.createElement(panelId ? 'button' : 'div');
+      node.className = 'status-icons__glyph fa-solid' + (panelId ? ' status-icons__glyph--btn' : '');
+      node.textContent = row.glyph;
       // The pill has no room for a label, so the value lives in the tooltip
       // -- the one place a pinned icon can still say what it means.
-      d.title = row.value ? `${row.label}: ${row.value}` : row.label;
-      return d;
+      node.title = row.value ? `${row.label}: ${row.value}` : row.label;
+      if (panelId) {
+        node.type = 'button';
+        if (openPanel === panelId) node.classList.add('is-active');
+        node.addEventListener('click', (e) => {
+          e.stopPropagation();
+          togglePanel(panelId, node);
+        });
+      }
+      return node;
     }));
   }
 

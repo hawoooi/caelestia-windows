@@ -122,7 +122,12 @@ body.fullscreen-hidden #bar { display: none; }
   justify-content: center;
   width: var(--hit-size);
   height: var(--hit-size);
-  font-size: var(--icon-size);
+  /* Optical size bump (+2px). Measured live: at the shared --icon-size (18px)
+     the ghost glyph renders the SAME height (18px) as the power/layout glyphs
+     but a narrower silhouette (14px wide vs 18px), so it read a touch smaller
+     despite being nominally equal. 20px balances its visual mass against the
+     other bar icons without actually making it taller than they are by much. */
+  font-size: calc(var(--icon-size) + 2px);
   line-height: 1;
 }
 
@@ -189,6 +194,20 @@ body.fullscreen-hidden #bar { display: none; }
   font-size: var(--icon-size);
   line-height: 1;
 }
+/* A pinned glyph that opens a panel (statusCluster's PANEL_FOR: network,
+   volume) is a real button, so reset the button chrome. NOT font-family --
+   `.fa-solid` owns that, and a `font:` shorthand here would silently reset it
+   (the hard-won .bar-btn lesson). The active tint marks the open panel. */
+.status-icons__glyph--btn {
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  color: inherit;
+  transition: color var(--dur) var(--ease);
+}
+.status-icons__glyph--btn:hover { color: var(--on-surface); }
+.status-icons__glyph--btn.is-active { color: var(--primary); }
 .status-icons__battery {
   font-size: 0.7em;
   line-height: 1;
