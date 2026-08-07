@@ -40,18 +40,27 @@ import { startFullscreenWatch } from '../fullscreen.js';
 // says how much of placeWindow's permanent footprint costs nothing.
 export const DEAD_STRIP_H = 16;
 
-// The dock's height -- which is also, because the window is static, exactly
-// how far up the screen the hover trigger reaches AND how tall the permanent
-// click-dead footprint is. Those three being one number is why it is worth
-// keeping small.
+// How tall the dock itself is: purely a visual size, tuned together with the
+// icon sizing in dock.css.
 //
-// Direct user feedback: "we should put the activation a little lower since it
-// activates wayy too soon and might block the way for some apps". At 56 the
-// dock armed 56px above the bottom edge; at 40 it arms at y = screen - 40,
-// and since DEAD_STRIP_H (16px) of that was already dead territory, the part
-// that actually costs a click drops from 40px to 24px. The icon sizing in
-// dock.css is tuned to this number and has to move with it.
-export const DOCK_H = 40;
+// This used to double as the hover trigger's reach, because hover was read off
+// <body> and the body fills the window. Direct user feedback: "can we keep the
+// same size but change the activation range?" -- they are two different
+// concerns and are now two different numbers. See TRIGGER_H.
+export const DOCK_H = 56;
+
+// How far up from the bottom of the screen the dock arms.
+//
+// Independent of DOCK_H: the trigger is its own element pinned to the bottom
+// of the window (see #trigger in index.html), so the dock can be as tall as it
+// likes while still only arming near the very bottom edge. The user settled on
+// this range as "perfect" at 40px, which is why it is pinned to that rather
+// than derived from anything.
+//
+// Only OPENING uses it. Closing still watches the whole window, so once the
+// dock is open the cursor can move up onto icons that sit above the trigger
+// without it collapsing underneath.
+export const TRIGGER_H = 40;
 
 // The dock's fixed width. Fixed, and deliberately not derived from content.
 //
@@ -93,6 +102,10 @@ function debugLog(what) {
 }
 
 const dock = document.getElementById('dock');
+const trigger = document.getElementById('trigger');
+
+// One source of truth for the trigger height: JS owns it, CSS reads it.
+document.documentElement.style.setProperty('--trigger-h', `${TRIGGER_H}px`);
 
 const providers = zebar.createProviderGroup({ komorebi: { type: 'komorebi' } });
 const shell = zebar.shellExec ? zebar : null;
@@ -283,7 +296,10 @@ async function init() {
     }, CLOSE_DELAY_MS);
   }
 
-  document.body.addEventListener('mouseenter', slideIn);
+  // OPEN only from the bottom strip, so the dock does not arm the moment the
+  // cursor drifts near the bottom-left. CLOSE from the whole window, so moving
+  // up onto an icon above the trigger keeps it open.
+  trigger.addEventListener('mouseenter', slideIn);
   document.body.addEventListener('mouseleave', slideOut);
 
   // A click on an item focuses another window, which moves the cursor's

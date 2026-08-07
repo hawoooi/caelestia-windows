@@ -8,6 +8,10 @@
     <title>Caelestia dock</title>
   </head>
   <body>
+    <!-- The hover trigger, pinned to the bottom of the window and only as tall
+         as TRIGGER_H. Separate from #dock so the dock's SIZE and its
+         ACTIVATION RANGE are independent -- see dock.js. -->
+    <div id="trigger" class="dock-trigger"></div>
     <div id="dock" class="dock"></div>
     <script type="module" src="./dock.js"></script>
   </body>
