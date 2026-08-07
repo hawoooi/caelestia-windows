@@ -217,9 +217,17 @@ async function init() {
   // it. Collapsed leaves only the hot zone.
   async function applyState(isOpen, contentWidth) {
     const h = isOpen ? px(DOCK_H) : px(HOT_ZONE_H);
-    // Open: exactly as wide as the icons. Closed: the fixed catch strip, so
-    // the thing you aim at never changes size -- see HOT_ZONE_W.
-    const w = isOpen ? Math.max(px(48), contentWidth) : px(HOT_ZONE_W);
+    // The window is NEVER narrower than the catch strip, in either state.
+    //
+    // This is what fixes the jittery open/close the user reported. Sizing the
+    // OPEN window to its content (114px, with two apps) while the closed strip
+    // was 420px meant that hovering at, say, x=300 expanded the dock and
+    // instantly put the cursor OUTSIDE the newly-narrow window -- which fires
+    // mouseleave, which collapses it, which puts the cursor back inside the
+    // wide strip, which fires mouseenter... an oscillation that reads as
+    // flickering. Keeping one width across both states means a state change can
+    // never move an edge past the cursor horizontally.
+    const w = Math.max(px(HOT_ZONE_W), contentWidth);
     await win.setSize({ type: 'Physical', width: w, height: h });
     await win.setPosition({
       type: 'Physical',

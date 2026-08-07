@@ -193,7 +193,12 @@ body.fullscreen-hidden #bar { display: none; }
   gap: var(--space-sm);
   padding: var(--space-md) var(--space-sm);
   background: var(--surface-container);
-  border-radius: var(--radius-full);
+  /* Direct user feedback: "change the background color of these elements so
+     it is more like a rounded rectangle instead of a circular pill".
+     --radius-full made this a capsule with fully-round ends; --radius-lg
+     keeps it a recognisable rounded rectangle, matching the flyout panels
+     and the dock. */
+  border-radius: var(--radius-lg);
 }
 
 /* statusIcons previously rendered the wifi/volume PUA glyphs and the
@@ -321,7 +326,10 @@ body.fullscreen-hidden #bar { display: none; }
   width: var(--hit-size);
   height: var(--hit-size);
   border: none;
-  border-radius: var(--radius-full);
+  /* Same feedback as .status-cluster above: the hover/press affordance is a
+     rounded rectangle now, not a circle, so every interactive surface across
+     the bar, the dock and the flyouts shares one shape language. */
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--on-surface-variant);
   /* Font Awesome fix (Task 1, feat/corner-overlays follow-up): this used to

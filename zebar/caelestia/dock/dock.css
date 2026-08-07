@@ -4,6 +4,7 @@
 :root {
   --space-sm: 6px;
   --space-md: 10px;
+  --radius-sm: 10px;
   --radius-lg: 18px;
   --radius-full: 999px;
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
@@ -36,11 +37,13 @@ html, body {
   width: max-content;
   padding: var(--space-sm) var(--space-md);
   background: var(--surface);
-  /* Direct user feedback: "have rounded top corners". Only the top two, since
-     the bottom edge is flush with the screen -- the same
-     one-continuous-surface logic the left bar and the frame follow. --radius-lg
-     matches the bar's own pills so the two read as one system. */
-  border-top-left-radius: var(--radius-lg);
+  /* Direct user feedback: "have rounded top corners", then "I want it to join
+     with the left side bar as well ... a joined background with the left bar".
+     Only the top RIGHT corner is rounded: the left edge is square so it butts
+     flush against the bar's own right edge, and the two surfaces read as one
+     continuous L rather than as two separate slabs that happen to touch. The
+     bottom edge is square for the same reason -- it is flush with the screen. */
+  border-top-left-radius: 0;
   border-top-right-radius: var(--radius-lg);
   color: var(--on-surface);
   font-family: "0xProto Nerd Font", monospace;
@@ -64,7 +67,10 @@ body.fullscreen-hidden .dock { display: none; }
   align-items: center;
   justify-content: center;
   border: none;
-  border-radius: var(--radius-full);
+  /* Direct user feedback: "The hover background on the icon should be a
+     rectangle rounded instead of a circle." --radius-sm, not --radius-full:
+     a squircle that echoes the app icons themselves rather than a pill. */
+  border-radius: var(--radius-sm);
   background: transparent;
   padding: 0;
   cursor: pointer;
