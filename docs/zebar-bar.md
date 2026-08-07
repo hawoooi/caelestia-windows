@@ -1827,3 +1827,193 @@ Changing the tiling layout live via `komorebic change-layout` (behind the button
 this task's instructions) and re-screenshotting confirmed `layoutToggle`'s glyph follows the real
 layout, ending back on BSP's `diagram-project` glyph per the safety constraint to leave the desktop
 on BSP.
+
+## Focused-app icon (`tools/app-icon.cs`)
+
+`feat/corner-overlays` follow-up, direct user ask: put the focused application's own icon next to
+its name in `activeWindow`. Read literally, per the brief: the REAL icon of the running executable,
+not a hand-mapped Font Awesome brand glyph — a brand table covers Chrome and Discord and then falls
+over on WezTerm, foobar2000, and everything else on this machine, none of which have an FA brand
+icon at all.
+
+### The tool
+
+`zebar/caelestia/tools/app-icon.cs`, compiled to `app-icon.exe` with the same `csc.exe` /
+doc-comment-documents-its-own-rebuild-command convention `tools/fullscreen-detect.cs` and
+`~/.config/yasb/scripts/vesktop-unread.cs` already use on this machine:
+
+```
+C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe /nologo /target:exe /optimize+ ^
+    /out:app-icon.exe /r:System.Drawing.dll app-icon.cs
+```
+
+(needs `/r:System.Drawing.dll` — the other two tools don't, since they only call `user32.dll`
+P/Invokes; this one also decodes/re-encodes a bitmap.)
+
+**Input is an exe NAME, never a path** (`chrome.exe`, not a Program Files path) — matching what the
+komorebi provider actually gives (see below). The tool resolves that name to a real path ITSELF, by
+enumerating `Process.GetProcessesByName(...)` for a currently-running process with that name and
+reading its own `MainModule.FileName` (skipping any match that throws, e.g. an
+access-denied/higher-privilege/different-session process, and trying the next one) — it never
+assumes a fixed install directory. This pack has already been bitten twice by assuming a provider
+field's shape without checking it first (the invented `isFocused` on `KomorebiWindow`; the
+CLI-vs-provider layout-casing gap, both documented elsewhere in this file) — resolving via a live
+process rather than guessing a Program Files/AppData layout avoids a third instance of the same
+mistake class.
+
+**Output**: a base64-encoded PNG on stdout, extracted via `Icon.ExtractAssociatedIcon` (the same
+shell-standard icon Explorer/Alt-Tab shows — native resolution, confirmed live at 32x32 for every
+exe tested: chrome.exe, wezterm-gui.exe, foobar2000.exe, vesktop.exe, explorer.exe). Prints nothing
+and exits non-zero on ANY failure (bad/missing arg, no matching process, every matching process
+inaccessible, no icon resource, ...) — same fail-soft contract `fullscreen-detect.exe` already
+established (never throw a stack trace at the caller; silence means "couldn't do it, fall back").
+32x32 was judged plenty for this bar's ~18px CSS-rendered glyph (CSS scales down, see
+`--icon-size`); jumbo-icon (`SHGetImageList`/`IImageList`, 48-256px) COM interop was judged not
+worth the added risk for a target this small.
+
+### What the komorebi provider actually gives (verified, not assumed)
+
+**A bare exe name, not a path.** `KomorebiWindow.exe: string | null` — already confirmed earlier in
+this file ("The komorebi provider's window-focus shape") against both zebar's own shipped
+`dist/index.d.ts` and a live `komorebic state` capture: real, populated values look like
+`"wezterm-gui.exe"`, `"vesktop.exe"`, `"chrome.exe"`, `"explorer.exe"`, `"foobar2000.exe"` — never a
+full path, never with the executable's own display name (`WezTerm.exe` is never seen; it's always
+the literal process image name). `entries/activeWindow.js` already reads this field for
+`appName()`; the icon extraction reuses the exact same `focusedWindow(out.komorebi)?.exe` value, no
+new provider read.
+
+### Registered privilege, tight regex
+
+`zpack.json`'s `bar` widget (the only widget that renders `activeWindow` — `corners`/`edges` don't
+need this privilege and don't get it) gained one `privileges.shellCommands` entry:
+
+```json
+{
+  "program": "C:\\Users\\PC\\Documents\\git\\setup\\zebar\\caelestia\\tools\\app-icon.exe",
+  "argsRegex": "^[\\w.\\-]+\\.exe$"
+}
+```
+
+Anchored (`^...$`), and matches an exe filename and nothing else — no path separators, no shell
+metacharacters, no wildcard. Deliberately NOT loosened to a catch-all per the brief's own explicit
+instruction; the existing `komorebic.exe` entry's own comment elsewhere in this pack (about the
+unwired `power` shutdown binary) already makes the case for why an over-broad `argsRegex` on any
+allowlisted shell command is the single most dangerous kind of edit to this file — this entry
+follows that same discipline.
+
+### Caching discipline — never repeats the port-6124 bug
+
+`fullscreen-detect.exe` once outlived its parent zebar process, inherited zebar's own LISTENING
+SOCKET on port 6124 via Win32 handle inheritance, and left the bar rendering nothing for two full
+debugging sessions before the real cause was found (see "Troubleshooting" above). `app-icon.exe` is
+shelled out the exact same way (`shellExec`, a short-lived `CreateProcess` child), so it carries the
+identical risk class. `entries/activeWindow.js` applies the same three disciplines
+`fullscreen.js`'s `startFullscreenWatch` already established for its own poll:
+
+- **Cached aggressively, keyed on the (lower-cased) focused exe name** — `fetchIcon`'s `cache`
+  parameter is a `Map<string, string|null>` that remembers BOTH successes (a `data:image/png;...`
+  URL) and failures (`null`) forever, so an exe with no extractable icon is never re-probed every
+  time it regains focus, and an exe already resolved is never re-probed on every provider tick.
+  `createIconController`'s `update(exe, onResolve)` checks `normalized === currentExe` FIRST, before
+  touching `shell` or the cache at all — an unchanged focused app returns immediately with **zero**
+  work done, not even a cache lookup. This is the property the brief called out explicitly ("must
+  not spawn a process on every provider tick") — covered directly by
+  `tests/js/entries.test.mjs`'s `'createIconController: repeated ticks with the SAME focused exe
+  never shell out again'`, which drives six ticks for one exe and asserts exactly one `shellExec`
+  call.
+- **Never starts a second `app-icon.exe` while one is outstanding** — an `inFlight` boolean guard in
+  `createIconController`, identical in shape to `fullscreen.js`'s own `inFlight` guard. Covered by
+  `'createIconController: never starts a second app-icon.exe call while one is still outstanding'`,
+  which moves focus away and back while the first probe is deliberately held open and asserts the
+  call count stays at 1.
+- **Every call is raced against a 2s timeout** (`ICON_TIMEOUT_MS`, `Promise.race` against a
+  `setTimeout` rejection) — a hung probe is abandoned (resolves `null`, falls back to the glyph)
+  rather than awaited forever, exactly mirroring `fullscreen.js`'s own default `timeoutMs`. Covered
+  by `'fetchIcon abandons a hung probe after timeoutMs and fails soft'`.
+
+`Restart-ZebarWidgets` (`scripts/Apply-Theme.ps1`) now reaps any surviving `app-icon.exe` in the
+SAME step it already reaps `fullscreen-detect.exe` (`Get-Process fullscreen-detect, app-icon`, one
+combined check rather than a second bespoke one — see that function's own doc comment), before
+starting any widget back up, and folds it into the same port-6124-held warning if the port is still
+occupied after the reap.
+
+### Layout: icon upright, above the name, pair still centred
+
+The bar is vertical; `activeWindow`'s name has always rendered with `writing-mode: vertical-rl`.
+"Next to the name" means adjacent in reading order — the icon BEFORE the text, i.e. above it in the
+vertical flow — and the icon itself must stay upright, never inheriting the name's rotation.
+
+`entries/activeWindow.js`'s `register('activeWindow', ...)` factory now builds three DOM nodes
+instead of one: an outer `.active-window` container (still the element `entries/render.js` adds the
+shared `.entry` class to — `display: flex; flex-direction: column; align-items: center` is already
+exactly "icon above name, both centred" for free), an `.active-window__icon` box holding EITHER an
+`<img class="active-window__icon-img">` (the real extracted PNG) OR a
+`<span class="active-window__icon-fallback fa-solid">` (the neutral fallback glyph, always present
+in the DOM, `display`-toggled by JS — see below), and `.active-window__name` (the div that now
+carries the `writing-mode: vertical-rl` rule the whole `.active-window` container used to carry
+directly). Neither the container nor the icon box has any `writing-mode` of its own, so the icon —
+whichever of the two children is currently visible — stays upright regardless of the name rotating
+beneath it. The two `spacer` entries either side of `activeWindow` in `bar.config.json` are
+untouched and still split the vacant run evenly; they centre the WHOLE `activeWindow` element by its
+total rendered size, and don't care how many DOM nodes are inside it.
+
+**Fallback glyph**: Font Awesome Free 6 Solid `window-maximize` (`\uF2D0`), per the brief's explicit
+ask ("a neutral Font Awesome Solid glyph ... rather than leaving a gap or a broken image"). Shown
+whenever extraction fails, times out, or the shell privilege isn't available — AND as the default
+state before the very first probe for a newly-focused app resolves (so there's never a blank gap
+while a probe is in flight, only ever a brief neutral-glyph flash before the real icon swaps in).
+The name (`appName(exe)`) is read and rendered completely independently of icon state — a failed
+icon extraction never blanks or hides the name.
+
+### A real bug found and fixed during live verification (not caught by the unit tests)
+
+The first live restart showed the app name rendering correctly but **no icon and no fallback glyph
+at all** — just empty space above the name, for every focused app tested. The unit tests (which
+mock `shell`/DOM state directly, not the CSS cascade) had no way to catch this, because the bug was
+purely a CSS/JS interaction:
+
+`showImage()`/`showFallback()` originally toggled visibility by setting `el.style.display = ''` to
+"show" an element — this works for elements with NO conflicting stylesheet rule (the existing
+pattern elsewhere in this pack, e.g. `el.style.display = name ? '' : 'none'` on `.active-window`
+itself, which has no CSS `display` rule to fall back to). But `.active-window__icon-img`'s CSS DOES
+carry an explicit `display: none` default (so a bare `<img>` with no `src` attribute yet never
+flashes a broken-image glyph before JS runs on the very first paint). Clearing an INLINE style with
+`''` doesn't erase that stylesheet rule — it just stops overriding it, so the cascade fell straight
+back to `display: none` and the image could never become visible, no matter how many times
+`showImage()` ran with a perfectly good `data:` URL. (The fallback glyph SHOULD have still shown
+whenever extraction genuinely failed, since its own CSS carries no conflicting `display` rule — but
+for every app actually tested live, extraction succeeded, so `showImage()` ran, hid the fallback
+correctly, and then silently failed to reveal the image, leaving nothing visible at all.)
+
+Fix: both functions now set an EXPLICIT, non-empty `display` value on BOTH elements every time
+(`'none'` / `'inline-block'` for the image, `'none'` / `'inline'` for the fallback) — never `''`.
+Re-verified live after the fix (see Verification below): real icons now render for every app tested.
+This also served as an accidental, useful confirmation that the `\uF2D0` codepoint guess for
+`window-maximize` was correct — proven by deliberately pointing `ICON_TOOL_PATH` at a nonexistent
+exe for one restart cycle (forcing every extraction to fail) and confirming the fallback glyph
+rendered as a real, correct-looking window icon, then reverting the path and restarting again.
+
+### Verification
+
+Both `node --test` (89 tests, up from 77 — 12 new: `iconCacheKey`, `fetchIcon`'s caching/
+timeout/fail-soft behavior, and `createIconController`'s no-repeat-shell-out/no-overlap/fallback
+coverage) and the Pester suite (167 tests, unchanged — no PowerShell-level behavior changed except
+`Restart-ZebarWidgets`'s reap list, already covered by the existing `fullscreen-detect.exe` reap
+tests via PowerShell's own array-`-eq` semantics matching the mock's `-ParameterFilter`) run green.
+
+Live, on-screen confirmation via `Restart-ZebarWidgets` + `komorebic eager-focus <exe>` (a real WM
+focus command, not simulated input) + `CopyFromScreen` screenshots at 6x zoom of the
+`activeWindow` region, for three different focused apps:
+
+- **WezTerm** (`wezterm-gui.exe`): WezTerm's real dark rounded-square `$W` mark, upright, directly
+  above the vertical "WezTerm" text.
+- **Chrome** (`chrome.exe`): the real four-color Chrome circle, upright, above "Chrome".
+- **foobar2000** (`foobar2000.exe`): foobar2000's real white fox-mask icon, upright, above the
+  unaliased "foobar2000" text (confirming `appName`'s fallback-to-stripped-name path still renders
+  correctly alongside a real icon).
+
+Each app's icon is visibly distinct and correctly matches that application — not a shared/generic
+glyph. A fourth screenshot (deliberate `ICON_TOOL_PATH` breakage, see above) confirmed the
+`window-maximize` fallback glyph renders cleanly (no broken-image icon, name stays visible) when
+extraction genuinely fails. A full-strip screenshot after the fix confirmed the icon+name pair still
+sits centred in the vacant run between the top and bottom groups, with the bar still 52px wide.

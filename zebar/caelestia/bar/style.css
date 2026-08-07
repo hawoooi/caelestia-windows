@@ -250,7 +250,7 @@ body.fullscreen-hidden #bar { display: none; }
 .bar-btn:hover { background: var(--surface-container-high); }
 .bar-btn:active { background: var(--surface-container-high); transform: scale(0.92); }
 
-.media, .active-window {
+.media {
   writing-mode: vertical-rl;
   text-orientation: mixed;
   max-height: 240px;
@@ -261,6 +261,76 @@ body.fullscreen-hidden #bar { display: none; }
 }
 
 .media { view-transition-name: media-pill; cursor: pointer; }
+
+/* Focused-app icon + name (feat/corner-overlays follow-up, direct user
+   ask: "the application's icon next to its name"). `.active-window` is now
+   a small container, not the rotated text element itself -- `.entry`
+   (added to every entry's root by entries/render.js) already supplies
+   `display: flex; flex-direction: column; align-items: center;`, which is
+   exactly "icon above name, both centred" for free; only the inter-child
+   gap is added here. This container carries NO writing-mode of its own, so
+   nothing inside it rotates unless a rule explicitly opts in (only
+   `.active-window__name` below does) -- the icon (real extracted PNG or
+   the Font Awesome fallback glyph) stays upright regardless of the name's
+   vertical-rl flow beneath it. The two flex spacers either side of
+   `activeWindow` in bar.config.json still centre this whole pair as one
+   unit in the vacant run between the top and bottom groups -- unaffected,
+   since neither spacer nor #bar's own centring cares how many DOM nodes
+   this one entry contains, only its total rendered size. */
+.active-window {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+/* Fixed square box, matching every other passive icon in this bar
+   (.status-icons__glyph, .vesktop__icon's own footprint) so the pair reads
+   as part of the same rhythm rather than a bespoke size. Holds exactly one
+   of __icon-img / __icon-fallback visible at a time (JS toggles `display`
+   -- entries/activeWindow.js's showImage()/showFallback()); the other
+   always carries `display: none` from JS, never removed from the DOM, so
+   swapping between a resolved icon and the fallback glyph never reflows
+   this box's own size. */
+.active-window__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--icon-box);
+  height: var(--icon-box);
+  flex: 0 0 auto;
+}
+
+/* Extracted at 32-48px native resolution by tools/app-icon.exe (see that
+   file's own doc comment) and scaled DOWN to --icon-size here -- deliberately
+   not inlined at 1:1 native size, so it matches every other glyph's visual
+   weight in the strip instead of looming larger than the fallback/status
+   icons beside it. object-fit: contain rather than cover/fill: a PNG icon
+   extracted via Icon.ExtractAssociatedIcon is already square, but this
+   guards against a future extraction path (e.g. a non-square source icon)
+   distorting the aspect ratio instead of letterboxing it. */
+.active-window__icon-img {
+  width: var(--icon-size);
+  height: var(--icon-size);
+  object-fit: contain;
+  display: none; /* JS-toggled on once a real icon resolves */
+}
+
+.active-window__icon-fallback {
+  font-size: var(--icon-size);
+  line-height: 1;
+  color: var(--on-surface-variant);
+}
+
+.active-window__name {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  max-height: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--on-surface-variant);
+}
 
 .media-panel {
   display: none;

@@ -603,13 +603,19 @@ function Restart-ZebarWidgets {
       both AFTER killing the old zebar.exe process above and BEFORE
       starting any widget back up:
 
-      1. Reap any surviving fullscreen-detect.exe -- it has no reason to
-         outlive the zebar process that spawned it, so any instance still
-         alive at this point is, by definition, an orphan.
+      1. Reap any surviving fullscreen-detect.exe OR app-icon.exe (the
+         focused-app-icon extraction helper added alongside this comment,
+         ../tools/app-icon.cs, entries/activeWindow.js) -- neither has any
+         reason to outlive the zebar process that spawned it, so any
+         instance still alive at this point is, by definition, an orphan.
+         app-icon.exe is shellExec'd the exact same way
+         fullscreen-detect.exe is, so it carries the identical
+         handle-inheritance risk and gets the identical reap, not a
+         separate bespoke check.
       2. Check whether port 6124 is STILL held after that reap. If it is
-         (e.g. by something other than fullscreen-detect.exe, or a reap
-         that failed to actually free the handle), warn with the holding
-         PID and process name -- so a future recurrence is a clear,
+         (e.g. by something other than fullscreen-detect.exe/app-icon.exe,
+         or a reap that failed to actually free the handle), warn with the
+         holding PID and process name -- so a future recurrence is a clear,
          actionable warning instead of the bar silently rendering nothing
          with nothing in errors.log to explain why.
 
@@ -648,14 +654,19 @@ function Restart-ZebarWidgets {
     Get-Process zebar -ErrorAction SilentlyContinue | Stop-Process -Force
     Start-Sleep -Milliseconds $StartupWaitMs
 
-    # Step 1: reap any surviving fullscreen-detect.exe (see this function's
-    # own comment above) before starting anything back up, so a leftover
-    # from the zebar process just killed can never hold port 6124 hostage
-    # for the widgets about to start.
-    $orphans = Get-Process fullscreen-detect -ErrorAction SilentlyContinue
+    # Step 1: reap any surviving fullscreen-detect.exe OR app-icon.exe (see
+    # this function's own comment above) before starting anything back up,
+    # so a leftover from the zebar process just killed can never hold port
+    # 6124 hostage for the widgets about to start. app-icon.exe
+    # (../tools/app-icon.cs, entries/activeWindow.js's icon extraction) is a
+    # shellExec'd child process spawned the exact same way
+    # fullscreen-detect.exe is -- it inherits the same CreateProcess
+    # handle-inheritance risk, so it gets the same reap, not a separate
+    # bespoke check.
+    $orphans = Get-Process fullscreen-detect, app-icon -ErrorAction SilentlyContinue
     if ($orphans) {
-        $orphanIds = ($orphans | ForEach-Object { $_.Id }) -join ', '
-        Write-Warning "Reaping $(@($orphans).Count) surviving fullscreen-detect.exe process(es) (PID(s): $orphanIds) before restarting zebar widgets -- see docs/zebar-bar.md's port-$AssetServerPort troubleshooting entry. This is expected occasionally (a poll outliving its parent zebar), not itself a sign of a new bug."
+        $orphanIds = ($orphans | ForEach-Object { "$($_.ProcessName) (PID $($_.Id))" }) -join ', '
+        Write-Warning "Reaping $(@($orphans).Count) surviving fullscreen-detect.exe/app-icon.exe process(es) ($orphanIds) before restarting zebar widgets -- see docs/zebar-bar.md's port-$AssetServerPort troubleshooting entry. This is expected occasionally (a poll outliving its parent zebar), not itself a sign of a new bug."
         $orphans | Stop-Process -Force -ErrorAction SilentlyContinue
         Start-Sleep -Milliseconds 200
     }

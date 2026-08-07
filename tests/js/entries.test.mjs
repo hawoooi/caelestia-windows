@@ -3,7 +3,13 @@ import assert from 'node:assert';
 import { splitClock } from '../../zebar/caelestia/bar/entries/clock.js';
 import { workspaceState, focusWorkspaceCommand, KOMOREBIC_PATH } from '../../zebar/caelestia/bar/entries/workspaces.js';
 import { mediaLabel, formatMediaTime } from '../../zebar/caelestia/bar/entries/media.js';
-import { focusedWindow, appName } from '../../zebar/caelestia/bar/entries/activeWindow.js';
+import {
+  focusedWindow,
+  appName,
+  iconCacheKey,
+  fetchIcon,
+  createIconController,
+} from '../../zebar/caelestia/bar/entries/activeWindow.js';
 import { pingState } from '../../zebar/caelestia/bar/entries/vesktop.js';
 import { statusIconParts, volumeGlyph } from '../../zebar/caelestia/bar/entries/statusIcons.js';
 import {
@@ -204,6 +210,153 @@ test('appName does not truncate an aliased name even if a hypothetical alias wer
   // just the fallback path.
   assert.strictEqual(appName('chrome.exe'), 'Chrome');
   assert.ok(!appName('chrome.exe').includes('…'));
+});
+
+// --- App icon: real exe icon, cached, never spawns per-tick (feat/corner-overlays follow-up) ---
+//
+// The user asked for the focused application's OWN icon, not a hand-mapped
+// Font Awesome brand glyph -- ../tools/app-icon.cs (compiled app-icon.exe)
+// does the actual extraction via shellExec; fetchIcon/createIconController
+// in activeWindow.js own the caching/timeout/in-flight discipline around
+// that call. These tests mirror fullscreen.test.mjs's own coverage of the
+// identical discipline in startFullscreenWatch (cache, timeout, never
+// overlap a call) -- this module was modelled on that one directly.
+
+test('iconCacheKey normalizes exe names for cache lookups', () => {
+  assert.strictEqual(iconCacheKey('Chrome.exe'), 'chrome.exe');
+  assert.strictEqual(iconCacheKey('  wezterm-gui.exe  '), 'wezterm-gui.exe');
+});
+
+test('fetchIcon returns a data: URL built from the helper\'s base64 stdout', async () => {
+  const calls = [];
+  const shell = {
+    shellExec: async (program, args) => {
+      calls.push([program, args]);
+      return { stdout: 'QUJD' }; // base64("ABC")
+    },
+  };
+  const cache = new Map();
+  const url = await fetchIcon(shell, 'chrome.exe', cache, 1000);
+  assert.strictEqual(url, 'data:image/png;base64,QUJD');
+  assert.strictEqual(calls.length, 1);
+  assert.deepStrictEqual(calls[0][1], ['chrome.exe']);
+});
+
+test('fetchIcon caches the result and never calls shellExec twice for the same exe', async () => {
+  let callCount = 0;
+  const shell = { shellExec: async () => { callCount += 1; return { stdout: 'QUJD' }; } };
+  const cache = new Map();
+  const first = await fetchIcon(shell, 'chrome.exe', cache, 1000);
+  const second = await fetchIcon(shell, 'CHROME.EXE', cache, 1000); // different casing, same key
+  assert.strictEqual(callCount, 1, 'a cached exe must never trigger a second shell-out');
+  assert.strictEqual(first, second);
+});
+
+test('fetchIcon fails soft (returns null, caches the miss) when the helper prints nothing', async () => {
+  const shell = { shellExec: async () => ({ stdout: '' }) };
+  const cache = new Map();
+  const url = await fetchIcon(shell, 'unknown.exe', cache, 1000);
+  assert.strictEqual(url, null);
+  assert.strictEqual(cache.get('unknown.exe'), null);
+});
+
+test('fetchIcon fails soft when shellExec rejects (privilege denied, missing exe, ...)', async () => {
+  const shell = { shellExec: async () => { throw new Error('privilege denied'); } };
+  const cache = new Map();
+  const url = await fetchIcon(shell, 'chrome.exe', cache, 1000);
+  assert.strictEqual(url, null);
+});
+
+test('fetchIcon fails soft when there is no shellExec at all (no shell on this build)', async () => {
+  // Two separate caches (and exe names) so each assertion genuinely
+  // exercises the "no shell" branch rather than the second call trivially
+  // hitting the first call's now-cached null.
+  assert.strictEqual(await fetchIcon(null, 'chrome.exe', new Map(), 1000), null);
+  assert.strictEqual(await fetchIcon({}, 'wezterm-gui.exe', new Map(), 1000), null);
+});
+
+test('fetchIcon abandons a hung probe after timeoutMs and fails soft, same discipline as fullscreen.js', async () => {
+  const shell = { shellExec: () => new Promise(() => {}) }; // never settles
+  const cache = new Map();
+  const url = await fetchIcon(shell, 'chrome.exe', cache, 20);
+  assert.strictEqual(url, null);
+});
+
+test('createIconController: repeated ticks with the SAME focused exe never shell out again', () => {
+  let callCount = 0;
+  const shell = { shellExec: async () => { callCount += 1; return { stdout: 'QUJD' }; } };
+  const controller = createIconController(shell, 1000);
+  const resolved = [];
+  controller.update('chrome.exe', (v) => resolved.push(v));
+  // Same exe, five more ticks -- this is the exact "provider tick" shape
+  // bar.js drives update() with; none of these may spawn a process.
+  for (let i = 0; i < 5; i++) controller.update('chrome.exe', (v) => resolved.push(v));
+  assert.strictEqual(callCount, 1, 'an unchanged focused app must not re-shell-out on every tick');
+});
+
+test('createIconController: switching to a genuinely different exe DOES trigger a fresh probe', async () => {
+  const calls = [];
+  const shell = {
+    shellExec: async (program, args) => {
+      calls.push(args[0]);
+      return { stdout: 'QUJD' };
+    },
+  };
+  const controller = createIconController(shell, 1000);
+  const resolved = [];
+  controller.update('chrome.exe', (v) => resolved.push(v));
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  controller.update('wezterm-gui.exe', (v) => resolved.push(v));
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.deepStrictEqual(calls, ['chrome.exe', 'wezterm-gui.exe']);
+});
+
+test('createIconController: falls back to null (neutral glyph) when extraction fails, name stays independent', async () => {
+  const shell = { shellExec: async () => ({ stdout: '' }) };
+  const controller = createIconController(shell, 1000);
+  const resolved = [];
+  controller.update('unknown.exe', (v) => resolved.push(v));
+  // Immediate fallback fires synchronously before the probe settles.
+  assert.deepStrictEqual(resolved, [null]);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  // The settled (also-null) probe result is delivered too -- still null,
+  // never a broken image or a thrown error.
+  assert.deepStrictEqual(resolved, [null, null]);
+});
+
+test('createIconController: an empty/missing focused exe resolves null with no shell-out', () => {
+  let called = false;
+  const shell = { shellExec: async () => { called = true; return { stdout: 'QUJD' }; } };
+  const controller = createIconController(shell, 1000);
+  const resolved = [];
+  controller.update(undefined, (v) => resolved.push(v));
+  controller.update('', (v) => resolved.push(v));
+  assert.deepStrictEqual(resolved, [null, null]);
+  assert.strictEqual(called, false);
+});
+
+test('createIconController: never starts a second app-icon.exe call while one is still outstanding', async () => {
+  let callCount = 0;
+  let releaseFirst;
+  const gate = new Promise((resolve) => { releaseFirst = resolve; });
+  const shell = {
+    shellExec: async () => {
+      callCount += 1;
+      await gate;
+      return { stdout: 'QUJD' };
+    },
+  };
+  const controller = createIconController(shell, 999999);
+  const resolved = [];
+  controller.update('chrome.exe', (v) => resolved.push(v));
+  // Focus moves away and back while the first probe is still outstanding --
+  // must not launch a second overlapping shellExec call.
+  controller.update('wezterm-gui.exe', (v) => resolved.push(v));
+  controller.update('chrome.exe', (v) => resolved.push(v));
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.strictEqual(callCount, 1, 'a second probe must not start while the first is still outstanding');
+  releaseFirst();
+  await new Promise((resolve) => setTimeout(resolve, 10));
 });
 
 test('pingState reads a ping count', () => {
