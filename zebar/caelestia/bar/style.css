@@ -22,11 +22,26 @@
   --icon-size: 18px;
   --icon-box: 28px;
   --hit-size: 32px;
-  /* Native taskbar (Shell_TrayWnd) sits at y=1392-1440 on this machine, full
-     width, above zOrder: "normal" windows -- it occludes and intercepts
-     clicks on anything docked below it. Nudge the bottom of the strip up by
-     roughly the taskbar height so the last entry (power) stays clickable. */
-  --taskbar-h: 48px;
+  /* feat/corner-overlays follow-up (direct user feedback: "the bottom part
+     of the left bar isn't fully aligned to the bottom"): this used to be
+     48px, reserving room at the bottom of #bar's padding on the theory that
+     Shell_TrayWnd (the native taskbar) sits full-width above zOrder:
+     "normal" windows and would otherwise occlude/intercept clicks on the
+     last entry (power). That theory no longer matches this machine: the
+     taskbar is in auto-hide mode, and its real rect
+     ((0,1438)-(2560,1486) on a 1440px-tall screen) only ever has 2px on
+     screen -- 48px was being reserved for something that isn't there,
+     leaving the bottom group floating ~48px above the bar's own bottom
+     padding instead of sitting flush the way the top group sits flush
+     against --pad-lg. Dropped to 0px rather than deleted outright: the
+     variable is still read by #bar's padding shorthand below, as a single,
+     named lever to restore a reserve without re-deriving the calc if the
+     taskbar is ever un-hidden on this machine (auto-hide is a user-toggled
+     Windows setting, not a fixed property of this environment). See
+     docs/zebar-bar.md for the full account, including the accepted
+     trade-off (the power button now sits in the 2px strip an auto-hidden
+     taskbar reveals on hover). */
+  --taskbar-h: 0px;
 }
 
 html, body { margin: 0; padding: 0; height: 100%; background: transparent; overflow: hidden; }
@@ -67,6 +82,11 @@ body.fullscreen-hidden #bar { display: none; }
   align-items: center;
   gap: var(--space-md);
   height: 100%;
+  /* Bottom padding mirrors the top (--pad-lg) now that --taskbar-h is 0 --
+     see that variable's own comment above for why the old
+     taskbar-height reserve was dropped. Kept as a calc (not a bare
+     var(--pad-lg) on both sides) so the lever stays wired for a future
+     --taskbar-h bump instead of needing this rule rewritten too. */
   padding: var(--pad-lg) 0 calc(var(--pad-lg) + var(--taskbar-h));
   box-sizing: border-box;
   background: var(--surface);

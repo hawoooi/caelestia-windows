@@ -2017,3 +2017,128 @@ glyph. A fourth screenshot (deliberate `ICON_TOOL_PATH` breakage, see above) con
 `window-maximize` fallback glyph renders cleanly (no broken-image icon, name stays visible) when
 extraction genuinely fails. A full-strip screenshot after the fix confirmed the icon+name pair still
 sits centred in the vacant run between the top and bottom groups, with the bar still 52px wide.
+
+## Bottom group flush to the bar's own bottom padding, and `layoutToggle` moved down (direct user feedback)
+
+Two small, unrelated fixes bundled into one pass because both were about the bottom of the bar.
+Direct user feedback: *"the bottom part of the left bar isn't fully aligned to the bottom"* and
+*"add an icon (on the bottom part of the left bar) that i can click on to change the tiling
+settings in komorebi"* (the second one already existed near the top as `layoutToggle` — this was a
+move, not a new entry).
+
+### The `--taskbar-h` reserve was stale, not load-bearing
+
+`#bar`'s padding used to be `var(--pad-lg) 0 calc(var(--pad-lg) + var(--taskbar-h))` with
+`--taskbar-h: 48px` — a reserve added on the theory that the native Windows taskbar
+(`Shell_TrayWnd`) sits full-width above `zOrder: "normal"` windows and would occlude/intercept
+clicks on the bar's last entry (`power`) otherwise. That theory no longer matches this machine: the
+taskbar is in **auto-hide** mode, and its real rect is `(0,1438)-(2560,1486)` on a 1440px-tall
+screen — only the top 2px of it is ever actually on screen. 48px was being reserved for something
+that isn't there, which is exactly why the bottom group (clock/status-cluster/layoutToggle/power)
+was floating well above the bar's own bottom edge instead of sitting flush the way the top group
+(`logo`) sits flush against `--pad-lg`.
+
+**Decision on `--taskbar-h` itself: kept, dropped to `0px`, not deleted.** `#bar`'s padding rule
+still reads `var(--pad-lg) 0 calc(var(--pad-lg) + var(--taskbar-h))` unchanged — only the variable's
+own value changed, from `48px` to `0px`, with a comment on the variable explaining why. This keeps
+one single, named lever to restore a reserve later (auto-hide is a user-toggled Windows setting on
+this machine, not a fixed property of the environment — if it's ever turned off, the taskbar goes
+back to occluding the bottom of the bar) without needing the padding `calc` itself rewritten; bump
+`--taskbar-h` back up and the same shorthand does the right thing again. Deleting the variable and
+its use entirely was the other option considered and rejected for this reason — this isn't dead
+code, it's a documented zero.
+
+**Verified via direct pixel measurement, not just eyeballing the screenshot.** `CopyFromScreen` at
+1x scale over the bar's full height (`x:0-56, y:0-1440`), sampling column `x=28` for the first
+non-background row from the top and the last non-background row from the bottom (background =
+`--surface`, sampled at `(2,5)`, tolerance 12 per channel): first ink at row **12** from the top
+(matches `--pad-lg`, 12px, exactly), last ink **20px** from the bottom edge. The 12px-vs-20px
+asymmetry is glyph geometry, not a CSS asymmetry: `power`'s icon is centred inside a 32px
+(`--hit-size`) circular hit-box (`.bar-btn`) whose own bottom edge sits exactly `--pad-lg` (12px)
+above the window's bottom edge, but the Font Awesome glyph's visible ink doesn't fill that box
+edge-to-edge — `logo` has no such wrapping hit-box, so its ink sits closer to its own padding edge.
+The padding rule itself is symmetric by construction now (`padding-top: 12px`,
+`padding-bottom: calc(12px + 0px) = 12px`) — confirmed from the CSS, not inferred from the pixel
+measurement alone.
+
+### The stated hover/auto-hide trade-off: checked, and it does not appear to bite
+
+The task brief flagged a known trade-off to check: with the group flush to the bottom, does the
+`power` button now sit inside the ~2px strip where an auto-hidden taskbar reveals on hover, such
+that hovering the button pops the taskbar up? **Geometrically, no, with about a 10px margin**: the
+`power` button's own 32px hit-box has its bottom edge at screen `y ≈ 1428` (`1440 - 12` padding),
+while `Shell_TrayWnd`'s on-screen reveal strip is `y: 1438-1440` — a real, measured 2px band right
+at the screen's bottom edge, ~10px below where the button's hit-box actually ends. The button was
+not pushed all the way to the physical screen edge; `--pad-lg` (12px) still sits between it and the
+taskbar's reveal zone, same as it always did for the top group against the top edge.
+
+**This was checked by geometry and pixel measurement, not by an actual hover** — this task's own
+safety rules forbid mouse automation (`CopyFromScreen` only, no `SendKeys`, no simulated clicks), so
+a real hover-and-observe test was not possible in this pass. If a future pass has a human available
+to literally hover the button and watch for the taskbar reveal, that would be the strictly stronger
+confirmation; the geometric argument above is the best available evidence without one, and it points
+away from the trade-off actually manifesting.
+
+### `layoutToggle` moved into the bottom group
+
+`bar.config.json`'s `entries` array changed from
+`["logo", "workspaces", "layoutToggle", "spacer", "activeWindow", "spacer", "clock", "statusCluster", "power"]`
+to
+`["logo", "workspaces", "spacer", "activeWindow", "spacer", "clock", "statusCluster", "layoutToggle", "power"]`
+— `layoutToggle` moved from right after `workspaces` (top group) to right before `power` (bottom
+group), per the user's ask that a *control* (change tiling layout) live where the bar's other
+controls live, not among the top-group status readouts. This is a config-only reorder: no change to
+`entries/layoutToggle.js` itself, no new entry type, no second control. It already had the
+`bar-btn fa-solid` treatment (hover/press circle, real Font Awesome glyph) from the earlier
+lower-cluster restyle, so nothing needed restyling to look consistent with `power` and the
+`.status-cluster` pill above it — moving it was sufficient. No CSS in this pack keys off entry
+position/adjacency (`+`, `~`, `:nth-child` — checked, none exist), and no test asserts the literal
+contents of `bar.config.json`'s `entries` array, so nothing else needed updating for the move
+itself.
+
+### A real, pre-existing limitation found while verifying the move: the komorebi provider's `layout` field does not appear to re-emit live
+
+Verifying "does the glyph follow a layout change" (the brief's own ask) surfaced something worth
+recording separately from the move itself, since it affects how much this button can be trusted
+going forward: **cycling the actual komorebi layout via `komorebic change-layout <name>` while the
+widget stayed running did not change the rendered glyph**, across three different target layouts
+(`bsp`, `grid`, `rows`), each given 3-10 seconds to propagate, confirmed both by eye and by the
+screenshots' own file hashes differing only in incidental antialiasing noise around the unrelated
+clock/pill, not in the icon's shape. `state/zebar-logs/caelestia-bar-default.out.log` corroborates
+this at the Rust provider level: exactly **one** `"type":"komorebi"` provider-emission log line for
+the entire widget lifetime, timestamped at start-up, with no further emission after any of the three
+`change-layout` calls.
+
+**But a fresh connection does read the live layout correctly**: setting the layout to `columns` via
+CLI *before* restarting the widget (`Restart-ZebarWidgets`), then again to `bsp` before a further
+restart, produced two more screenshots with visibly different, correctly-mapped glyphs (a
+"table-columns" pair of bars for `columns`, a "diagram-project" branching-tree glyph for `bsp`) —
+both clearly distinct from the grid-of-dots glyph seen mid-session. So `currentLayout`/`layoutGlyph`
+(`entries/layoutToggle.js`) are not broken — they correctly read and map whatever the provider hands
+them at connect time. What doesn't seem to work, at least in this session, is the provider pushing a
+*fresh* value while the widget keeps running and the layout changes underneath it — the button
+reflects the layout as of the last widget start/reconnect, not truly live. This was true before this
+task's move (the move never touched `entries/layoutToggle.js`'s logic or `bar.js`'s provider setup)
+and is documented here rather than silently worked around, since "reflects the live layout" was an
+existing claim in this file and in the task brief that this verification pass couldn't confirm as
+still true. A future pass investigating this should look at whether zebar's own komorebi provider
+subscribes to komorebi's event stream at all versus polling on some interval this build never
+reaches, before assuming the bug is anywhere in this pack's own code.
+
+### Verification
+
+`node --test` (89 tests, unchanged — no JS logic changed, only `bar.config.json`'s entry order and
+`style.css`'s padding/comment text) and the Pester suite (167 tests, unchanged — no PowerShell
+changed) both still pass. `Restart-ZebarWidgets` was used for every reload in this pass (never a
+manual `Stop-Process`/`Start-Process` pair), which also exercises its `startupConfigs`-driven
+multi-widget restart (`bar` + 4 `corners` presets + 3 `edges` presets) and its `fullscreen-detect.exe`
+port-6124 reap on every call — no orphaned holder was found at any point in this pass. Live
+confirmation: `CopyFromScreen` screenshots of the bottom strip (`x:0-56, y:1200-1440`, 4x) show
+`clock` → `.status-cluster` (wifi/volume) → `layoutToggle` → `power` stacked flush to the bottom with
+even `--space-md` rhythm between them, `layoutToggle` rendering a real, non-tofu Font Awesome glyph
+(confirmed to actually change across a fresh-connection layout change, per the finding above) with
+the same circular hover/press affordance `power` has. A full-strip screenshot (`x:0-56, y:0-1440`,
+2x) reconfirmed the `1922852` app-icon-next-to-name change (WezTerm's real `$W` mark, upright, above
+the vertical "WezTerm" text) still renders correctly and stays centred in the vacant run between the
+top and bottom groups — unaffected by this pass, as expected, since neither change touched
+`activeWindow` or its surrounding spacers.
