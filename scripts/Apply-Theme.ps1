@@ -929,9 +929,23 @@ function Set-KomorebiBorderColours {
 
 function Update-KomorebiBorderTheme {
     <#
-      Ties the border-colour role mapping (single->primary, stack->
-      tertiary, monocle->secondary, unfocused->outline, floating->error --
-      see matugen/templates/komorebi-colours.json, rendered by matugen
+      Ties the border-colour role mapping (single->surface_container_high,
+      stack->surface_container, monocle->surface_container_high,
+      unfocused->surface, floating->outline -- direct user feedback,
+      "style the window border colors after the background like you did for
+      the other widgets": the borders used to come from the ACCENT roles
+      (primary/tertiary/secondary/error), which put a loud accent ring
+      immediately inside the desktop frame's own var(--surface) bands and
+      read as a clashing second frame rather than part of one. They now come
+      from the SURFACE family, the same tones the bar, corners and edge
+      strips paint, so a window border continues the frame instead of
+      fighting it. The focused window keeps surface_container_high -- one
+      step lighter than everything around it -- so "which window is active"
+      is still legible without an accent; that focus cue was the one thing
+      explicitly kept when the change was chosen. `floating` stays on
+      outline, the only deliberately louder role left, because a floating
+      window is genuinely exceptional and worth spotting.
+      See matugen/templates/komorebi-colours.json, rendered by matugen
       alongside every other template but deliberately NOT one of
       $script:Targets: it has no live config of its own to copy/validate/
       roll back, it only exists to hand this function hex values without

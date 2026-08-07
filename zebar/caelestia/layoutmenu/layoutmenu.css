@@ -90,7 +90,17 @@ body.open .layout-menu {
   padding: var(--space-sm) var(--space-md);
   text-align: left;
   border: none;
-  border-radius: var(--radius-sm);
+  /* CONCENTRIC with the panel, not an independent value (direct user
+     feedback: "border radius mismatch on layout style dropdown"). A rounded
+     box nested inside another only looks right when the inner radius is the
+     outer radius minus the gap between them -- here the panel's
+     --radius-lg (18px) minus its own --space-sm padding (6px) = 12px. The
+     old --radius-sm (8px) was picked in isolation and left the highlighted
+     row's corner visibly tighter than the panel corner wrapping it, with an
+     uneven sliver of panel showing through at the first and last rows.
+     Expressed as a calc, not a hardcoded 12px, so it stays correct if
+     either token is ever retuned. */
+  border-radius: calc(var(--radius-lg) - var(--space-sm));
   background: transparent;
   color: var(--on-surface-variant);
   font: inherit;
