@@ -24,6 +24,11 @@ import { menuPlacement, isAnchorOnMonitor } from '../flyout-placement.js';
 import { STATUS_ITEMS } from '../status-catalogue.js';
 import { createMixer, sessionsSignature } from '../audio-mixer.js';
 import { createNetStats, formatRate, formatLink } from '../net-stats.js';
+import {
+  parseClockConfig, zoneRows, localTimeZone, formatZoneTime, formatZoneDate,
+  formatOffset, zoneOffsetMinutes, availableTimeZones, convertZones,
+  formatDifference, sameZone, offeredSpelling,
+} from '../clock-zones.js';
 
 // How often the per-app mixer is re-read while the volume panel is open.
 // ONLY while it is open -- see stopMixerPoll. Core Audio has no push
@@ -84,6 +89,26 @@ function startNetPoll(fn) {
   fn();
   netTimer = setInterval(fn, NET_POLL_MS);
 }
+
+// The clock panel repaints once a second so its seconds-free display still
+// flips the minute at the same moment the bar's own clock does. Cheap (pure
+// Intl formatting -- no process, no IO), but still stopped with every other
+// per-panel timer when the panel goes away, on the same principle.
+let clockTimer = null;
+function stopClockTick() {
+  if (clockTimer !== null) { clearInterval(clockTimer); clockTimer = null; }
+}
+function startClockTick(fn) {
+  stopClockTick();
+  fn();
+  clockTimer = setInterval(fn, 1000);
+}
+
+// The `clock` block from bar.config.json, handed over by the bar trigger --
+// this flyout never reads bar.config.json itself, so config travels with the
+// open command like every other piece of state the bar owns. Null until the
+// first open, which parseClockConfig turns into the shipped default.
+let clockConfig = null;
 
 // Lets a panel dismiss the whole flyout from inside a builder (the Wi-Fi
 // button hands off to Windows' own picker, so keeping this open over the top
@@ -369,10 +394,167 @@ function buildNetwork(out) {
   return update;
 }
 
+
+function buildClock(out) {
+  panel.replaceChildren();
+  const local = localTimeZone();
+  const zones = parseClockConfig(clockConfig).timezones;
+
+  // --- local time, big -----------------------------------------------------
+  const head = el('div', 'panel-head');
+  // Shown through the configured spelling where there is one: the system
+  // reports this machine's zone as `Asia/Saigon`, so the raw id would sit in
+  // the header while the row right below it -- the same place -- reads "Ho Chi
+  // Minh", which looks like two different zones.
+  const localShown = offeredSpelling(zones, local) ?? local;
+  head.append(el('h3', null, 'Clock'), el('span', 'sub', localShown.replace(/_/g, ' ')));
+  panel.append(head);
+
+  const now = el('div', 'clock-now');
+  const nowTime = el('div', 'clock-now__time');
+  const nowDate = el('div', 'clock-now__date');
+  now.append(nowTime, nowDate);
+  panel.append(now);
+
+  // --- world clock ---------------------------------------------------------
+  let zoneList = null;
+  const zoneEls = new Map();
+  if (zones.length) {
+    panel.append(el('div', 'clock-sep'));
+    zoneList = el('div', 'clock-zones');
+    panel.append(zoneList);
+    for (const tz of zones) {
+      const row = el('div', 'clock-zone');
+      const name = el('div', 'clock-zone__name');
+      const time = el('div', 'clock-zone__time');
+      const meta = el('div', 'clock-zone__meta');
+      row.append(name, meta, time);
+      row.title = tz;
+      zoneList.append(row);
+      zoneEls.set(tz, { name, time, meta });
+    }
+  }
+
+  // --- converter -----------------------------------------------------------
+  panel.append(el('div', 'clock-sep'));
+  const conv = el('div', 'clock-conv');
+  conv.append(el('div', 'clock-conv__title', 'Convert'));
+
+  const allZones = availableTimeZones(zones);
+  function zoneSelect(selected) {
+    const s = el('select', 'clock-conv__zone');
+    for (const tz of allZones) {
+      const o = el('option', null, tz.replace(/_/g, ' '));
+      o.value = tz;
+      if (tz === selected) o.selected = true;
+      s.append(o);
+    }
+    return s;
+  }
+
+  const whenRow = el('div', 'clock-conv__row');
+  const dateInput = el('input', 'clock-conv__date');
+  dateInput.type = 'date';
+  const timeInput = el('input', 'clock-conv__time');
+  timeInput.type = 'time';
+  whenRow.append(dateInput, timeInput);
+
+  // Both defaults are resolved through the OFFERED spelling and compared by
+  // CANONICAL zone. Setting select.value to an alias the option list does not
+  // contain leaves nothing selected, and comparing raw ids made both pickers
+  // default to the same physical place under two names (local resolves to
+  // Asia/Saigon here, while the configured spelling is Asia/Ho_Chi_Minh), so
+  // the converter opened converting a zone to itself.
+  const fromDefault = offeredSpelling(allZones, local) ?? local;
+  const firstElsewhere = zones.find((tz) => !sameZone(tz, local));
+  const toDefault = offeredSpelling(allZones, firstElsewhere ?? 'UTC') ?? 'UTC';
+
+  const fromRow = el('div', 'clock-conv__row');
+  fromRow.append(el('span', 'clock-conv__lbl', 'from'), zoneSelect(fromDefault));
+  const toRow = el('div', 'clock-conv__row');
+  toRow.append(el('span', 'clock-conv__lbl', 'to'), zoneSelect(toDefault));
+
+  const result = el('div', 'clock-conv__result');
+  const resultTime = el('div', 'clock-conv__result-time', '--:--');
+  const resultMeta = el('div', 'clock-conv__result-meta', '');
+  result.append(resultTime, resultMeta);
+
+  conv.append(whenRow, fromRow, toRow, result);
+  panel.append(conv);
+
+  const fromSel = fromRow.querySelector('select');
+  const toSel = toRow.querySelector('select');
+
+  // Seeded with "now" in the local zone so the converter is answering a real
+  // question the moment it opens, rather than sitting blank until filled in.
+  function seedNow(d) {
+    const p = new Intl.DateTimeFormat('en-CA', {
+      timeZone: local, hourCycle: 'h23',
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit',
+    }).formatToParts(d);
+    const g = (type) => (p.find((x) => x.type === type) || {}).value;
+    dateInput.value = g('year') + '-' + g('month') + '-' + g('day');
+    timeInput.value = g('hour') + ':' + g('minute');
+  }
+  seedNow(new Date());
+
+  function recompute() {
+    const r = convertZones({
+      dateStr: dateInput.value,
+      timeStr: timeInput.value,
+      fromZone: fromSel.value,
+      toZone: toSel.value,
+    });
+    if (!r) {
+      // A half-typed form must read as "not answered", never as a confident
+      // wrong answer.
+      resultTime.textContent = '--:--';
+      resultMeta.textContent = '';
+      onContentResized();
+      return;
+    }
+    const day = r.dayOffset === 0 ? '' : (r.dayOffset > 0 ? ' (+1d)' : ' (-1d)');
+    resultTime.textContent = r.time + day;
+    resultMeta.textContent = r.date + '  ·  ' + formatDifference(r.differenceMinutes);
+    onContentResized();
+  }
+  for (const input of [dateInput, timeInput, fromSel, toSel]) {
+    input.addEventListener('input', recompute);
+    input.addEventListener('change', recompute);
+  }
+  recompute();
+
+  // Ticking the panel from the provider alone would only move it once a
+  // minute AND only when the date provider emits; a panel showing a clock
+  // must not visibly lag the bar it was opened from.
+  function paintNow() {
+    const d = new Date();
+    nowTime.textContent = formatZoneTime(d, local);
+    nowDate.textContent = formatZoneDate(d, local, { long: true });
+    for (const [tz, refs] of zoneEls) {
+      refs.name.textContent = zoneLabelOf(tz);
+      refs.time.textContent = formatZoneTime(d, tz);
+      const delta = Math.round((zoneOffsetMinutes(d, tz) - zoneOffsetMinutes(d, local)));
+      refs.meta.textContent = formatOffset(zoneOffsetMinutes(d, tz)) + '  ·  ' + formatDifference(delta);
+    }
+  }
+  function zoneLabelOf(tz) { return tz.split('/').pop().replace(/_/g, ' '); }
+
+  startClockTick(paintNow);
+
+  // The provider tick is still wired, so the panel stays correct even if the
+  // interval is throttled while the window is backgrounded.
+  function update() { paintNow(); }
+  update(out);
+  return update;
+}
+
 const BUILDERS = {
   tray: buildTray,
   volume: buildVolume,
   network: buildNetwork,
+  clock: buildClock,
 };
 
 async function init() {
@@ -451,6 +633,7 @@ async function init() {
     // Switching panels must stop whatever the outgoing one was polling.
     stopMixerPoll();
     stopNetPoll();
+    stopClockTick();
     currentPanel = panelId;
     currentUpdate = builder(providers.outputMap) || (() => {});
     return true;
@@ -470,6 +653,7 @@ async function init() {
     if (!open) return;
     stopMixerPoll();
     stopNetPoll();
+    stopClockTick();
     open = false;
     document.body.classList.remove('open');
     if (notify) channel.post({ closed: true });
@@ -500,6 +684,10 @@ async function init() {
   channel.subscribe((msg) => {
     if (msg.open) {
       if (!isAnchorOnMonitor(monitor, msg.anchorX, msg.anchorY)) return;
+      // Config travels with the open command (see clockConfig). Kept from the
+      // last command that carried one, so a re-open that omits it does not
+      // silently drop back to the defaults.
+      if (msg.clock !== undefined) clockConfig = msg.clock;
       if (open && msg.panel === currentPanel) {
         // Re-open of the same panel: refresh anchor + content, keep it alive.
         anchor = { anchorX: msg.anchorX, anchorY: msg.anchorY };

@@ -330,3 +330,149 @@ body.open .panel-flyout {
   font-size: 13px;
   line-height: 1;
 }
+
+/* ---- clock panel --------------------------------------------------------- */
+/* Direct user feedback: pressing the bar clock should show "the clock time
+   date as well. timezones also", plus a built-in converter. The bar keeps the
+   stacked HH/MM (52px has room for nothing else); everything with room to
+   breathe lives here. */
+
+.clock-now {
+  padding: var(--space-sm) var(--space-sm) var(--space-md);
+  text-align: center;
+}
+
+.clock-now__time {
+  font-size: 34px;
+  line-height: 1.05;
+  font-weight: 600;
+  color: var(--on-surface);
+  /* Tabular figures so the minute flipping never nudges the layout, which at
+     this size would be very visible -- and would re-fit the window every
+     minute. */
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+.clock-now__date {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--on-surface-variant);
+}
+
+.clock-sep {
+  height: 1px;
+  margin: 0 var(--space-sm) var(--space-sm);
+  background: var(--surface-container-high);
+}
+
+.clock-zones {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 var(--space-sm) var(--space-sm);
+}
+
+/* name | offset+difference | time, with the time right-aligned so the column
+   reads as a clock rather than as ragged text. */
+.clock-zone {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-md);
+  padding: var(--space-sm);
+  border-radius: var(--radius-sm);
+}
+
+.clock-zone:hover { background: var(--surface-container-high); }
+
+.clock-zone__name {
+  flex: 0 0 auto;
+  font-size: 13px;
+  color: var(--on-surface);
+  white-space: nowrap;
+}
+
+.clock-zone__meta {
+  flex: 1 1 auto;
+  font-size: 10px;
+  color: var(--outline);
+  white-space: nowrap;
+}
+
+.clock-zone__time {
+  flex: 0 0 auto;
+  font-size: 15px;
+  color: var(--on-surface);
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+/* ---- converter ----------------------------------------------------------- */
+
+.clock-conv {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: 0 var(--space-sm) var(--space-sm);
+  min-width: 260px;
+}
+
+.clock-conv__title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--outline);
+}
+
+.clock-conv__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.clock-conv__lbl {
+  flex: 0 0 34px;
+  font-size: 11px;
+  color: var(--outline);
+}
+
+/* The native controls need explicit theming: a bare <input type="date"> or
+   <select> renders in the platform's own colours, which on this dark surface
+   reads as a bright rectangle punched through the panel. `color-scheme: dark`
+   is what makes the picker chrome (the calendar popup, the spinners) follow
+   too -- styling the box alone leaves a white popup. */
+.clock-conv__date,
+.clock-conv__time,
+.clock-conv__zone {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: var(--space-sm);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--surface-container-high);
+  color: var(--on-surface);
+  font-family: inherit;
+  font-size: 12px;
+  color-scheme: dark;
+}
+
+.clock-conv__zone { cursor: pointer; }
+
+.clock-conv__result {
+  margin-top: 2px;
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-sm);
+  background: var(--surface-container-high);
+  text-align: center;
+}
+
+.clock-conv__result-time {
+  font-size: 22px;
+  line-height: 1.1;
+  font-weight: 600;
+  color: var(--primary);
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+.clock-conv__result-meta {
+  font-size: 11px;
+  color: var(--on-surface-variant);
+}

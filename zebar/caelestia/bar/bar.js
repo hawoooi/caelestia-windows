@@ -46,6 +46,9 @@ const ctx = {
   providers,
   shell: zebar.shellExec ? zebar : null,
   statusConfig: parseStatusConfig(config.status),
+  // Passed through verbatim; the clock panel parses it in the flyout so the
+  // validation lives next to the timezone code that depends on it.
+  clockConfig: config.clock ?? null,
 };
 
 // I3: renderEntries (entries/render.js) guards construction per-entry --

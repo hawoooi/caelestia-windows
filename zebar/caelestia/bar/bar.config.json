@@ -22,5 +22,13 @@
       "disk",
       "battery"
     ]
+  },
+  "clock": {
+    "timezones": [
+      "Asia/Ho_Chi_Minh",
+      "UTC",
+      "Europe/London",
+      "America/New_York"
+    ]
   }
 }

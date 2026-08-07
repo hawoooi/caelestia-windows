@@ -143,6 +143,31 @@ body.fullscreen-hidden #bar { display: none; }
    figures (digits share one fixed width, so "23"->"22" never jitters the
    column) and more visual weight (600) than the icons beneath it (which
    stay at the default 400), per the brief's explicit ask. */
+/* `.clock-btn` is the element itself now that clicking it opens the clock
+   panel (entries/clock.js). It is a real <button>, so it needs the browser's
+   default button chrome stripped -- but NOT via a `font:` shorthand, which
+   would reset the family and weight this rule and #bar set (the mistake
+   `.bar-btn` had to be rescued from). Only the properties actually needing a
+   reset are listed.
+
+   It deliberately does not take `.bar-btn`: that class is a circular
+   icon-sized hit target, and this is a two-line block of digits. It gets the
+   same hover language at its own shape instead -- which it has now earned,
+   per this file's rule that anything that looks interactive must be, and its
+   converse. */
+.clock-btn {
+  border: none;
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background var(--dur) var(--ease);
+}
+.clock-btn:hover { background: var(--surface-container); }
+.clock-btn:active { background: var(--surface-container-high); }
+
 .clock {
   line-height: 1.15;
   text-align: center;
