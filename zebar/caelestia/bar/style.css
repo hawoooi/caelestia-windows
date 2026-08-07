@@ -270,99 +270,27 @@ body.fullscreen-hidden #bar { display: none; }
 .bar-btn:hover { background: var(--surface-container-high); }
 .bar-btn:active { background: var(--surface-container-high); transform: scale(0.92); }
 
-/* layoutToggle menu (direct user feedback: "can we make the switch button a
-   menu instead of blindly toggling as it messes up my windows" -- cycling
+/* layoutToggle (direct user feedback: "can we make the switch button a menu
+   instead of blindly toggling as it messes up my windows" -- cycling
    BSP -> Columns -> Rows -> Grid meant reaching a distant layout retiled
-   every real window at each intermediate step). `.layout-toggle-wrap` is
-   the entry's own root -- a plain flex column (inherited from `.entry`,
-   entries/render.js) holding the menu THEN the button in DOM order. Because
-   `.layout-menu` is `position: absolute` (out of normal flow), it
-   contributes no size to the wrap's own flex box: collapsed, this entry's
-   rendered footprint is exactly the button's, identical to before the menu
-   existed -- satisfies "collapsed, the button still shows the current
-   layout's glyph, exactly as now" without a pixel of extra reserved space
-   anywhere else in the bar. */
-.layout-toggle-wrap {
-  position: relative;
-}
+   every real window at each intermediate step).
 
-/* Expands UPWARD from the button, anchored by `bottom: 100%` -- this entry
-   sits in the bottom group (clock -> statusCluster -> layoutToggle ->
-   power, all flush to the bar's own bottom edge), so upward is the only
-   direction with real room to grow into without displacing the bottom
-   group off the bottom edge or the top group down.
+   The menu's own rules used to live here: `.layout-toggle-wrap` (a
+   positioning context) plus a `.layout-menu` panel that was
+   `position: absolute; bottom: 100%`, i.e. expanding UPWARD inside the
+   bar's own 52px-wide window. Upward was never the design anyone wanted --
+   it was the only direction available, because a Zebar widget cannot paint
+   outside its own window and 52px is far too narrow for text labels.
 
-   First cut of this rule had NO background -- bare glyphs floating on
-   `#bar`'s own transparent-over-`--surface` backdrop. Screenshotted open
-   (CDP-driven click, per this task's own no-mouse-automation rule) and
-   looked wrong: at 4 items x --hit-size (32px) + gaps, the menu's real
-   height (~150px) reaches only as far as `clock`/`statusCluster`
-   immediately above the button in normal flow -- nowhere near the true
-   vacant middle run further up (that space is `activeWindow` + two flex
-   spacers, well above this). Because the menu is `position: absolute`
-   (out of flow) and unstyled, it painted its glyphs directly OVER the
-   clock digits and the wifi/volume pill sitting right there already, a
-   genuine double-exposure -- not a deliberate overlay, an accident that
-   happened to be legible in a screenshot. Fixed by giving the menu its
-   OWN opaque elevated surface, the exact `--surface-container` +
-   `--radius-lg` treatment `.status-cluster` already uses elsewhere in this
-   bar for "these related controls sit on one continuous surface, not
-   loose icons over the bar's own background" -- see that rule's own
-   comment. With a solid backdrop, the menu fully occludes whatever
-   normal-flow content it happens to overlap (the clock, the pill) instead
-   of blending into it -- reads as a deliberate panel temporarily covering
-   that content while a choice is being made, not a rendering glitch. This
-   also makes the design robust to clock/pill content changing height in
-   the future: it no longer matters how far up the menu needs to reach,
-   since anything it overlaps is fully covered either way.
-
-   `display: flex` stays permanent -- visibility is toggled with
-   `opacity`/`pointer-events` instead of `display: none`, so the open/close
-   transition below can actually animate instead of popping. Centred on the
-   button via `left: 50% / translateX(-50%)`, same 52px-wide column every
-   other entry centres in. */
-.layout-menu {
-  position: absolute;
-  bottom: 100%;
-  left: 50%;
-  margin-bottom: var(--space-sm);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-sm);
-  padding: var(--space-md) var(--space-sm);
-  background: var(--surface-container);
-  border-radius: var(--radius-lg);
-  opacity: 0;
-  pointer-events: none;
-  transform: translateX(-50%) translateY(6px);
-  transition: opacity var(--dur) var(--ease), transform var(--dur) var(--ease);
-  z-index: 1;
-}
-.layout-toggle-wrap--open .layout-menu {
-  opacity: 1;
-  pointer-events: auto;
-  transform: translateX(-50%) translateY(0);
-}
-
-/* Each menu item is `bar-btn fa-solid`, same circular hover/press
-   affordance every other clickable glyph in this bar has -- this bar's own
-   standing rule (see `.bar-btn`'s comment above) is that anything that
-   looks interactive must actually be interactive, and a menu made of
-   inert-looking icons would violate it just as much as a plain button with
-   no click handler would. `--active` marks the CURRENTLY tracked layout --
-   solid `--primary` fill/`--on-primary` glyph, the same "filled, not just
-   outlined" language `.workspace--focused` already uses elsewhere in this
-   bar for "this one is the current one" -- so it reads as a genuinely
-   different state from a transient `:hover`/`:active` press (which use
-   `--surface-container-high`, never `--primary`), not just a darker hover. */
-.layout-menu__item--active {
-  background: var(--primary);
-  color: var(--on-primary);
-}
-.layout-menu__item--active:hover {
-  background: var(--primary);
-}
+   Direct user feedback again: "can you change the layout changer button so
+   that it opens horizontally to the side with text stating which mode is
+   which instead of vertically?" That needs pixels outside this window, so
+   the menu moved to its own widget (../../layoutmenu/, styled by
+   layoutmenu.css) driven over ../../layout-channel.js. Every rule that
+   styled the old in-bar panel was deleted rather than left dormant -- this
+   entry renders a single `.layout-toggle.bar-btn.fa-solid` button now, with
+   no wrapper and no menu DOM, so `.bar-btn` above is the only rule it
+   needs. See docs/zebar-bar.md, "The horizontal layout menu". */
 
 .media {
   writing-mode: vertical-rl;

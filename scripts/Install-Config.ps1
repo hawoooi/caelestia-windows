@@ -314,6 +314,16 @@ ctrl + alt + w                : Start-Process powershell -WindowStyle Hidden -Ar
     # here beyond shrinking the list itself.
     $edgePresets = @('top', 'right', 'bottom')
 
+    # Horizontal-layout-menu pass: the "layoutmenu" widget (zpack.json) is
+    # the bar's layout flyout, living in its own window because a Zebar
+    # widget cannot paint outside its own 52px one (see
+    # zebar/caelestia/layout-channel.js's module comment). It has exactly one
+    # preset and must autostart alongside the bar -- it parks itself at 1x1
+    # and only resizes to menu size while open, so a running-but-unused
+    # instance costs one dead pixel, whereas a MISSING instance means the
+    # bar's layout button silently does nothing at all.
+    $layoutMenuPreset = 'default'
+
     if ($DryRun) {
         # I1: the junction/settings.json steps below must ALSO be a no-op
         # under -DryRun, for BOTH the install and the uninstall direction.
@@ -332,11 +342,13 @@ ctrl + alt + w                : Start-Process powershell -WindowStyle Hidden -Ar
             "would remove startupConfigs entry for caelestia/bar from $ZebarSettingsPath"
             "would remove startupConfigs entries for caelestia/corners (all presets) from $ZebarSettingsPath"
             "would remove startupConfigs entries for caelestia/edges (all presets) from $ZebarSettingsPath"
+            "would remove startupConfigs entries for caelestia/layoutmenu (all presets) from $ZebarSettingsPath"
         } else {
             "would create/verify junction $JunctionLink -> $JunctionTarget"
             "would add startupConfigs entry for caelestia/bar to $ZebarSettingsPath"
             "would add startupConfigs entries for caelestia/corners ($($cornerPresets -join ', ')) to $ZebarSettingsPath"
             "would prune and re-add startupConfigs entries for caelestia/edges ($($edgePresets -join ', ')) in $ZebarSettingsPath -- any stale preset (e.g. the removed bar-link-top/bar-link-bottom) is removed first"
+            "would add startupConfigs entry for caelestia/layoutmenu ($layoutMenuPreset) to $ZebarSettingsPath"
         }
         return
     }
@@ -348,6 +360,7 @@ ctrl + alt + w                : Start-Process powershell -WindowStyle Hidden -Ar
         Remove-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'bar'
         Remove-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'corners'
         Remove-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'edges'
+        Remove-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'layoutmenu'
     } else {
         Set-ManagedJunction -LinkPath $JunctionLink -TargetPath $JunctionTarget | Out-Null
         Set-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'bar' -Preset 'default'
@@ -364,5 +377,6 @@ ctrl + alt + w                : Start-Process powershell -WindowStyle Hidden -Ar
         foreach ($preset in $edgePresets) {
             Set-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'edges' -Preset $preset
         }
+        Set-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'layoutmenu' -Preset $layoutMenuPreset
     }
 }

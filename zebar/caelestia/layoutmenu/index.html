@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <!-- Reuses the bar widget's own theme.css and vendored Font Awesome, the
+         same way corners/index.html does: there is exactly one matugen zebar
+         target (matugen/config.toml's [templates.zebar]) and it renders into
+         ../bar/theme.css. No separate palette copy for this widget, so it
+         re-themes with everything else on the next Apply-Theme run. -->
+    <link rel="stylesheet" href="../bar/theme.css" />
+    <link rel="stylesheet" href="../bar/vendor/fontawesome/fontawesome.css" />
+    <link rel="stylesheet" href="./layoutmenu.css" />
+    <title>Caelestia layout menu</title>
+  </head>
+  <body>
+    <div id="menu" class="layout-menu"></div>
+    <script type="module" src="./menu.js"></script>
+  </body>
+</html>

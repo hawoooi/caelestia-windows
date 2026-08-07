@@ -63,6 +63,14 @@ Describe "The zebar bar's zero-color-literal invariant (I5)" {
         # the font, inheriting `color` from a var(--...) rule elsewhere,
         # never a literal set in this file.
         $script:fontawesomeCss = "$PSScriptRoot\..\zebar\caelestia\bar\vendor\fontawesome\fontawesome.css"
+        # Horizontal-layout-menu pass: layoutmenu.css is a fifth structural
+        # stylesheet (the "layoutmenu" widget in zpack.json -- the layout
+        # flyout that had to become its own window to paint outside the
+        # bar's 52px one). It paints a full panel: surface, hover, and the
+        # active item's --primary fill -- more colour surface area than
+        # corners.css or edges.css -- so it is the one most likely to
+        # acquire a literal by accident, and is bound by the same invariant.
+        $script:layoutMenuCss = "$PSScriptRoot\..\zebar\caelestia\layoutmenu\layoutmenu.css"
     }
 
     It "style.css contains zero colour literals" {
@@ -75,6 +83,10 @@ Describe "The zebar bar's zero-color-literal invariant (I5)" {
 
     It "edges.css contains zero colour literals" {
         @(Get-ColorLiterals -Path $script:edgesCss).Count | Should -Be 0
+    }
+
+    It "layoutmenu.css contains zero colour literals" {
+        @(Get-ColorLiterals -Path $script:layoutMenuCss).Count | Should -Be 0
     }
 
     It "fontawesome.css contains zero colour literals" {

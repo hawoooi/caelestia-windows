@@ -2328,3 +2328,178 @@ to minimize real retiles; the "fires exactly one call" behaviour was verified ag
 in the unit tests instead. Remote debugging was disabled again (`Restart-ZebarWidgets` re-run
 without the env var) once verification finished, confirmed via `Get-NetTCPConnection -LocalPort
 9222` showing no `Listen` state afterward.
+
+## The layout menu opens sideways, with labels (ninth pass, direct user feedback)
+
+Direct user feedback: *"can you change the layout changer button so that it opens horizontally to
+the side with text stating which mode is which instead of vertically?"*
+
+The vertical, in-bar menu the previous section describes was never the design anyone preferred —
+it was the only design available, because a Zebar widget cannot paint one pixel outside its own OS
+window and the bar's window is 52px wide. That section explicitly ruled a second widget window out
+("judged not worth it for four glyphs"). Text labels change that calculation: there is no way to
+fit `BSP` / `Columns` / `Rows` / `Grid` into 52px, so the menu had to become its own window or the
+request had to be refused.
+
+### What was re-checked before adding a window
+
+The two obvious in-window escapes, re-examined rather than taken on faith:
+
+1. **Widen the bar's own window only while the menu is open.** Rejected on the strength of the
+   finding that already exists in this file: `dockToEdge`'s work-area reservation is tied 1:1 to
+   the window's actual width. A window that grows on open would move komorebi's work area and
+   retile every real window — the *exact* harm ("it messes up my windows") that turned this control
+   from a cycle into a menu in the first place. Trading one retile trigger for another is not a fix.
+2. **`pointer-events: none` for click-through on a permanently wide window.** Already disproven on
+   this build (see "Why it isn't wired up as a real, clickable feature"): `WindowFromPoint` resolves
+   to the Zebar window across the whole transparent region. A permanently menu-sized transparent
+   window would be a permanent dead zone over the user's real windows.
+
+So: a second widget, `layoutmenu` (`zebar/caelestia/layoutmenu/`), with `dockToEdge` **disabled**
+— no reservation, therefore no retile, ever. This is the same "second, separate zpack widget with
+`dockToEdge` disabled" path this file's media-drawer section named as the future fix; the layout
+menu is the first thing to actually walk it.
+
+### It parks itself at 1x1, and that is load-bearing
+
+A transparent Zebar window swallows clicks across its **whole** footprint, so the flyout cannot
+simply exist at menu size and hide its content with CSS — that would be the dead zone above. Zebar
+exposes no window-visibility toggle either (`currentWidget()` gives `close()` and `setZOrder()`,
+nothing else; confirmed against the vendored bundle's export list).
+
+Instead the widget resizes itself:
+
+- **closed** — 1x1 at its own monitor's origin, i.e. one dead pixel sitting on the bar's own top
+  padding, where there is nothing to click anyway;
+- **open** — sized to the panel exactly and positioned beside the layout button.
+
+`tauriWindow.setSize`/`setPosition` on a **non-docked** widget was verified live before any of this
+was written, using a corner widget as the guinea pig: resized 24x24 → 220x180 → back to 24x24, with
+no work-area effect and no retile.
+
+### Cross-widget messaging: `storage`, not a poller
+
+The bar and the flyout are two documents in two windows. They talk over `localStorage` and the
+`storage` event (`zebar/caelestia/layout-channel.js`).
+
+That works because **every widget in this pack is served from the same origin** — verified live
+over CDP, not assumed: `bar/index.html` and `corners/index.html` both report
+`location.origin === 'http://127.0.0.1:6124'`, a value written in the bar window read back intact
+in a corner window, and a `storage` event fired in the corner window for a write made in the bar's.
+
+Event-driven matters here specifically: this pack has already lost two debugging sessions to a
+`shellExec` poller (`fullscreen-detect.exe`) orphaning itself and inheriting Zebar's listening
+socket on port 6124. This adds **no new helper process and no new poll**.
+
+One wrinkle the protocol has to handle: `storage` events are only delivered when `setItem` actually
+*changes* the stored value. Opening the menu twice from the same button with the same current
+layout encodes byte-identically, so every message carries a strictly increasing token purely to
+force the change. There is a test for this, because it would fail silently rather than loudly.
+
+### The flyout is deliberately dumb
+
+It renders the four choices, reports which one was clicked, and closes. It **never** runs
+`komorebic` and **never** tracks the current layout — its zpack `privileges.shellCommands` is
+empty. The bar keeps all of that: it already has the komorebi provider, the shellExec privilege,
+and the tested "picking the active layout is a no-op" rule, so there is still exactly one place
+that decides whether a `change-layout` actually happens.
+
+The ack arriving from another document is treated as **untrusted input**: `applyAck` passes a
+selection through to `select()` only if it is one of `LAYOUT_CYCLE`'s four names, and treats
+anything else as a plain close. Tested with hostile values.
+
+### Two APIs that do not exist on zebar 3.3.1
+
+Both found by trying them against the running widget, not by reading docs:
+
+- `tauriWindow.currentMonitor()` — **not a function** on the vendored bundle's window object.
+- `createProvider({ type: 'monitors' })` — rejects with *"Not a supported provider type."*
+
+So the flyout derives its monitor from its **starting** `outerPosition()` (the preset anchors
+`top_left` at offset `(0,0)` with `monitorSelection: all`, so each instance starts at its own
+monitor's origin) plus `screen.width`/`screen.height`. **The preset and that line are a matched
+pair** — changing the preset's anchor or offsets in `zpack.json` silently breaks the multi-monitor
+guard rather than the visible layout.
+
+That guard (`isAnchorOnMonitor`) exists because `localStorage` is shared across the whole origin:
+without it, clicking the layout button on monitor 1 would fly a menu out on *every* monitor, all
+of them jumping to monitor 1's absolute coordinates. It is unit tested but **has never been
+exercised on real hardware** — this machine has one monitor.
+
+### The panel's own shape: a vertical list
+
+Direct user feedback on the first cut: *"I dont want the layout like this, I want it to be like a
+vertical list with icons"*, pointing at a Windows taskbar jump-list. The first cut laid the four
+choices out as icon-over-label chips in one horizontal row; they are now stacked one per row, icon
+left and label right.
+
+Worth keeping straight, because the two axes are easy to conflate: this is the panel's **internal**
+layout and is a pure `layoutmenu.css` change. "Opens horizontally to the side" — the part that
+needed a whole second widget — is about where the panel *appears* (beside the bar, in its own
+window) and is unchanged. `align-items: stretch` on the panel makes every row take the full content
+width, so the hover/active fill is a full-width band like a real menu row rather than a pill
+shrink-wrapped around each label; the glyph sits in a fixed-width box so all four labels start at
+the same x despite the glyphs' different advance widths.
+
+### Measuring the panel inside a 1x1 window
+
+The window is sized to the panel, so the panel has to be measured *before* the window grows — i.e.
+while the viewport is still 1x1. That works only because `layoutmenu.css` makes the panel's layout
+size a function of its content alone: `position: absolute`, `width: max-content`, and
+`white-space: nowrap` on the items. Anything that let the viewport constrain it (a percentage
+width, `flex-wrap`, a `max-width`) would silently produce a window sized to a 1px-wide layout.
+Measured live: 125 x 138 CSS px inside the 1x1 window, matching what it renders at when open.
+
+`document.fonts.ready` is awaited once before the first measurement — measuring before the vendored
+Font Awesome webfont has loaded would size the panel against fallback glyph metrics.
+
+### Dismissal
+
+Unchanged in spirit from the in-bar menu, but now split across two windows:
+
+- **picking an item** — the flyout posts an ack naming the layout, the bar fires at most one
+  `change-layout`;
+- **6s timeout** — owned by the *flyout*, not the bar, because the flyout is what the user is
+  looking at and because it must self-close even if the bar process is restarted mid-open
+  (`Apply-Theme` does exactly that on a theme change);
+- **clicking the flyout's own padding** — closes without choosing;
+- **clicking elsewhere in the bar** — the bar's own same-document listener closes it.
+
+A click on some *other* OS window still reaches neither document — that click-routing wall is why
+the timeout is the primary dismiss path, exactly as before.
+
+On startup the flyout posts a "closed" ack, so a flyout restart while the bar believed the menu was
+open cannot leave the bar's open/closed flag stuck.
+
+### Verification
+
+`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222` + `Restart-ZebarWidgets`, then
+everything driven through the real click path (`document.querySelector('.layout-toggle').click()`
+over a CDP `Runtime.evaluate` call), never simulated mouse input:
+
+- **Opens where it should.** The bar posted `{open:true, current:"bsp", anchorX:52, anchorY:1370}`;
+  the flyout window went to `(50, 1301)` at `135x138`. The panel's own left edge is
+  `50 + 10 (slide slack)` = 60 = the bar's right edge (52) + the 8px gap. Vertical centre
+  `1301 + 69` matches the anchor.
+- **Looks right.** Screenshotted open: four rows, icon left and label right, no tofu, `BSP` filled
+  with `--primary` across the full row width, the panel clear of the bar and inside the frame.
+- **Parks again.** `1x1 open=false` → open at full size → `1x1 open=false`, confirmed for both the
+  pick path and the 6s timeout path.
+- **Actually changes the layout.** One real end-to-end pick, read back through `komorebic state`:
+  `BSP` → pick Grid → `Grid` → pick BSP → `BSP`. The bar button's tooltip tracked it
+  (`Tiling layout: Grid (click to choose)` → `... BSP ...`). Ended on BSP, where it started.
+- **The no-op path costs nothing.** Picking the already-active layout closed the menu and fired
+  zero shell calls, as designed.
+
+Tests: `node --test` 115 passing (20 new in `tests/js/layoutMenu.test.mjs`); Pester 168 passing
+(167 + the new `layoutmenu.css` zero-colour-literal check). Remote debugging was disabled again
+afterwards, confirmed by `Get-NetTCPConnection -LocalPort 9222` showing no `Listen` state.
+
+### Known-stale, unchanged
+
+The active marker still goes stale on **externally**-driven layout changes (a `whkd` hotkey, a bare
+`komorebic change-layout`), for exactly the reason the previous section documents: the komorebi
+provider reports a workspace's layout at connect time and never re-emits, and no `komorebic` poller
+was added, on purpose. The flyout does not fix this — it renders whatever `current` the bar sends
+it. It does make it *less* reachable in one narrow way: nothing re-reads the provider after
+connect, so the marker can no longer be silently overwritten back to a stale value.

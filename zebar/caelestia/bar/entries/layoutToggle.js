@@ -1,126 +1,28 @@
 import { register } from './registry.js';
+import {
+  LAYOUT_CYCLE,
+  currentLayout,
+  layoutGlyph,
+  layoutLabel,
+  nextLayout,
+  normalizeLayoutString,
+} from '../../layouts.js';
+import { CMD_KEY, ACK_KEY, createChannel } from '../../layout-channel.js';
 
-// Change 3: a bar button that cycles komorebi's tiling layout. Curated,
-// not the full komorebic change-layout enum -- verified LIVE against this
-// machine's real komorebic.exe (not assumed): `change-layout <name>` for
-// every value in LAYOUT_CYCLE below, then re-reading `komorebic state`,
-// showed komorebi accepts and reports back each one with no error and no
-// disruption to the running zebar bar (workspaces/active-window/clock kept
-// rendering through every swap; zebar's own errors.log gained zero new
-// lines across the whole test).
-//
-// 'columns' specifically needed the live check: it is NOT one of the eight
-// strings zebar's own KomorebiLayout TypeScript union declares (checked
-// directly against `zebar@3.3.1`'s shipped dist/index.d.ts, the same
-// source that caught the isFocused/focusedContainerIndex mistake elsewhere
-// in this pack -- see activeWindow.js/docs/zebar-bar.md): bsp |
-// vertical_stack | horizontal_stack | ultrawide_vertical_stack | rows |
-// grid | right_main_vertical_stack | custom. So while the CLI call itself
-// is confirmed safe (tested live, above), what the PROVIDER reports back
-// for a workspace whose layout is 'Columns' needed confirming too -- see
-// PROVIDER_TO_CYCLE's own comment below for what that turned out to be,
-// read live via CDP against the running widget, not inferred from the CLI.
-export const LAYOUT_CYCLE = ['bsp', 'columns', 'rows', 'grid'];
-
-// Task 3 (Font Awesome icons): these were raw Unicode box-drawing glyphs
-// (BMP characters, survived typed raw -- see logo.js's own note) with no
-// real relationship to Font Awesome. Now real Font Awesome Free 6.x Solid
-// icons chosen for their layout-shape resemblance, confirmed present in
-// Font Awesome's own metadata/icons.json for the 6.x release: \uF542
-// (diagram-project, "Diagram Project" -- a branching tree/split shape for
-// bsp, komorebi's own binary-space-partition layout), \uF0DB
-// (table-columns, "Table Columns" -- vertical columns), \uF0C9 (bars,
-// "Bars" -- three stacked horizontal bars, a literal "rows" shape),
-// \uF00A (table-cells, "Table Cells" -- an even grid). FALLBACK_GLYPH
-// (\uF84C, border-all, "Border All" -- a generic bordered-box "unknown
-// layout" mark) is used for any provider report outside the curated four,
-// per the module comment above.
-const LAYOUT_GLYPHS = {
-  bsp: '\uF542',
-  columns: '\uF0DB',
-  rows: '\uF0C9',
-  grid: '\uF00A',
+// The layout metadata this module used to own (LAYOUT_CYCLE, the Font
+// Awesome glyph table, the provider->cycle mapping and its live-verified
+// history) moved to ../../layouts.js when the menu became a second widget
+// window, which needs the same table. Re-exported here unchanged so this
+// module stays the single import site for everything layout-related in the
+// bar, and so tests/js/entries.test.mjs keeps importing from one place.
+export {
+  LAYOUT_CYCLE,
+  currentLayout,
+  layoutGlyph,
+  layoutLabel,
+  nextLayout,
+  normalizeLayoutString,
 };
-const FALLBACK_GLYPH = '\uF84C';
-
-// Task 2 (feat/corner-overlays follow-up): normalises a provider-reported
-// layout string before comparison -- lower-cases it and strips '-'/'_' so
-// 'BSP', 'bsp', 'Bsp', 'right-main-vertical-stack' and
-// 'right_main_vertical_stack' all compare equal. This was added
-// defensively, in the same spirit as this file's own "already been bitten
-// twice by assuming a provider field's shape" history (the invented
-// `isFocused` field; this same gap). It turned out NOT to be live for
-// bsp/rows/grid on this machine's actual zebar@3.3.1 build -- see
-// PROVIDER_TO_CYCLE's own comment immediately below for what WAS found
-// live -- but a future zebar/komorebi version silently changing that
-// casing convention (the way `komorebic state`'s own raw CLI JSON already
-// reports the unrelated field `layout.Default` as "BSP", capitalised)
-// shouldn't be able to reintroduce this exact bug a third time.
-export function normalizeLayoutString(reported) {
-  return String(reported).toLowerCase().replace(/[-_]/g, '');
-}
-
-// What the ZEBAR PROVIDER itself puts in `focusedWorkspace.layout` was read
-// LIVE (this task) via a CDP session attached to the running widget --
-// window.__zebarDebugProviders.outputMap.komorebi.focusedWorkspace.layout,
-// not inferred from `komorebic state`'s own CLI JSON, which is a
-// differently-shaped, differently-cased field entirely (`layout: { Default:
-// "BSP" }`, capitalised and nested under a variant tag -- confirmed by
-// running `komorebic state` alongside the same CDP session). The provider's
-// own field turned out to already be a flat, lower-case string matching
-// zebar's KomorebiLayout TS union: `change-layout bsp` -> `"bsp"`,
-// `change-layout rows` -> `"rows"`, `change-layout grid` -> `"grid"` --
-// i.e. the CLI-vs-provider casing gap this module used to warn about was
-// NOT the operative bug for these three; `currentLayout` already resolved
-// 'bsp' correctly before this task's fix, and the observed tofu (see
-// docs/zebar-bar.md) was entirely the separate `.bar-btn`/`.fa-solid` CSS
-// cascade bug fixed in style.css, not a mapping miss.
-//
-// `change-layout columns` -> read back as exactly `"custom"` -- confirmed
-// live, not the guess the pre-fix comment made. 'custom' is the SAME bucket
-// every other layout outside zebar's confirmed 8-value union also falls
-// into (vertical_stack, horizontal_stack, ultrawide_vertical_stack,
-// right_main_vertical_stack all report their own literal names -- only
-// 'columns' isn't a recognized union member at all, so it's the one CLI
-// value that collapses to 'custom'). Mapping 'custom' -> 'columns' here is
-// therefore a deliberate simplification, not a precise inverse of the CLI:
-// 'columns' is the only 'custom'-bucket layout THIS BUTTON can ever set, so
-// in normal use (only ever changed via this button, never a hotkey to one
-// of the other custom-bucket layouts) the mapping is correct. If a layout
-// is changed to e.g. vertical_stack by some other means, this button will
-// show the columns glyph for it too -- a known, documented imprecision
-// rather than a silent one, same as the fallback-glyph gap this file has
-// always disclosed for anything else outside the curated four.
-const PROVIDER_TO_CYCLE = {
-  bsp: 'bsp',
-  rows: 'rows',
-  grid: 'grid',
-  custom: 'columns',
-};
-
-// Reads the CURRENT layout from the komorebi provider's own workspace
-// object -- never tracked in local state -- so the button stays correct
-// even when the layout was last changed by hotkey rather than this button.
-// Returns one of LAYOUT_CYCLE's own values, or null when the provider
-// hasn't reported yet or reports something outside the curated cycle.
-export function currentLayout(komorebi) {
-  const reported = komorebi?.focusedWorkspace?.layout;
-  if (typeof reported !== 'string') return null;
-  return PROVIDER_TO_CYCLE[normalizeLayoutString(reported)] ?? null;
-}
-
-export function layoutGlyph(cycleKey) {
-  return LAYOUT_GLYPHS[cycleKey] ?? FALLBACK_GLYPH;
-}
-
-// Cycles forward from the given cycle key. An unrecognized/null key (the
-// provider hasn't reported, or reports a layout outside the curated four)
-// starts the cycle at its first entry rather than throwing or no-op'ing.
-export function nextLayout(cycleKey) {
-  const idx = LAYOUT_CYCLE.indexOf(cycleKey);
-  const nextIdx = idx === -1 ? 0 : (idx + 1) % LAYOUT_CYCLE.length;
-  return LAYOUT_CYCLE[nextIdx];
-}
 
 export const KOMOREBIC_PATH = 'C:\\Users\\PC\\scoop\\shims\\komorebic.exe';
 
@@ -135,32 +37,31 @@ export function changeLayoutCommand(layout) {
 // windows." Cycling forward one step at a time meant reaching a layout N
 // steps away required N intermediate `change-layout` calls, and komorebi
 // retiles every real window on EACH one -- destructive to whatever the user
-// had arranged, not just cosmetic. The menu below always fires at most one
+// had arranged, not just cosmetic. The menu always fires at most one
 // `change-layout` call, for the exact layout the user picked.
-
-// Auto-dismiss timeout for the open menu. There is no reliable "click
-// outside" INSIDE this widget's own 52px-wide window -- clicking away to
-// the user's real work happens in a DIFFERENT OS window, whose clicks this
-// widget's document never receives at all (the same click-routing wall
-// docs/zebar-bar.md's "Known-incomplete: the media drawer" section already
-// hit: pointer-events has no OS-level click-through effect on this
-// Zebar/WebView2 build, and the inverse is also true -- this widget gets no
-// signal when the user clicks a window that isn't it). A same-document
-// "click outside the menu, still inside this widget" listener IS reliable
-// (see onDocumentClick below) and is wired as a secondary dismiss path, but
-// the timeout is the PRIMARY one, since the common case is the user picks a
-// layout or clicks away to their actual work, not clicking bar padding.
-// 6s was picked to comfortably outlast reading four glyphs and deciding,
-// without leaving a stale open menu sitting over the vacant middle run for
-// so long it reads as stuck.
-const MENU_DISMISS_MS = 6000;
+//
+// Follow-up, also direct user feedback: "can you change the layout changer
+// button so that it opens horizontally to the side with text stating which
+// mode is which instead of vertically?" The menu's DOM used to live inside
+// this entry, expanding upward inside the bar's own 52px-wide window --
+// upward because sideways was impossible, not because it was better. It now
+// lives in a SEPARATE Zebar widget (../../layoutmenu/) that can paint beside
+// the bar, driven over ../../layout-channel.js. See that module's comment
+// for why a second window is the only way to get a pixel outside the bar on
+// this build, and docs/zebar-bar.md's "The horizontal layout menu" for the
+// whole account.
+//
+// What stayed here on purpose: the komorebic call, the tracked current
+// layout, and the "picking the active layout is a no-op" rule. The flyout
+// reports a click and nothing more, so there is still exactly one place
+// that decides whether a `change-layout` actually happens.
 
 // Pure, DOM-free state machine for the menu: open/closed, which layout is
-// currently tracked as "active" (for the menu's marker and the collapsed
-// button's own glyph), and the no-redundant-call rule. Modelled on
-// activeWindow.js's createIconController -- kept free of `document` and
-// `shellExec` plumbing on purpose so open/close/select can be driven and
-// asserted directly in tests/js/entries.test.mjs without a DOM.
+// currently tracked as "active" (for the flyout's marker and the bar
+// button's own glyph), and the no-redundant-call rule. Kept free of
+// `document`, `shellExec` and localStorage plumbing on purpose so
+// open/close/select can be driven and asserted directly in
+// tests/js/entries.test.mjs without a DOM.
 //
 // **Honesty about live vs. not** (docs/zebar-bar.md's own finding, "the
 // komorebi provider's `layout` field does not appear to re-emit live" --
@@ -224,20 +125,22 @@ export function createLayoutMenuController(shell) {
       return open;
     },
 
-    // Dismiss without choosing (timeout or click-outside). Returns whether
-    // the menu was actually open, so callers can skip redundant DOM work.
+    // Dismiss without choosing (the flyout timed out, or a click landed
+    // elsewhere in the bar). Returns whether the menu was actually open, so
+    // callers can skip redundant work.
     close() {
       const wasOpen = open;
       open = false;
       return wasOpen;
     },
 
-    // Menu-item click. Always closes the menu (choosing ANY item, including
-    // the already-active one, is a complete action). Fires `change-layout`
-    // -- exactly once -- only when the picked layout differs from the
-    // tracked current one; picking the active layout is a no-op, not a
-    // redundant call. Returns { changed } so callers/tests can assert on
-    // which branch ran without reaching into `shell` themselves.
+    // Menu-item click, relayed from the flyout widget. Always closes the
+    // menu (choosing ANY item, including the already-active one, is a
+    // complete action). Fires `change-layout` -- exactly once -- only when
+    // the picked layout differs from the tracked current one; picking the
+    // active layout is a no-op, not a redundant call. Returns { changed }
+    // so callers/tests can assert on which branch ran without reaching into
+    // `shell` themselves.
     select(layout) {
       open = false;
       if (layout === current) {
@@ -247,156 +150,115 @@ export function createLayoutMenuController(shell) {
       runChangeLayout(layout);
       return { changed: true };
     },
+
+    // Handles an ack posted by the flyout widget: either a pick, or a
+    // close-without-choosing (its dismiss timer, a click on its own
+    // padding, or the "I just restarted and am definitely closed" message
+    // it posts on startup). Unknown layout names are treated as a plain
+    // close rather than passed through to `komorebic` -- the flyout is a
+    // separate document and anything arriving over localStorage is treated
+    // as untrusted input, not as a value this module chose.
+    applyAck(ack) {
+      const picked = ack && ack.selected;
+      if (typeof picked === 'string' && LAYOUT_CYCLE.includes(picked)) {
+        return this.select(picked);
+      }
+      this.close();
+      return { changed: false };
+    },
   };
 }
 
 register('layoutToggle', ({ shell }) => {
-  // The DOM this entry now renders:
-  //   <div class="layout-toggle-wrap">          <- inst.el; render.js adds
-  //                                                 "entry" to THIS, sized
-  //                                                 by the button alone
-  //                                                 (the menu is
-  //                                                 position: absolute, so
-  //                                                 it contributes no box
-  //                                                 to the wrap's own flex
-  //                                                 size when collapsed --
-  //                                                 collapsed, this entry
-  //                                                 occupies exactly the
-  //                                                 same footprint the bare
-  //                                                 button used to)
-  //     <div class="layout-menu">                <- absolutely positioned,
-  //                                                  bottom: 100% of the
-  //                                                  wrap -- expands UPWARD,
-  //                                                  overlaying the vacant
-  //                                                  middle run
-  //                                                  (activeWindow + its two
-  //                                                  spacers), never
-  //                                                  shoving the bottom
-  //                                                  group (clock /
-  //                                                  statusCluster / power)
-  //                                                  down or the top group
-  //                                                  up
-  //       <button class="layout-menu__item ...">  one per LAYOUT_CYCLE entry
-  //       ...
-  //     </div>
-  //     <button class="layout-toggle ...">        <- unchanged glyph/title
-  //                                                   contract: collapsed,
-  //                                                   this still shows
-  //                                                   exactly the current
-  //                                                   layout's glyph, same
-  //                                                   as before the menu
-  //                                                   existed
-  //   </div>
-  const wrap = document.createElement('div');
-  wrap.className = 'layout-toggle-wrap';
-
+  // The DOM this entry renders is a single button again -- the menu itself
+  // is ../../layoutmenu/, a separate widget window. Collapsed (which is now
+  // the only state this entry has) it shows exactly the current layout's
+  // glyph, same as it always has.
   const btn = document.createElement('button');
   btn.type = 'button';
-  // 'bar-btn' (style.css): the one shared clickable-affordance style,
-  // applied here because this button has a real click handler below --
-  // styled consistently with change 1's power button, per the brief.
-  // 'fa-solid' (Task 3): every LAYOUT_GLYPHS/FALLBACK_GLYPH codepoint above
-  // is a Font Awesome Free Solid glyph, rendered through the locally
-  // vendored webfont.
+  // 'bar-btn' (style.css): the one shared clickable-affordance style.
+  // 'fa-solid': every glyph in ../../layouts.js is a Font Awesome Free Solid
+  // codepoint, rendered through the locally vendored webfont.
   btn.className = 'layout-toggle bar-btn fa-solid';
 
-  const menu = document.createElement('div');
-  menu.className = 'layout-menu';
-
   const controller = createLayoutMenuController(shell);
-  const items = new Map(); // layout key -> its menu button, for the active marker
+  const channel = createChannel(localStorage, window, { sendKey: CMD_KEY, receiveKey: ACK_KEY });
 
-  let dismissTimer = null;
-  function clearDismissTimer() {
-    if (dismissTimer !== null) {
-      clearTimeout(dismissTimer);
-      dismissTimer = null;
-    }
-  }
-  function armDismissTimer() {
-    clearDismissTimer();
-    dismissTimer = setTimeout(() => {
-      controller.close();
-      syncOpenClass();
-      document.removeEventListener('click', onDocumentClick, true);
-    }, MENU_DISMISS_MS);
+  // The bar's own window position, needed to convert the button's CSS-pixel
+  // rect into the physical screen coordinates the flyout positions itself
+  // by. Read once: this window is docked to the left edge and never moves.
+  // Fail-soft to the origin, which is where the docked bar actually is on
+  // this machine -- a wrong-but-plausible anchor beats no menu at all.
+  let winOrigin = { x: 0, y: 0 };
+  if (shell && typeof shell.currentWidget === 'function') {
+    Promise.resolve()
+      .then(() => shell.currentWidget().tauriWindow.outerPosition())
+      .then((pos) => { winOrigin = { x: pos.x, y: pos.y }; })
+      .catch((e) => console.warn('layoutToggle: could not read window position', e));
   }
 
-  // Reliable ONLY for clicks that land inside this widget's own document
-  // (see the module comment on MENU_DISMISS_MS for why a click on some
-  // other OS window can never reach this handler at all). Registered only
-  // while the menu is open, removed on every close path, so this never
+  function anchor() {
+    const rect = btn.getBoundingClientRect();
+    const scale = window.devicePixelRatio || 1;
+    return {
+      // Right edge of the bar window, not of the button: the flyout should
+      // clear the whole 52px strip, not just the 32px circle centred in it.
+      anchorX: Math.round(winOrigin.x + window.innerWidth * scale),
+      anchorY: Math.round(winOrigin.y + (rect.top + rect.height / 2) * scale),
+    };
+  }
+
+  function postOpen() {
+    channel.post({ open: true, current: controller.getCurrent(), ...anchor() });
+  }
+
+  function postClose() {
+    channel.post({ open: false });
+  }
+
+  // Reliable ONLY for clicks that land inside this widget's own document.
+  // A click on some other OS window never reaches this handler at all --
+  // that is what the flyout's own dismiss timer is for. Registered only
+  // while the menu is open and removed on every close path, so it never
   // becomes a permanent listener leaking across entry lifetimes.
   function onDocumentClick(e) {
-    if (!wrap.contains(e.target)) {
-      controller.close();
-      syncOpenClass();
-      clearDismissTimer();
+    if (e.target !== btn && !btn.contains(e.target)) {
+      if (controller.close()) postClose();
       document.removeEventListener('click', onDocumentClick, true);
-    }
-  }
-
-  function syncOpenClass() {
-    wrap.classList.toggle('layout-toggle-wrap--open', controller.isOpen());
-  }
-
-  function renderActiveMarker() {
-    const cur = controller.getCurrent();
-    for (const [layout, itemEl] of items) {
-      itemEl.classList.toggle('layout-menu__item--active', layout === cur);
     }
   }
 
   function renderButtonGlyph() {
     const cur = controller.getCurrent();
     btn.textContent = layoutGlyph(cur);
-    btn.title = cur ? `Tiling layout: ${cur} (click to choose)` : 'Tiling layout (click to choose)';
+    btn.title = cur
+      ? `Tiling layout: ${layoutLabel(cur)} (click to choose)`
+      : 'Tiling layout (click to choose)';
   }
-
-  LAYOUT_CYCLE.forEach((layout) => {
-    const item = document.createElement('button');
-    item.type = 'button';
-    item.className = 'layout-menu__item bar-btn fa-solid';
-    item.textContent = layoutGlyph(layout);
-    item.title = `Tiling layout: ${layout}`;
-    item.addEventListener('click', () => {
-      // select() always closes the menu and only fires change-layout when
-      // this differs from the tracked current layout -- see
-      // createLayoutMenuController's own doc comment.
-      controller.select(layout);
-      syncOpenClass();
-      clearDismissTimer();
-      document.removeEventListener('click', onDocumentClick, true);
-      renderActiveMarker();
-      renderButtonGlyph();
-    });
-    items.set(layout, item);
-    menu.appendChild(item);
-  });
 
   btn.addEventListener('click', () => {
     // Opening/closing the menu never calls change-layout -- toggle() only
     // ever flips the open/closed flag.
-    const isOpen = controller.toggle();
-    syncOpenClass();
-    if (isOpen) {
-      renderActiveMarker();
-      armDismissTimer();
+    if (controller.toggle()) {
+      postOpen();
       document.addEventListener('click', onDocumentClick, true);
     } else {
-      clearDismissTimer();
+      postClose();
       document.removeEventListener('click', onDocumentClick, true);
     }
   });
 
-  wrap.append(menu, btn);
+  channel.subscribe((ack) => {
+    controller.applyAck(ack);
+    document.removeEventListener('click', onDocumentClick, true);
+    renderButtonGlyph();
+  });
 
   return {
-    el: wrap,
+    el: btn,
     update(out) {
       controller.sync(currentLayout(out.komorebi));
       renderButtonGlyph();
-      renderActiveMarker();
     },
   };
 });

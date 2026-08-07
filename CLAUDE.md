@@ -22,7 +22,7 @@ building it — read it before changing anything here.
 | WezTerm | `C:\Program Files\WezTerm\wezterm.exe` — config at `~/.wezterm.lua`, **not under version control** (home directory is not a git repo); the pipeline's two required edits there are recorded in `docs/wezterm-integration.md` because of this |
 | starship | config at `~/.config/starship.toml` |
 | Wallpaper Engine | `C:\Program Files (x86)\Steam\steamapps\common\wallpaper_engine\` — `wallpaper32.exe` or `wallpaper64.exe` (whichever is the live process; both exist on disk, this machine runs `wallpaper32.exe`) |
-| Zebar (v3.3.1) | `C:\Program Files\glzr.io\Zebar\zebar.exe` — a vertical Caelestia-style bar docked left, and (since yasb's retirement) the **only** bar on the desktop. Pack source tracked at `zebar/caelestia/`, served to Zebar via a junction at `~/.glzr/zebar/caelestia`. Full detail: `docs/zebar-bar.md`. |
+| Zebar (v3.3.1) | `C:\Program Files\glzr.io\Zebar\zebar.exe` — a vertical Caelestia-style bar docked left, and (since yasb's retirement) the **only** bar on the desktop. Pack source tracked at `zebar/caelestia/`, served to Zebar via a junction at `~/.glzr/zebar/caelestia`. The pack now declares **four** widgets -- `bar`, `corners`, `edges`, `layoutmenu` -- each needing its own `startupConfigs` entry per preset (`Install-Config` writes them all). Full detail: `docs/zebar-bar.md`. |
 | komorebi + whkd | `~/komorebi.json`, `~/.config/whkdrc` — the tiling WM driving the desktop (GlazeWM was replaced during this project's pre-flight; see `~/.config/yasb/CLAUDE.md`). Since the borders/yasb-retirement task, komorebi.json also carries `border: true`, `border_style: "Rounded"`, `border_width: 4`, `border_offset: 1`, `default_workspace_padding`/`default_container_padding` of **8/8**, a `global_work_area_offset` of `{left:-8, top:0, right:-8, bottom:0}`, and a themed `border_colours` object -- see "Window borders and gaps" and "The desktop frame" below. |
 | Pester | 6.0.1 and 3.4.0 are both installed; **all tests in this repo are Pester 5+ syntax** (`Should -Be`, not `Should Be`) — `Import-Module Pester -MinimumVersion 5.0.0` before running the suite, or 3.4.0 loads by default and every test errors on syntax it doesn't recognize |
 
@@ -126,10 +126,18 @@ a layout menu, power. Notable details:
   name, never a path) through an alias table, plus the real extracted executable icon via
   `tools/app-icon.exe`. That tool is cached per exe, timed out, non-overlapping, and reaped.
 - **The layout control is a menu, not a cycle** -- cycling retiled the user's windows at every
-  intermediate step. It expands inline and vertically, because a Zebar widget cannot paint outside
-  its own 52px window (the same wall the media drawer is parked behind). Its active marker goes
-  stale on externally-driven layout changes: the komorebi provider never re-emits to a running
-  widget, and no `komorebic` poller was added on purpose, per trap 2.
+  intermediate step. It now **opens sideways with text labels**, which it can only do by being a
+  *second widget* (`zebar/caelestia/layoutmenu/`, `dockToEdge` disabled) -- a Zebar widget cannot
+  paint outside its own 52px window, and both in-window escapes are closed on this build (widening
+  the docked window moves komorebi's work area 1:1 and retiles; `pointer-events: none` gives no
+  OS-level click-through). It **parks itself at 1x1 while closed and resizes to the panel on open**,
+  because a transparent Zebar window swallows clicks across its whole footprint. The bar and the
+  flyout talk over `localStorage` + `storage` events (`zebar/caelestia/layout-channel.js`) -- all
+  widgets in the pack share one origin (`http://127.0.0.1:6124`, verified live), so this needs no
+  new helper process and no new poll, which matters given trap 2. The flyout never runs `komorebic`
+  itself; the bar owns that. Its active marker still goes stale on externally-driven layout changes:
+  the komorebi provider never re-emits to a running widget, and no `komorebic` poller was added on
+  purpose, per trap 2.
 - **Every stylesheet must contain zero colour literals** -- `var(--…)` and `transparent` only,
   enforced by a Pester test. Colours arrive only through matugen-generated `theme.css`.
 
