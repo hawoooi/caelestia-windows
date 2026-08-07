@@ -86,6 +86,25 @@ export const SLIDE_MS = 260;
 // sliding out from underneath the bar.
 const BAR_W = 52;
 
+// How long after our own resize a mouseleave is treated as an artefact of it
+// rather than as the pointer genuinely leaving. Comfortably longer than the
+// slide, since the synthetic events trail the geometry change.
+const RESIZE_SETTLE_MS = 400;
+
+// When our geometry last changed. Read by the mouseleave guard.
+let lastResizeAt = 0;
+
+// A small rolling log of hover events, readable as window.__dockEvents from a
+// CDP session. This behaviour can only be reproduced with a real cursor, so
+// when it misbehaves the only alternative to guessing is a record of what
+// actually fired.
+const DEBUG_LOG_MAX = 60;
+window.__dockEvents = [];
+function debugLog(what) {
+  window.__dockEvents.push(`${Date.now()} ${what}`);
+  if (window.__dockEvents.length > DEBUG_LOG_MAX) window.__dockEvents.shift();
+}
+
 const dock = document.getElementById('dock');
 
 const providers = zebar.createProviderGroup({ komorebi: { type: 'komorebi' } });
@@ -228,12 +247,16 @@ async function init() {
     // flickering. Keeping one width across both states means a state change can
     // never move an edge past the cursor horizontally.
     const w = Math.max(px(HOT_ZONE_W), contentWidth);
+    // Stamped BEFORE the calls, so the settle window covers the synthetic
+    // events the resize itself provokes.
+    lastResizeAt = Date.now();
     await win.setSize({ type: 'Physical', width: w, height: h });
     await win.setPosition({
       type: 'Physical',
       x: monitor.x + px(BAR_W),
       y: monitor.y + monitor.height - h,
     });
+    lastResizeAt = Date.now();
   }
 
   function measure() {
@@ -265,8 +288,49 @@ async function init() {
     }, CLOSE_DELAY_MS);
   }
 
-  document.body.addEventListener('mouseenter', slideIn);
-  document.body.addEventListener('mouseleave', slideOut);
+  // A mouseleave is NOT proof the pointer left.
+  //
+  // Direct user feedback: "when i hover there and put my mouse still it opens
+  // and closes". With a stationary cursor, the only thing that can be moving
+  // is us -- and it is: every open/close calls setSize and setPosition, and
+  // changing a window's geometry out from under a stationary pointer makes
+  // WebView2 emit a synthetic mouseleave. That leave started the close timer,
+  // the dock collapsed, collapsing resized the window again, which emitted a
+  // synthetic mouseenter, which re-opened it. A stationary cursor drove a
+  // loop at roughly the close-delay period, which is exactly the "clunky"
+  // open/close being reported.
+  //
+  // Two independent guards, because either alone leaves a hole:
+  //
+  //   1. Coordinates. A genuine leave puts the pointer outside the viewport;
+  //      a synthetic one fired by a resize reports coordinates still inside
+  //      it. Inside-the-viewport leaves are ignored outright.
+  //   2. Time. A resize can also report coordinates that are briefly
+  //      nonsensical mid-transition, so leaves arriving within
+  //      RESIZE_SETTLE_MS of our own geometry change are ignored regardless
+  //      of where they claim to be.
+  //
+  // Neither guard can wedge the dock open: a real leave -- the pointer
+  // genuinely moving off the strip -- reports outside coordinates and arrives
+  // long after the resize settled, so it still closes normally.
+  function pointerStillInside(e) {
+    return e.clientX > 0 && e.clientY > 0
+      && e.clientX < window.innerWidth && e.clientY < window.innerHeight;
+  }
+
+  document.body.addEventListener('mouseenter', () => {
+    debugLog('enter');
+    slideIn();
+  });
+
+  document.body.addEventListener('mouseleave', (e) => {
+    const sinceResize = Date.now() - lastResizeAt;
+    if (sinceResize < RESIZE_SETTLE_MS) { debugLog('leave:ignored-resize'); return; }
+    if (pointerStillInside(e)) { debugLog('leave:ignored-inside'); return; }
+    debugLog('leave:real');
+    slideOut();
+  });
+
   // A click on an item focuses another window, which moves the cursor's
   // effective target away; collapse rather than sitting there open.
   dock.addEventListener('click', slideOut);
