@@ -26,7 +26,7 @@
 // That strip is cheap because of where it sits: the bottom 8px overlap the
 // desktop frame's own band, which is already click-dead, and the top 8px lie
 // in the wallpaper gap above it, where there is nothing to click either. See
-// HOT_ZONE_H for why it has to span BOTH -- the band is a top_most window that
+// DEAD_STRIP_H for what that covers -- the band is a top_most window that
 // wins the hit test, so a hot zone living only inside it is unreachable.
 
 import * as zebar from '../bar/vendor/zebar.js';
@@ -34,30 +34,18 @@ import { dockItems, dockSignature, focusCommand, isSafeExeName } from '../dock-i
 import { appName, fetchIcon } from '../bar/entries/activeWindow.js';
 import { startFullscreenWatch } from '../fullscreen.js';
 
-// Height of the always-present strip that catches the cursor.
-//
-// This MUST be taller than the frame's bottom band, and the reason is a
-// z-order fight that was found with WindowFromPoint rather than by reasoning.
-// The band ('edges' bottom, rect (68,1432)-(2536,1440)) is also a top_most
-// Zebar window, and it wins: probing (100,1437) -- squarely inside a 6px hot
-// zone at y=1434 -- returned the BAND's window, not the dock's. Starting the
-// dock later than 'edges' does not change that. So a hot zone that only lives
-// inside the band is never hovered at all: the dock existed, rendered
-// correctly when driven programmatically, and was simply unreachable by mouse.
-//
-// 16px reaches up through the band into the 8px WALLPAPER GAP above it
-// (y 1424..1432), which is free -- WindowFromPoint at (100,1430) returns the
-// desktop. Sweeping the cursor down to the bottom-left crosses that strip on
-// the way, so the dock triggers before the covered part is ever reached.
-export const HOT_ZONE_H = 16;
+// How much of the dock's footprint lies in territory that was ALREADY dead:
+// the frame's 8px bottom band plus the 8px wallpaper gap above it. Only
+// documentation now -- nothing positions off it -- but it is the number that
+// says how much of placeWindow's permanent footprint costs nothing.
+export const DEAD_STRIP_H = 16;
 
 // The dock's own height when open, and the gap it leaves above the very bottom
 // of the screen so it reads as sitting ON the frame rather than hanging off
 // the edge of it.
 export const DOCK_H = 56;
 
-// Width of the COLLAPSED hot zone. Fixed, and deliberately not derived from
-// the dock's own content width.
+// The dock's fixed width. Fixed, and deliberately not derived from content.
 //
 // Deriving it was the first attempt and it failed twice over. On a cold start
 // the komorebi provider has not emitted yet, so the dock measures empty and
@@ -69,30 +57,21 @@ export const DOCK_H = 56;
 // A fixed strip is a constant, findable target: the bottom-left corner, always
 // the same size. It costs nothing extra, since the whole strip lies in the
 // frame band and the wallpaper gap, neither of which is clickable.
-export const HOT_ZONE_W = 420;
+export const DOCK_W = 380;
 
-// How long the cursor must be off the dock before it slides away. Without a
-// delay, crossing the gap between two icons -- or the instant during a
-// resize when the window moves out from under the cursor -- reads as a
-// mouseleave and the dock collapses under the user's hand.
-export const CLOSE_DELAY_MS = 350;
+// Grace period before the dock slides away, so crossing the gap between two
+// icons does not make it flicker. Short, per "takes toooo long".
+export const CLOSE_DELAY_MS = 120;
 
-// Matches dock.css's --dur. The window must not shrink until the slide-out
-// animation has actually played.
-export const SLIDE_MS = 260;
+// Matches dock.css's --dur. The window must not drop back until the slide-out
+// has actually played. Shortened from 260ms with the timings above -- a dock
+// is a flick target, not a transition to admire.
+export const SLIDE_MS = 140;
 
 // The left bar's width. The dock starts just right of it so the two read as
 // one L-shaped surface meeting at the bottom-left corner, rather than the dock
 // sliding out from underneath the bar.
 const BAR_W = 52;
-
-// How long after our own resize a mouseleave is treated as an artefact of it
-// rather than as the pointer genuinely leaving. Comfortably longer than the
-// slide, since the synthetic events trail the geometry change.
-const RESIZE_SETTLE_MS = 400;
-
-// When our geometry last changed. Read by the mouseleave guard.
-let lastResizeAt = 0;
 
 // A small rolling log of hover events, readable as window.__dockEvents from a
 // CDP session. This behaviour can only be reproduced with a real cursor, so
@@ -228,108 +207,76 @@ async function init() {
   const px = (n) => Math.round(n * scale);
 
   let open = false;
-  let closeTimer = null;
-  let width = 0;
 
   // Both states are anchored to the BOTTOM of the monitor and differ only in
   // height, so the dock grows upward out of the edge rather than sliding along
   // it. Collapsed leaves only the hot zone.
-  async function applyState(isOpen, contentWidth) {
-    const h = isOpen ? px(DOCK_H) : px(HOT_ZONE_H);
-    // The window is NEVER narrower than the catch strip, in either state.
-    //
-    // This is what fixes the jittery open/close the user reported. Sizing the
-    // OPEN window to its content (114px, with two apps) while the closed strip
-    // was 420px meant that hovering at, say, x=300 expanded the dock and
-    // instantly put the cursor OUTSIDE the newly-narrow window -- which fires
-    // mouseleave, which collapses it, which puts the cursor back inside the
-    // wide strip, which fires mouseenter... an oscillation that reads as
-    // flickering. Keeping one width across both states means a state change can
-    // never move an edge past the cursor horizontally.
-    const w = Math.max(px(HOT_ZONE_W), contentWidth);
-    // Stamped BEFORE the calls, so the settle window covers the synthetic
-    // events the resize itself provokes.
-    lastResizeAt = Date.now();
-    await win.setSize({ type: 'Physical', width: w, height: h });
+  // The window is placed ONCE, at startup, and never touched again.
+  //
+  // Three rounds of hover bugs all had the same root cause, and it took
+  // reading the event log to see it: ANY geometry change -- resize or move --
+  // clears WebView2's hover state under a stationary cursor. First it fired
+  // synthetic mouseleave (dock flickered). Filtering those by coordinates
+  // swallowed real leaves too (dock stuck open). Switching to polling
+  // `:hover` instead of events did not help either, because the geometry
+  // change is what invalidates `:hover` in the first place -- the log showed
+  // open/close cycling at exactly the poll period.
+  //
+  // So the window never moves. It sits at its full open size permanently and
+  // the slide is pure CSS transform on .dock, which moves no window and
+  // therefore cannot disturb hover at all. Hover detection becomes ordinary
+  // mouseenter/mouseleave and simply works.
+  //
+  // THE TRADE-OFF, stated plainly: the window is now a permanent footprint at
+  // the bottom-left, and a transparent Zebar window swallows clicks across its
+  // whole footprint. The bottom 16px lie in the frame band and the wallpaper
+  // gap, which were already dead -- but the rest overlaps real window content.
+  // A narrower, shorter dock keeps that small, and it sits exactly where the
+  // dock is expected to be. Removing it entirely needs a second widget (a
+  // never-moving hot-zone window driving a separate dock window), which is the
+  // refinement to make if this ever proves annoying.
+  async function placeWindow() {
+    await win.setSize({
+      type: 'Physical',
+      width: px(DOCK_W),
+      height: px(DOCK_H),
+    });
     await win.setPosition({
       type: 'Physical',
       x: monitor.x + px(BAR_W),
-      y: monitor.y + monitor.height - h,
+      y: monitor.y + monitor.height - px(DOCK_H),
     });
-    lastResizeAt = Date.now();
   }
 
-  function measure() {
-    const rect = dock.getBoundingClientRect();
-    return Math.ceil(rect.width * scale);
-  }
+  // With the window static, these are ordinary hover events again: nothing
+  // moves under the cursor, so nothing fires spuriously and nothing is
+  // swallowed. No polling, no coordinate guards, no settle windows.
+  let closeTimer = null;
 
-  async function slideIn() {
+  function slideIn() {
     if (closeTimer !== null) { clearTimeout(closeTimer); closeTimer = null; }
     if (open) return;
     open = true;
+    debugLog('open');
     document.body.classList.add('open');
-    // Size the window BEFORE the panel animates in, so the slide is not
-    // clipped by a window that is still only the hot zone tall.
-    width = measure();
-    await applyState(true, width);
   }
 
   function slideOut() {
     if (closeTimer !== null) clearTimeout(closeTimer);
-    closeTimer = setTimeout(async () => {
+    // A short grace only, so crossing the gap between two icons does not
+    // flicker. Direct user feedback on the old 350ms + 260ms: "takes toooo
+    // long".
+    closeTimer = setTimeout(() => {
       closeTimer = null;
       if (!open) return;
       open = false;
+      debugLog('close');
       document.body.classList.remove('open');
-      // Let the slide-out play before the window shrinks out from under it.
-      await new Promise((r) => setTimeout(r, SLIDE_MS));
-      if (!open) await applyState(false, width);
     }, CLOSE_DELAY_MS);
   }
 
-  // A mouseleave is NOT proof the pointer left.
-  //
-  // Direct user feedback: "when i hover there and put my mouse still it opens
-  // and closes". With a stationary cursor, the only thing that can be moving
-  // is us -- and it is: every open/close calls setSize and setPosition, and
-  // changing a window's geometry out from under a stationary pointer makes
-  // WebView2 emit a synthetic mouseleave. That leave started the close timer,
-  // the dock collapsed, collapsing resized the window again, which emitted a
-  // synthetic mouseenter, which re-opened it. A stationary cursor drove a
-  // loop at roughly the close-delay period, which is exactly the "clunky"
-  // open/close being reported.
-  //
-  // Two independent guards, because either alone leaves a hole:
-  //
-  //   1. Coordinates. A genuine leave puts the pointer outside the viewport;
-  //      a synthetic one fired by a resize reports coordinates still inside
-  //      it. Inside-the-viewport leaves are ignored outright.
-  //   2. Time. A resize can also report coordinates that are briefly
-  //      nonsensical mid-transition, so leaves arriving within
-  //      RESIZE_SETTLE_MS of our own geometry change are ignored regardless
-  //      of where they claim to be.
-  //
-  // Neither guard can wedge the dock open: a real leave -- the pointer
-  // genuinely moving off the strip -- reports outside coordinates and arrives
-  // long after the resize settled, so it still closes normally.
-  function pointerStillInside(e) {
-    return e.clientX > 0 && e.clientY > 0
-      && e.clientX < window.innerWidth && e.clientY < window.innerHeight;
-  }
-
-  document.body.addEventListener('mouseenter', () => {
-    debugLog('enter');
-    slideIn();
-  });
-
-  document.body.addEventListener('mouseleave', (e) => {
-    const sinceResize = Date.now() - lastResizeAt;
-    if (sinceResize < RESIZE_SETTLE_MS) { debugLog('leave:ignored-resize'); return; }
-    if (pointerStillInside(e)) { debugLog('leave:ignored-inside'); return; }
-    debugLog('leave:real');
-    slideOut();
-  });
+  document.body.addEventListener('mouseenter', slideIn);
+  document.body.addEventListener('mouseleave', slideOut);
 
   // A click on an item focuses another window, which moves the cursor's
   // effective target away; collapse rather than sitting there open.
@@ -337,17 +284,13 @@ async function init() {
 
   providers.onOutput(() => {
     latestItems = dockItems(providers.outputMap.komorebi);
-    const changed = renderItems(latestItems);
-    if (changed && open) {
-      width = measure();
-      applyState(true, width).catch((e) => console.warn('dock: could not resize', e));
-    }
+    renderItems(latestItems);
   });
 
   latestItems = dockItems(providers.outputMap.komorebi);
   renderItems(latestItems);
-  width = measure();
-  await applyState(false, width);
+  // Placed once, and never again -- see placeWindow.
+  await placeWindow();
 
   // Disappear entirely when something goes fullscreen, exactly like the bar
   // and the frame -- a hot zone that pops a dock over a fullscreen game would
