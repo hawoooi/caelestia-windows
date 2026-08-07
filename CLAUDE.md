@@ -23,7 +23,7 @@ building it — read it before changing anything here.
 | starship | config at `~/.config/starship.toml` |
 | Wallpaper Engine | `C:\Program Files (x86)\Steam\steamapps\common\wallpaper_engine\` — `wallpaper32.exe` or `wallpaper64.exe` (whichever is the live process; both exist on disk, this machine runs `wallpaper32.exe`) |
 | Zebar (v3.3.1) | `C:\Program Files\glzr.io\Zebar\zebar.exe` — a vertical Caelestia-style bar docked left, and (since yasb's retirement) the **only** bar on the desktop. Pack source tracked at `zebar/caelestia/`, served to Zebar via a junction at `~/.glzr/zebar/caelestia`. Full detail: `docs/zebar-bar.md`. |
-| komorebi + whkd | `~/komorebi.json`, `~/.config/whkdrc` — the tiling WM driving the desktop (GlazeWM was replaced during this project's pre-flight; see `~/.config/yasb/CLAUDE.md`). Since the borders/yasb-retirement task, komorebi.json also carries `border: true`, `border_style: "Rounded"`, `border_width: 4`, `border_offset: 1`, increased `default_workspace_padding`/`default_container_padding` (12/12, up from 5/5), and a themed `border_colours` object -- see "Window borders and gaps" below. |
+| komorebi + whkd | `~/komorebi.json`, `~/.config/whkdrc` — the tiling WM driving the desktop (GlazeWM was replaced during this project's pre-flight; see `~/.config/yasb/CLAUDE.md`). Since the borders/yasb-retirement task, komorebi.json also carries `border: true`, `border_style: "Rounded"`, `border_width: 4`, `border_offset: 1`, `default_workspace_padding`/`default_container_padding` of **8/8**, a `global_work_area_offset` of `{left:-8, top:0, right:-8, bottom:0}`, and a themed `border_colours` object -- see "Window borders and gaps" and "The desktop frame" below. |
 | Pester | 6.0.1 and 3.4.0 are both installed; **all tests in this repo are Pester 5+ syntax** (`Should -Be`, not `Should Be`) — `Import-Module Pester -MinimumVersion 5.0.0` before running the suite, or 3.4.0 loads by default and every test errors on syntax it doesn't recognize |
 
 ## Window borders and gaps
@@ -33,8 +33,11 @@ komorebi has a full border CLI (`komorebic border enable|disable`, `border-style
 `~/komorebi.json` was hand-edited (surgically -- parsed, mutated, re-serialized, never rewritten
 wholesale, preserving all 20 `ignore_rules` entries and every other key) to turn this on
 persistently: `border: true`, `border_style: "Rounded"`, `border_width: 4`, `border_offset: 1`,
-`default_workspace_padding`/`default_container_padding` raised from 5 to 12. Applied live via
-`komorebic stop` + `komorebic start` (config is read at startup, not hot-reloaded).
+`default_workspace_padding`/`default_container_padding` (5 -> 12 originally, **now 8/8** -- see
+"The desktop frame" below, which owns those two values). Applied live via `komorebic stop` +
+`komorebic start` (config is read at startup, not hot-reloaded); the padding half also has a
+runtime CLI (`komorebic workspace-padding <mon> <ws> <n>` / `container-padding`) that avoids a
+restart.
 
 `Apply-Theme` now also themes the border colours every run, via `Update-KomorebiBorderTheme`
 (`scripts/Apply-Theme.ps1`):
@@ -72,6 +75,63 @@ persistently: `border: true`, `border_style: "Rounded"`, `border_width: 4`, `bor
   themed and persisted, and `Update-KomorebiBorderTheme` never throws out to its caller over one bad
   value. `Apply-Theme`'s own call to `Update-KomorebiBorderTheme` is additionally wrapped in
   try/catch as defence in depth.
+
+## The desktop frame (branch `feat/corner-overlays`, UNMERGED)
+
+A Caelestia-style coloured frame around the desktop, plus a reworked bar. All of it lives on
+`feat/corner-overlays`, which is ~20 commits ahead of `main` and **not merged** -- the user was
+asked and had not answered. `docs/zebar-bar.md` is the full account; this is the orientation.
+
+**Shape.** Solid `var(--surface)` (the bar's own colour) bands on **top, right and bottom only** --
+the 52px bar is the left side of the frame. Four corner widgets paint a 90° inverse arc so the
+content area reads as a rounded rectangle. Every piece is a separate `top_most` Zebar preset with
+`dockToEdge` disabled, and all of them hide together when something goes fullscreen
+(`tools/fullscreen-detect.exe`, polled from `fullscreen.js`).
+
+**The one invariant that matters: all four wallpaper gaps must be equal.** Gap = komorebi's total
+padding − band thickness. Top/right/bottom each spend the band out of that padding; the left side
+has no band, so it needs `global_work_area_offset` to compensate. Current values: thickness 8,
+gap 8, radius 16, padding 8/8, offset `{left:-8, top:0, right:-8, bottom:0}`.
+
+**`scripts/Set-FrameGeometry.ps1` is the only supported way to retune** (`-Thickness -GapRatio
+-Radius`, `-DryRun` to preview). It rewrites the zpack presets, the CSS custom properties, the
+komorebi padding *and* the offset together. Hand-editing `zpack.json` alone silently breaks the
+equal-gap invariant. Note the asymmetry: the padding half applies live, the offset half needs a
+komorebi restart.
+
+**Two traps that each cost a full debugging session:**
+
+1. **`komorebic state` does not reflect `global_work_area_offset`.** With the offset demonstrably
+   working, `work_area_size` still reads `{left:52,...}` and `work_area_offset` reads empty. Two
+   passes concluded the feature was impossible from that evidence. The `komorebic
+   global-work-area-offset` *CLI* genuinely is a no-op; the *config field* is not, and is read only
+   at startup. **Verify by scanning screen pixels for where windows actually land**, never by
+   reading state.
+2. **A blank bar is almost never WebView2.** `fullscreen-detect.exe` (and now `app-icon.exe`) are
+   shelled out on a poll; one outliving its parent zebar **inherits zebar's listening socket on
+   port 6124**, so every later start fails to bind and paints nothing under a PID that no longer
+   exists. Check `Get-NetTCPConnection -LocalPort 6124` and kill the orphan. `Restart-ZebarWidgets`
+   now reaps both helpers first. **Never `Stop-Process msedgewebview2`** -- doing that once broke
+   WebView2 machine-wide and needed a reboot.
+
+**The bar** (`zebar/caelestia/bar/`, entries ordered by `bar.config.json`): logo, workspaces,
+app icon + app name centred between two spacers, clock, a status pill grouping wifi/volume/vesktop,
+a layout menu, power. Notable details:
+
+- **Icons are vendored Font Awesome Free 6** (`bar/vendor/fontawesome/`, no CDN). Beware: the bar's
+  fallback font `0xProto Nerd Font` embeds Font Awesome **v4** at U+F000–U+F2E0, so a broken FA
+  cascade *still renders* the low codepoints and only tofus the FA6-only ones. That is what made a
+  `font: inherit` shorthand (which resets font-family) look like a font-loading problem.
+- **`activeWindow` shows the app name only**, resolved from the komorebi provider's `exe` (a bare
+  name, never a path) through an alias table, plus the real extracted executable icon via
+  `tools/app-icon.exe`. That tool is cached per exe, timed out, non-overlapping, and reaped.
+- **The layout control is a menu, not a cycle** -- cycling retiled the user's windows at every
+  intermediate step. It expands inline and vertically, because a Zebar widget cannot paint outside
+  its own 52px window (the same wall the media drawer is parked behind). Its active marker goes
+  stale on externally-driven layout changes: the komorebi provider never re-emits to a running
+  widget, and no `komorebic` poller was added on purpose, per trap 2.
+- **Every stylesheet must contain zero colour literals** -- `var(--…)` and `transparent` only,
+  enforced by a Pester test. Colours arrive only through matugen-generated `theme.css`.
 
 ## Pipeline flow
 
