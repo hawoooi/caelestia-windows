@@ -22,7 +22,7 @@ building it — read it before changing anything here.
 | WezTerm | `C:\Program Files\WezTerm\wezterm.exe` — config at `~/.wezterm.lua`, **not under version control** (home directory is not a git repo); the pipeline's two required edits there are recorded in `docs/wezterm-integration.md` because of this |
 | starship | config at `~/.config/starship.toml` |
 | Wallpaper Engine | `C:\Program Files (x86)\Steam\steamapps\common\wallpaper_engine\` — `wallpaper32.exe` or `wallpaper64.exe` (whichever is the live process; both exist on disk, this machine runs `wallpaper32.exe`) |
-| Zebar (v3.3.1) | `C:\Program Files\glzr.io\Zebar\zebar.exe` — a vertical Caelestia-style bar docked left, and (since yasb's retirement) the **only** bar on the desktop. Pack source tracked at `zebar/caelestia/`, served to Zebar via a junction at `~/.glzr/zebar/caelestia`. The pack now declares **four** widgets -- `bar`, `corners`, `edges`, `layoutmenu` -- each needing its own `startupConfigs` entry per preset (`Install-Config` writes them all). Full detail: `docs/zebar-bar.md`. |
+| Zebar (v3.3.1) | `C:\Program Files\glzr.io\Zebar\zebar.exe` — a vertical Caelestia-style bar docked left, and (since yasb's retirement) the **only** bar on the desktop. Pack source tracked at `zebar/caelestia/`, served to Zebar via a junction at `~/.glzr/zebar/caelestia`. The pack now declares **five** widgets -- `bar`, `corners`, `edges`, `layoutmenu`, `statusmenu` -- each needing its own `startupConfigs` entry per preset (`Install-Config` writes them all). Full detail: `docs/zebar-bar.md`. |
 | komorebi + whkd | `~/komorebi.json`, `~/.config/whkdrc` — the tiling WM driving the desktop (GlazeWM was replaced during this project's pre-flight; see `~/.config/yasb/CLAUDE.md`). Since the borders/yasb-retirement task, komorebi.json also carries `border: true`, `border_style: "Rounded"`, `border_width: 4`, `border_offset: 1`, `default_workspace_padding`/`default_container_padding` of **8/8**, a `global_work_area_offset` of `{left:-8, top:0, right:-8, bottom:0}`, and a themed `border_colours` object -- see "Window borders and gaps" and "The desktop frame" below. |
 | Pester | 6.0.1 and 3.4.0 are both installed; **all tests in this repo are Pester 5+ syntax** (`Should -Be`, not `Should Be`) — `Import-Module Pester -MinimumVersion 5.0.0` before running the suite, or 3.4.0 loads by default and every test errors on syntax it doesn't recognize |
 
@@ -46,9 +46,13 @@ restart.
   (`[templates.komorebi]` in `matugen/config.toml`) -- **not** one of `$script:Targets` (no live
   config of its own to copy/validate/roll back; it exists purely to hand this step hex values
   without a second matugen invocation).
-- Role mapping: `single` (focused window) -> `primary`, `stack` -> `tertiary`, `monocle` ->
-  `secondary`, `unfocused` -> `outline`, `floating` -> `error`. `unfocused_locked` is intentionally
-  left unmapped (komorebi's own default).
+- Role mapping: `single` (focused window) -> `surface_container_high`, `stack` ->
+  `surface_container`, `monocle` -> `surface_container_high`, `unfocused` -> `surface`, `floating`
+  -> `outline`. `unfocused_locked` is intentionally left unmapped (komorebi's own default).
+  **These are SURFACE-family roles, not accents, on purpose** (direct user feedback): the borders
+  sit immediately inside the desktop frame's own `var(--surface)` bands, so an accent border read as
+  a clashing second frame. Focused stays one step lighter than its surroundings so the focus cue
+  survives. Don't "restore" these to primary/tertiary/secondary/error.
 - **Runtime**: `Set-KomorebiBorderColour` calls `komorebic border-colour <R> <G> <B> --window-kind
   <kind>` per role (hex converted to RGB ints via `ConvertFrom-HexColor`). This is **fail-soft** --
   if `komorebic` isn't on PATH or komorebi isn't running, it warns and Apply-Theme continues; a
@@ -115,8 +119,18 @@ komorebi restart.
    WebView2 machine-wide and needed a reboot.
 
 **The bar** (`zebar/caelestia/bar/`, entries ordered by `bar.config.json`): logo, workspaces,
-app icon + app name centred between two spacers, clock, a status pill grouping wifi/volume/vesktop,
-a layout menu, power. Notable details:
+app icon + app name centred between two spacers, clock, a status pill, a layout menu, power.
+Notable details:
+
+- **Status icons are configurable, pinned or dropdown** (`status` block in `bar.config.json`;
+  catalogue in `zebar/caelestia/status-catalogue.js`). Pinned ids render as glyphs in the pill;
+  the rest open in the `statusmenu` flyout behind a chevron that only exists when that list is
+  non-empty. `parseStatusConfig` never throws -- bad ids are dropped loudly, an id in both lists
+  stays pinned. The old `statusIcons` entry was **deleted**, not left registered, so exactly one
+  place decides what a status glyph means. Provider gotchas, all found live: the `battery` provider
+  *rejects* ("No battery found.") rather than returning null on a batteryless machine; `audio`
+  reports `isMuted` separately from `volume` (a 50%-but-muted device used to show the loud icon);
+  the `disk` provider pre-converts sizes, so use `siValue`/`siUnit`, never recompute from `bytes`.
 
 - **Icons are vendored Font Awesome Free 6** (`bar/vendor/fontawesome/`, no CDN). Beware: the bar's
   fallback font `0xProto Nerd Font` embeds Font Awesome **v4** at U+F000–U+F2E0, so a broken FA

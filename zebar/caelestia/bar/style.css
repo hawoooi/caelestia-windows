@@ -103,8 +103,25 @@ body.fullscreen-hidden #bar { display: none; }
    raw Unicode diamond needs no icon-font sizing to look right. Now that
    it's a Font Awesome glyph (entries/logo.js, `fa-solid`), it gets the
    same --icon-size every other icon in this bar uses, so it doesn't look
-   mismatched against the icons below it. */
+   mismatched against the icons below it.
+
+   Padding-match (direct user feedback: "make the icon on the top have the
+   same padding as the power button icon on the bottom"): the power button
+   (entries/power.js) draws its glyph inside `.bar-btn`'s --hit-size box,
+   so the --icon-size glyph sits centred with (--hit-size - --icon-size)/2
+   of breathing room on every side. The logo now uses the SAME --hit-size
+   centring box so its glyph carries identical padding, keeping the top and
+   bottom marks visually symmetric. It deliberately does NOT take the
+   `.bar-btn` class or any of its hover/press/cursor affordance -- the logo
+   has no click handler, and this file's own rule (see `.bar-btn`) is that
+   the clickable affordance only ever reaches elements that are actually
+   wired. This borrows only the box geometry, not the interactivity. */
 .logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--hit-size);
+  height: var(--hit-size);
   font-size: var(--icon-size);
   line-height: 1;
 }
@@ -176,6 +193,25 @@ body.fullscreen-hidden #bar { display: none; }
   font-size: 0.7em;
   line-height: 1;
   text-align: center;
+}
+
+/* The dropdown affordance at the foot of the pill (direct user feedback:
+   "implement option for icons to get pinned to this bar or live inside a
+   dropdown"). Rendered ONLY when status.dropdown in bar.config.json is
+   non-empty -- see entries/statusCluster.js for why an overflow chevron
+   that opens an empty panel would violate this file's own "anything that
+   looks interactive must be interactive" rule.
+
+   It reuses `.bar-btn` for the hover/press affordance but shrinks the hit
+   circle: at the full --hit-size it dominated the pill it belongs to,
+   reading as a separate button parked underneath rather than the pill's own
+   trailing control. The glyph is a step smaller than --icon-size for the
+   same reason -- a chevron is a hint, not a peer of the status icons above
+   it. */
+.status-more {
+  width: var(--icon-box);
+  height: var(--icon-box);
+  font-size: calc(var(--icon-size) - 6px);
 }
 
 /* vesktop's own box now matches statusIcons' glyph sizing so the two read

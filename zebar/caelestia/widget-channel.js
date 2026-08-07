@@ -1,6 +1,7 @@
-// Cross-widget message channel between the bar's layout button
-// (bar/entries/layoutToggle.js) and the horizontal layout-menu flyout
-// (layoutmenu/menu.js), which live in two SEPARATE Zebar widget windows.
+// Cross-widget message channel between the bar and the flyout widgets it
+// drives -- the layout menu (layoutmenu/menu.js) and the status dropdown
+// (statusmenu/menu.js) -- each of which lives in its own Zebar widget
+// window. The transport is generic; only the key pairs below are per-flyout.
 //
 // **Why two windows at all.** A Zebar widget cannot paint one pixel outside
 // its own OS window, and the bar's window is 52px wide -- far too narrow
@@ -38,8 +39,13 @@
 // and inheriting Zebar's listening socket (see fullscreen.js). No new
 // helper process, no new poll.
 
+// One key PAIR per flyout. They must not be shared: every widget in the
+// pack sees every storage event on this origin, so a single pair would make
+// the layout menu and the status dropdown answer each other's commands.
 export const CMD_KEY = 'caelestia.layoutMenu.cmd';
 export const ACK_KEY = 'caelestia.layoutMenu.ack';
+export const STATUS_CMD_KEY = 'caelestia.statusMenu.cmd';
+export const STATUS_ACK_KEY = 'caelestia.statusMenu.ack';
 
 // `storage` events do NOT fire when setItem writes a value byte-identical
 // to the one already stored (HTML spec: the event is only fired when the

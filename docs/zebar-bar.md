@@ -2503,3 +2503,144 @@ provider reports a workspace's layout at connect time and never re-emits, and no
 was added, on purpose. The flyout does not fix this — it renders whatever `current` the bar sends
 it. It does make it *less* reachable in one narrow way: nothing re-reads the provider after
 connect, so the marker can no longer be silently overwritten back to a stale value.
+
+## Status icons: pinned or dropdown (tenth pass, direct user feedback)
+
+Direct user feedback: *"can you work on status bar icons that gets encapsulated like these wifi and
+volume icons ... remember to implement option for icons to get pinned to this bar or live inside a
+dropdown."*
+
+The status pill used to be a hardcoded pair: a `statusIcons` entry (wifi glyph, volume glyph,
+battery percentage as text) plus `vesktop`, both nested inside `.status-cluster`. It is now a
+configured set drawn from a shared catalogue, split between icons pinned in the pill and icons that
+live in a dropdown.
+
+### Configuration
+
+`bar/bar.config.json` grew a `status` block alongside `entries`:
+
+```json
+"status": {
+  "pinned":   ["network", "volume"],
+  "dropdown": ["cpu", "memory", "disk", "battery"]
+}
+```
+
+Any catalogue id can go in either list — that is the whole feature. `parseStatusConfig`
+(`status-catalogue.js`) normalises it and **never throws**: an unknown id is dropped with a console
+error, a non-array list falls back to that half of the default without discarding the other half,
+and an id listed in *both* lists stays pinned and is removed from the dropdown so nothing can
+render twice. An empty `pinned: []` is honoured rather than treated as "unset" — "pin nothing, put
+it all behind the chevron" is a legitimate configuration and a naive falsy check would have broken
+it.
+
+Omitting the block entirely keeps the shipped default above, which is deliberately what the bar
+looked like before this pass.
+
+### The catalogue, and the provider shapes behind it
+
+`zebar/caelestia/status-catalogue.js` holds one entry per available status item, each a set of pure
+functions of a provider output map: `available`, `glyph`, `value`, `detail`. Pure because this is
+exactly the code that has burned this pack twice by *assuming* a provider field's shape (the
+invented `isFocused`; the layout-casing gap), so all of it is directly assertable against fixtures
+in `tests/js/statusIcons.test.mjs`.
+
+Every shape below was read LIVE over CDP before anything consumed it:
+
+| provider | fields used |
+|---|---|
+| `cpu` | `usage` (0-100 float), `logicalCoreCount` |
+| `memory` | `usage`, `usedMemory`, `totalMemory` (bytes) |
+| `disk` | `disks[].{mountPoint, totalSpace, availableSpace}`, each space carrying `{bytes, siValue, siUnit, iecValue, iecUnit}` |
+| `network` | `defaultInterface.{friendlyName, type, ipv4Addresses[]}` |
+| `audio` | `defaultPlaybackDevice.{name, volume, isMuted}` |
+| `battery` | **rejects** with `"No battery found."` on this desktop |
+
+Three things fell out of that which no amount of reasoning would have produced:
+
+1. **`battery` errors, it does not return null.** `createProvider({ type: 'battery' })` REJECTS on a
+   machine with no battery. A provider group absorbs that into a null entry in the output map,
+   which is what the catalogue's `available()` keys off — so a batteryless desktop simply renders no
+   battery row, even though `battery` is listed in `status.dropdown`. Configuring an item that this
+   machine cannot report is not an error, it just does not appear.
+2. **`audio` exposes `isMuted` separately from `volume`.** The retired `statusIcons` picked its
+   volume glyph purely by level, so a device muted at 50% showed the *loud* speaker icon. That was a
+   real shipped bug, found by reading the provider rather than by noticing it on screen.
+3. **The disk provider pre-converts sizes.** `siValue`/`siUnit` are used directly rather than
+   recomputing from `bytes`, so this module and the provider can never disagree about GB vs GiB.
+
+`vesktop` is deliberately NOT in the catalogue: it is a notification badge backed by a shellExec
+poll with its own lifecycle, not a provider readout, and folding it in would give an otherwise pure
+module a process-spawning dependency. It stays a fixed member of the pill.
+
+### `statusIcons` was deleted, not left registered
+
+The old entry's glyph logic is fully superseded by the catalogue, and it had already drifted (the
+`isMuted` bug above). Leaving it registered would have meant two places deciding what a given
+status looks like, so it was removed outright — file, `entries/index.js` import, and its eight unit
+tests. `tests/js/statusIcons.test.mjs` covers the same ground against the catalogue instead.
+
+### The dropdown reuses the layout menu's machinery
+
+It is the `statusmenu` widget, a fourth flyout-shaped window built on the same three shared modules
+the layout menu now uses: `widget-channel.js` (transport, renamed from `layout-channel.js` when it
+stopped being layout-specific), `flyout-placement.js` (geometry, moved up out of `layoutmenu/`), and
+the same park-at-1x1 lifecycle. Everything structural — why a flyout must be its own window, why
+1x1 while closed, why `storage` rather than a poller — is documented once in the previous section
+and not repeated here.
+
+**Each flyout needs its own key pair.** Every widget on this origin sees every storage event, so a
+shared pair would have the layout menu and the status dropdown answering each other's commands.
+`STATUS_CMD_KEY`/`STATUS_ACK_KEY` sit alongside the layout pair in `widget-channel.js`.
+
+Two things genuinely differ from the layout menu:
+
+- **The rows are readouts, not choices.** Clicking one closes the dropdown; nothing is selected, no
+  command runs, and the widget's `privileges.shellCommands` is empty. There is nothing to validate
+  on the ack the way a selected layout name has to be validated — this dropdown cannot ask the bar
+  to *do* anything.
+- **The content changes while open.** CPU and memory move every tick, so the bar re-posts the row
+  set on every provider tick while the dropdown is open, and the widget re-measures and re-sizes its
+  window only when the measured size actually changed (a value crossing `9%` -> `10%` widens the
+  panel; re-issuing two IPC calls per tick regardless would not). A live refresh deliberately does
+  **not** restart the dismiss timer — a bar ticking once a second would otherwise hold the dropdown
+  open forever.
+
+Its dismiss timeout is 10s, not the layout menu's 6s: this is something you read rather than a
+pick-one-and-go control.
+
+### Verification
+
+Same discipline as the layout menu — CDP, real click path, never simulated mouse input:
+
+- **Pinned icons render from the catalogue.** `f1eb` with tooltip `Network: Wi-Fi`, `f027` with
+  `Volume: 50%`. The pill has no room for labels, so the value lives in the tooltip.
+- **The chevron only exists when it has somewhere to go**, and flips `f054` -> `f053` on open.
+- **The dropdown opens beside the bar** at `(50, 1252)`, `264x133`, and rendered
+  `CPU | 12 threads | 30%`, `Memory | 20.3 / 34.2 GB | 59%`, `Disk | C:\ 999 GB | 352 GB free`.
+- **Screenshotted open**: all three icons render through the vendored FA6 webfont with no tofu —
+  the check that matters, since a broken FA cascade still renders the low codepoints and only tofus
+  the FA6-only ones.
+- **Battery is absent**, as designed, despite being configured — this desktop has no battery.
+
+Tests: `node --test` 130 passing (23 new in `tests/js/statusIcons.test.mjs`, 8 retired with
+`statusIcons.js`); Pester 169 passing (+1 for `statusmenu.css`'s zero-colour-literal check).
+
+### A failure worth recording: the bar went blank twice during this pass
+
+Both times the cause was mine, not the widget system's, and both are the kind of thing that reads
+as "WebView2 is broken" if you do not check:
+
+1. A restart raced an orphaned `fullscreen-detect.exe` still holding port 6124.
+   `Restart-ZebarWidgets` *warned* about exactly this and started the widgets anyway — the bar and
+   two corners never bound and simply did not appear. The warning is accurate and worth believing;
+   the fix is to kill every `zebar`/`fullscreen-detect`/`app-icon` process, confirm 6124 is free,
+   and only then restart.
+2. `entries/index.js` kept importing `statusIcons.js` after that file was deleted, so the whole
+   module tree failed to load and `#bar` rendered zero children. The tell was
+   `import('/bar/bar.js')` rejecting with "Failed to fetch dynamically imported module" while every
+   individual module still served `200` — Chrome reports the parent's URL, not the missing
+   dependency's.
+
+Neither was caught by any test, because both are load-time wiring rather than logic. Checking that
+`#bar` actually has children after a restart is the cheap probe that would have caught both.

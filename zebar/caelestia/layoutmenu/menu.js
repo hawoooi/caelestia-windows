@@ -14,8 +14,8 @@
 
 import * as zebar from '../bar/vendor/zebar.js';
 import { LAYOUT_CYCLE, layoutGlyph, layoutLabel } from '../layouts.js';
-import { CMD_KEY, ACK_KEY, createChannel } from '../layout-channel.js';
-import { menuPlacement, isAnchorOnMonitor } from './placement.js';
+import { CMD_KEY, ACK_KEY, createChannel } from '../widget-channel.js';
+import { menuPlacement, isAnchorOnMonitor } from '../flyout-placement.js';
 
 // Matches the auto-dismiss the in-bar menu used to own. The flyout keeps
 // this timer rather than the bar because the flyout is what the user is

@@ -1,3 +1,25 @@
 {
-  "entries": ["logo", "workspaces", "spacer", "activeWindow", "spacer", "clock", "statusCluster", "layoutToggle", "power"]
+  "entries": [
+    "logo",
+    "workspaces",
+    "spacer",
+    "activeWindow",
+    "spacer",
+    "clock",
+    "statusCluster",
+    "layoutToggle",
+    "power"
+  ],
+  "status": {
+    "pinned": [
+      "network",
+      "volume"
+    ],
+    "dropdown": [
+      "cpu",
+      "memory",
+      "disk",
+      "battery"
+    ]
+  }
 }

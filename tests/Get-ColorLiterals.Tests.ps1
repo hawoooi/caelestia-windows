@@ -71,6 +71,12 @@ Describe "The zebar bar's zero-color-literal invariant (I5)" {
         # corners.css or edges.css -- so it is the one most likely to
         # acquire a literal by accident, and is bound by the same invariant.
         $script:layoutMenuCss = "$PSScriptRoot\..\zebar\caelestia\layoutmenu\layoutmenu.css"
+        # Status-icons pass: statusmenu.css is a sixth structural stylesheet
+        # (the "statusmenu" widget in zpack.json -- the status pill's
+        # dropdown). It paints the most colour surface of any file here:
+        # panel, hover, the secondary --outline detail line and the value
+        # column, so it is the likeliest to acquire a literal by accident.
+        $script:statusMenuCss = "$PSScriptRoot\..\zebar\caelestia\statusmenu\statusmenu.css"
     }
 
     It "style.css contains zero colour literals" {
@@ -87,6 +93,10 @@ Describe "The zebar bar's zero-color-literal invariant (I5)" {
 
     It "layoutmenu.css contains zero colour literals" {
         @(Get-ColorLiterals -Path $script:layoutMenuCss).Count | Should -Be 0
+    }
+
+    It "statusmenu.css contains zero colour literals" {
+        @(Get-ColorLiterals -Path $script:statusMenuCss).Count | Should -Be 0
     }
 
     It "fontawesome.css contains zero colour literals" {

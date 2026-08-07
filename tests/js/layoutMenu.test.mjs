@@ -20,13 +20,13 @@ import {
   encodeMessage,
   decodeMessage,
   createChannel,
-} from '../../zebar/caelestia/layout-channel.js';
+} from '../../zebar/caelestia/widget-channel.js';
 import {
   GAP_PX,
   SLIDE_PX,
   menuPlacement,
   isAnchorOnMonitor,
-} from '../../zebar/caelestia/layoutmenu/placement.js';
+} from '../../zebar/caelestia/flyout-placement.js';
 import { LAYOUT_CYCLE, layoutLabel } from '../../zebar/caelestia/layouts.js';
 import { createLayoutMenuController } from '../../zebar/caelestia/bar/entries/layoutToggle.js';
 

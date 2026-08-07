@@ -3,13 +3,20 @@ import './logo.js';
 import './workspaces.js';
 import './layoutToggle.js';
 import './clock.js';
-import './statusIcons.js';
 import './power.js';
 import './activeWindow.js';
 import './media.js';
 import './vesktop.js';
-// statusCluster composes the statusIcons/vesktop factories registered
-// above via create() -- must be imported after both (see its own comment).
+// statusCluster composes the vesktop factory registered above via create(),
+// so it must be imported after it.
+//
+// The 'statusIcons' entry that used to sit in this list was RETIRED in the
+// pinned/dropdown pass: its wifi/volume/battery glyph logic moved to
+// ../../status-catalogue.js, which statusCluster renders directly from the
+// configured pinned list. It was deleted rather than left registered so
+// there is exactly one place that decides which glyph a given status means
+// -- the retired copy had already drifted (it picked a volume glyph purely
+// by level, ignoring the device's isMuted flag).
 import './statusCluster.js';
 
 register('spacer', () => ({

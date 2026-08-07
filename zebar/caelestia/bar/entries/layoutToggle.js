@@ -7,7 +7,7 @@ import {
   nextLayout,
   normalizeLayoutString,
 } from '../../layouts.js';
-import { CMD_KEY, ACK_KEY, createChannel } from '../../layout-channel.js';
+import { CMD_KEY, ACK_KEY, createChannel } from '../../widget-channel.js';
 
 // The layout metadata this module used to own (LAYOUT_CYCLE, the Font
 // Awesome glyph table, the provider->cycle mapping and its live-verified

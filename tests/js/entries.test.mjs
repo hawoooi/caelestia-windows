@@ -11,7 +11,6 @@ import {
   createIconController,
 } from '../../zebar/caelestia/bar/entries/activeWindow.js';
 import { pingState } from '../../zebar/caelestia/bar/entries/vesktop.js';
-import { statusIconParts, volumeGlyph } from '../../zebar/caelestia/bar/entries/statusIcons.js';
 import {
   LAYOUT_CYCLE,
   currentLayout,
@@ -390,13 +389,6 @@ test('formatMediaTime formats seconds as m:ss', () => {
 // that made it into the committed source, not just that the string is
 // truthy/non-empty -- a dropped glyph that got replaced with, say, a space
 // would still pass a naive non-empty check.
-test('statusIconParts emits the connected wifi glyph (U+F1EB) when online', () => {
-  const parts = statusIconParts({ online: true, volume: null, battery: null });
-  assert.strictEqual(parts.length, 1);
-  assert.strictEqual(parts[0].kind, 'glyph');
-  assert.strictEqual(parts[0].text.codePointAt(0), 0xF1EB);
-});
-
 // Task 3 (Font Awesome icons): the disconnected glyph changed from U+F127
 // (chain-broken, the old Nerd-Font-as-FA4.7-stand-in codepoint) to U+E560
 // (plug-circle-xmark) -- Font Awesome Free 6.x's own metadata/icons.json
@@ -404,52 +396,11 @@ test('statusIconParts emits the connected wifi glyph (U+F1EB) when online', () =
 // stands in for "disconnected", same idea as before but confirmed present
 // in the vendored 6.x release rather than carried over from the old
 // mapping.
-test('statusIconParts emits the disconnected glyph (U+E560) when offline', () => {
-  const parts = statusIconParts({ online: false, volume: null, battery: null });
-  assert.strictEqual(parts[0].text.codePointAt(0), 0xE560);
-});
-
 // Task 3: volume is now a real three-tier muted/low/high split driven by
 // the actual level (previously a binary >0 check that only ever chose
 // between "some sound" (U+F028, volume-up/volume-high) and "off"). 40 now
 // lands in the "low" tier, not "high" -- see the dedicated high-volume
 // test just below for the tier that keeps U+F028.
-test('statusIconParts emits the volume-low glyph (U+F027) for volume in the low tier and marks it "glyph"', () => {
-  const parts = statusIconParts({ online: true, volume: 40, battery: null });
-  assert.strictEqual(parts.length, 2);
-  assert.strictEqual(parts[1].kind, 'glyph');
-  assert.strictEqual(parts[1].text.codePointAt(0), 0xF027);
-});
-
-test('statusIconParts emits the volume-high glyph (U+F028) for volume above the low/high boundary', () => {
-  const parts = statusIconParts({ online: true, volume: 80, battery: null });
-  assert.strictEqual(parts[1].text.codePointAt(0), 0xF028);
-});
-
-test('statusIconParts emits the muted glyph (U+F026) at zero volume', () => {
-  const parts = statusIconParts({ online: true, volume: 0, battery: null });
-  assert.strictEqual(parts[1].text.codePointAt(0), 0xF026);
-});
-
-test('volumeGlyph is a monotonic three-tier muted/low/high split with no gaps at the boundaries', () => {
-  assert.strictEqual(volumeGlyph(0).codePointAt(0), 0xF026);
-  assert.strictEqual(volumeGlyph(1).codePointAt(0), 0xF027);
-  assert.strictEqual(volumeGlyph(50).codePointAt(0), 0xF027);
-  assert.strictEqual(volumeGlyph(51).codePointAt(0), 0xF028);
-  assert.strictEqual(volumeGlyph(100).codePointAt(0), 0xF028);
-});
-
-test('statusIconParts appends a battery percentage part marked "battery", not "glyph"', () => {
-  const parts = statusIconParts({ online: true, volume: 40, battery: 87 });
-  assert.deepStrictEqual(parts.map(p => p.kind), ['glyph', 'glyph', 'battery']);
-  assert.strictEqual(parts[2].text, '87%');
-});
-
-test('statusIconParts omits volume and battery parts entirely when null', () => {
-  const parts = statusIconParts({ online: true, volume: null, battery: null });
-  assert.deepStrictEqual(parts.map(p => p.kind), ['glyph']);
-});
-
 test('formatMediaTime tolerates missing or invalid input', () => {
   assert.strictEqual(formatMediaTime(undefined), '--:--');
   assert.strictEqual(formatMediaTime(NaN), '--:--');
