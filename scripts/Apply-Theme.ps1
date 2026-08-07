@@ -1118,6 +1118,87 @@ public static extern System.IntPtr SendMessageTimeout(
     }
 }
 
+function Set-WindowsTaskbarVisible {
+    <#
+      Shows or hides the real Windows taskbar, by calling ShowWindow on the
+      shell's own top-level windows.
+
+      Direct user request: the taskbar's Start button and tray should be gone,
+      replaced by the dock widget (zebar/caelestia/dock/). Recolouring cannot
+      do that -- Windows 11 has no setting for removing either -- and leaving
+      the real taskbar in place actively broke the replacement: it is in
+      auto-hide mode, so hovering the bottom edge revealed IT, on top of the
+      dock that was trying to slide out of the same corner.
+
+      Hides both Shell_TrayWnd (the primary taskbar) and every
+      Shell_SecondaryTrayWnd (one per additional monitor).
+
+      **This does not survive an explorer restart.** ShowWindow is a runtime
+      state, not a setting -- explorer.exe recreates its windows shown, so a
+      crash, a restart, or signing out brings the taskbar back. That is the
+      honest trade: the alternative is a third-party shell mod
+      (ExplorerPatcher/StartAllBack), which is a real install this repo has no
+      business making on its own. Apply-Theme re-applies it on every run, which
+      covers the common case, and `Set-WindowsTaskbarVisible -Visible` puts it
+      back immediately if it is ever wanted.
+
+      Fail-soft like every other desktop-touching step here: a missing window
+      or a failed call warns and never breaks an apply.
+    #>
+    [CmdletBinding()]
+    param([switch]$Visible)
+
+    try {
+        if (-not ('CaelestiaTaskbar' -as [type])) {
+            Add-Type -Namespace '' -Name 'CaelestiaTaskbar' -MemberDefinition @'
+[DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+public static extern System.IntPtr FindWindow(string lpClassName, string lpWindowName);
+[DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+public static extern System.IntPtr FindWindowEx(System.IntPtr parent, System.IntPtr childAfter, string cls, string win);
+[DllImport("user32.dll")]
+public static extern bool ShowWindow(System.IntPtr hWnd, int nCmdShow);
+'@ -ErrorAction Stop
+        }
+    } catch {
+        Write-Warning "Could not load the taskbar-visibility helper ($($_.Exception.Message)) -- the Windows taskbar was left as it is."
+        return
+    }
+
+    $SW_HIDE = 0
+    $SW_SHOW = 5
+    $cmd = if ($Visible) { $SW_SHOW } else { $SW_HIDE }
+    $touched = 0
+
+    try {
+        $primary = [CaelestiaTaskbar]::FindWindow('Shell_TrayWnd', $null)
+        if ($primary -ne [IntPtr]::Zero) {
+            [void][CaelestiaTaskbar]::ShowWindow($primary, $cmd)
+            $touched++
+        }
+
+        # One secondary taskbar per extra monitor. Enumerated rather than
+        # assumed to be a single window, since FindWindow only ever returns the
+        # first match of a class.
+        $secondary = [IntPtr]::Zero
+        while ($true) {
+            $secondary = [CaelestiaTaskbar]::FindWindowEx([IntPtr]::Zero, $secondary, 'Shell_SecondaryTrayWnd', $null)
+            if ($secondary -eq [IntPtr]::Zero) { break }
+            [void][CaelestiaTaskbar]::ShowWindow($secondary, $cmd)
+            $touched++
+        }
+    } catch {
+        Write-Warning "Could not change the Windows taskbar's visibility ($($_.Exception.Message))."
+        return
+    }
+
+    if ($touched -eq 0) {
+        Write-Warning "No Shell_TrayWnd window was found -- the Windows taskbar's visibility was not changed."
+        return
+    }
+    $state = if ($Visible) { 'shown' } else { 'hidden' }
+    Write-Host "Windows taskbar $state ($touched window(s)). Not persistent -- explorer restores it on restart."
+}
+
 function Update-WindowsAccentTheme {
     <#
       Themes the Windows taskbar, Start menu and title bars from this run's
@@ -1525,6 +1606,17 @@ function Apply-Theme {
         Update-WindowsAccentTheme
     } catch {
         Write-Warning "Update-WindowsAccentTheme threw unexpectedly: $($_.Exception.Message). Taskbar colours were not themed this run, but the rest of the apply succeeded."
+    }
+
+    # Keep the real taskbar hidden -- the dock widget replaces it, and leaving
+    # it in place breaks the replacement outright: it is on auto-hide, so
+    # hovering the bottom edge reveals IT over the dock trying to slide out of
+    # the same corner. ShowWindow is runtime state, not a setting, so explorer
+    # restores it on restart; re-applying here covers the common case.
+    try {
+        Set-WindowsTaskbarVisible
+    } catch {
+        Write-Warning "Set-WindowsTaskbarVisible threw unexpectedly: $($_.Exception.Message). The Windows taskbar may still be visible."
     }
 
     return [PSCustomObject]@{ Success = $true; Failed = @() }

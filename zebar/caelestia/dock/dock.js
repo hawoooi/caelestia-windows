@@ -23,28 +23,53 @@
 // a permanent HOT ZONE: a strip a few pixels tall along the bottom, which is
 // a real window and does receive mouseenter.
 //
-// That strip costs nothing, because of where it sits. The desktop frame
-// already paints an 8px `var(--surface)` band across the bottom of the screen
-// (the `edges` widget), and that band is already click-dead -- a transparent
-// Zebar window swallows clicks across its whole footprint, which is why the
-// frame is built from small windows in the first place. The hot zone lies
-// inside that existing dead band, so it takes no interactive area away from
-// anything the user can actually click.
+// That strip is cheap because of where it sits: the bottom 8px overlap the
+// desktop frame's own band, which is already click-dead, and the top 8px lie
+// in the wallpaper gap above it, where there is nothing to click either. See
+// HOT_ZONE_H for why it has to span BOTH -- the band is a top_most window that
+// wins the hit test, so a hot zone living only inside it is unreachable.
 
 import * as zebar from '../bar/vendor/zebar.js';
 import { dockItems, dockSignature, focusCommand, isSafeExeName } from '../dock-items.js';
 import { appName, fetchIcon } from '../bar/entries/activeWindow.js';
 import { startFullscreenWatch } from '../fullscreen.js';
 
-// Height of the always-present strip that catches the cursor. Deliberately
-// smaller than the frame's own 8px bottom band so it can never stick out below
-// it into interactive territory.
-export const HOT_ZONE_H = 6;
+// Height of the always-present strip that catches the cursor.
+//
+// This MUST be taller than the frame's bottom band, and the reason is a
+// z-order fight that was found with WindowFromPoint rather than by reasoning.
+// The band ('edges' bottom, rect (68,1432)-(2536,1440)) is also a top_most
+// Zebar window, and it wins: probing (100,1437) -- squarely inside a 6px hot
+// zone at y=1434 -- returned the BAND's window, not the dock's. Starting the
+// dock later than 'edges' does not change that. So a hot zone that only lives
+// inside the band is never hovered at all: the dock existed, rendered
+// correctly when driven programmatically, and was simply unreachable by mouse.
+//
+// 16px reaches up through the band into the 8px WALLPAPER GAP above it
+// (y 1424..1432), which is free -- WindowFromPoint at (100,1430) returns the
+// desktop. Sweeping the cursor down to the bottom-left crosses that strip on
+// the way, so the dock triggers before the covered part is ever reached.
+export const HOT_ZONE_H = 16;
 
 // The dock's own height when open, and the gap it leaves above the very bottom
 // of the screen so it reads as sitting ON the frame rather than hanging off
 // the edge of it.
 export const DOCK_H = 56;
+
+// Width of the COLLAPSED hot zone. Fixed, and deliberately not derived from
+// the dock's own content width.
+//
+// Deriving it was the first attempt and it failed twice over. On a cold start
+// the komorebi provider has not emitted yet, so the dock measures empty and
+// the strip came out 48px wide -- and because the collapsed size was only
+// recomputed while OPEN, it stayed 48px even once apps appeared. Worse, even
+// working correctly it would mean the target you have to aim at SHRINKS as you
+// close windows, which is precisely backwards.
+//
+// A fixed strip is a constant, findable target: the bottom-left corner, always
+// the same size. It costs nothing extra, since the whole strip lies in the
+// frame band and the wallpaper gap, neither of which is clickable.
+export const HOT_ZONE_W = 420;
 
 // How long the cursor must be off the dock before it slides away. Without a
 // delay, crossing the gap between two icons -- or the instant during a
@@ -121,10 +146,7 @@ function renderItems(items) {
       refs = { root, img, badge };
       rendered.set(item.key, refs);
 
-      // Icons are fetched per exe and cached by createIconController, the same
-      // controller the bar's activeWindow entry uses -- so it never starts a
-      // second app-icon.exe while one is outstanding, caches failures as well
-      // as successes, and races every call against a timeout.
+      // One app-icon.exe at a time, cached per exe -- see loadIcon above.
       loadIcon(item.exe, (dataUrl) => {
         if (dataUrl) { img.src = dataUrl; img.classList.remove('dock__icon--missing'); }
         else { img.classList.add('dock__icon--missing'); }
@@ -195,7 +217,9 @@ async function init() {
   // it. Collapsed leaves only the hot zone.
   async function applyState(isOpen, contentWidth) {
     const h = isOpen ? px(DOCK_H) : px(HOT_ZONE_H);
-    const w = Math.max(px(48), contentWidth);
+    // Open: exactly as wide as the icons. Closed: the fixed catch strip, so
+    // the thing you aim at never changes size -- see HOT_ZONE_W.
+    const w = isOpen ? Math.max(px(48), contentWidth) : px(HOT_ZONE_W);
     await win.setSize({ type: 'Physical', width: w, height: h });
     await win.setPosition({
       type: 'Physical',
