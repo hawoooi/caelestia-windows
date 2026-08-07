@@ -19,6 +19,7 @@ import {
   nextLayout,
   changeLayoutCommand,
   normalizeLayoutString,
+  createLayoutMenuController,
   KOMOREBIC_PATH as LAYOUT_KOMOREBIC_PATH,
 } from '../../zebar/caelestia/bar/entries/layoutToggle.js';
 
@@ -567,4 +568,112 @@ test('changeLayoutCommand builds the exact komorebic invocation, pinned to the r
       args: ['change-layout', layout],
     });
   }
+});
+
+// --- createLayoutMenuController: the menu that replaced the blind cycle ---
+//
+// Direct user feedback: "can we make the switch button a menu instead of
+// blindly toggling as it messes up my windows" -- cycling BSP -> Columns ->
+// Rows -> Grid meant reaching a distant layout retiled every real window at
+// each intermediate step. The controller is deliberately DOM-free (modelled
+// on activeWindow.js's createIconController) so the exact three behaviours
+// the task called for can be locked down here without a document: opening/
+// closing never calls change-layout, picking the active layout is a no-op,
+// and picking a different layout fires exactly one call with the right
+// argument.
+
+function fakeShell() {
+  const calls = [];
+  return {
+    calls,
+    shellExec: async (program, args) => {
+      calls.push({ program, args });
+      return { stdout: '' };
+    },
+  };
+}
+
+test('createLayoutMenuController: opening and closing the menu never calls change-layout', () => {
+  const shell = fakeShell();
+  const controller = createLayoutMenuController(shell);
+  controller.sync('bsp');
+
+  assert.strictEqual(controller.toggle(), true, 'first toggle opens the menu');
+  assert.strictEqual(controller.isOpen(), true);
+  assert.strictEqual(controller.toggle(), false, 'second toggle (the button again) closes it');
+  assert.strictEqual(controller.isOpen(), false);
+
+  // Also exercise the two OTHER dismiss paths (timeout, click-outside) --
+  // both call close(), never select() -- same "no layout change" contract.
+  controller.toggle();
+  assert.strictEqual(controller.close(), true, 'close() reports the menu WAS open');
+  assert.strictEqual(controller.isOpen(), false);
+  assert.strictEqual(controller.close(), false, 'closing an already-closed menu is a no-op too');
+
+  assert.strictEqual(shell.calls.length, 0, 'no change-layout call from any open/close path');
+  assert.strictEqual(controller.getCurrent(), 'bsp', 'the tracked layout is unchanged by opening/closing');
+});
+
+test('createLayoutMenuController: picking the already-active layout is a no-op, not a redundant call', () => {
+  const shell = fakeShell();
+  const controller = createLayoutMenuController(shell);
+  controller.sync('rows');
+  controller.toggle(); // open the menu, as a real click on the button would
+
+  const result = controller.select('rows');
+
+  assert.deepStrictEqual(result, { changed: false });
+  assert.strictEqual(shell.calls.length, 0, 'choosing the current layout must never shell out');
+  assert.strictEqual(controller.getCurrent(), 'rows', 'tracked layout is unchanged');
+  assert.strictEqual(controller.isOpen(), false, 'choosing ANY item, including the active one, still closes the menu');
+});
+
+test('createLayoutMenuController: picking a different layout fires exactly one call with the right argument', () => {
+  const shell = fakeShell();
+  const controller = createLayoutMenuController(shell);
+  controller.sync('bsp');
+  controller.toggle();
+
+  const result = controller.select('grid');
+
+  assert.deepStrictEqual(result, { changed: true });
+  assert.strictEqual(shell.calls.length, 1, 'exactly one change-layout call, never more');
+  assert.deepStrictEqual(shell.calls[0], { program: LAYOUT_KOMOREBIC_PATH, args: ['change-layout', 'grid'] });
+  assert.strictEqual(controller.getCurrent(), 'grid', 'the pick is tracked immediately, optimistically -- the button/marker must be right for a user-driven change even though the provider will not re-emit it live');
+  assert.strictEqual(controller.isOpen(), false);
+});
+
+test('createLayoutMenuController: sync() only ever establishes the baseline once, never overwrites a user pick', () => {
+  // This is the fix for the documented stale-provider problem
+  // (docs/zebar-bar.md: "the komorebi provider's layout field does not
+  // appear to re-emit live"): the provider's tick output stays frozen at
+  // its connect-time value for the rest of the widget's life, so re-syncing
+  // from it on every tick would silently fight the user's own menu pick on
+  // the very next tick.
+  const shell = fakeShell();
+  const controller = createLayoutMenuController(shell);
+
+  controller.sync('bsp'); // connect-time baseline
+  controller.select('grid'); // user picks a different layout through the menu
+
+  // Further ticks keep reporting the SAME stale connect-time value (exactly
+  // what the real, non-re-emitting provider does) -- must not clobber the
+  // user's pick.
+  controller.sync('bsp');
+  controller.sync('bsp');
+  assert.strictEqual(controller.getCurrent(), 'grid', 'a stale provider re-read must never overwrite a user-driven pick');
+});
+
+test('createLayoutMenuController: sync() ignores a null provider read (not yet reported) without clearing an existing baseline', () => {
+  const controller = createLayoutMenuController(fakeShell());
+  controller.sync('columns');
+  controller.sync(null);
+  assert.strictEqual(controller.getCurrent(), 'columns');
+});
+
+test('createLayoutMenuController: select() fails soft (warns, never throws) when there is no shell handle', () => {
+  const controller = createLayoutMenuController(null);
+  controller.sync('bsp');
+  assert.doesNotThrow(() => controller.select('grid'));
+  assert.strictEqual(controller.getCurrent(), 'grid', 'tracked locally even though there is nothing to shell out to');
 });

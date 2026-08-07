@@ -2142,3 +2142,189 @@ the same circular hover/press affordance `power` has. A full-strip screenshot (`
 the vertical "WezTerm" text) still renders correctly and stays centred in the vacant run between the
 top and bottom groups — unaffected by this pass, as expected, since neither change touched
 `activeWindow` or its surrounding spacers.
+
+## `layoutToggle` is a menu now, not a blind cycle (direct user feedback)
+
+Direct user feedback: *"can we make the switch button a menu instead of blindly toggling as it
+messes up my windows."* The button used to **cycle** BSP → Columns → Rows → Grid on every click —
+reaching a layout two or three steps away meant passing through every layout in between, and
+komorebi retiles every real window at each intermediate step. That's the complaint: the
+in-between retiles were destructive to whatever the user had arranged, not just an extra click.
+
+### The constraint: no popup, no second window, 52px wide
+
+A Zebar widget cannot paint outside its own OS window — there is no popup surface, no overlay
+window, and `docs/zebar-bar.md`'s own "Known-incomplete: the media drawer" section already
+documents hitting this exact wall for the (never-shipped) media panel: `pointer-events: none` does
+**not** give OS-level click-through on this Zebar/WebView2 build, and widening the widget's actual
+window grows komorebi's work-area reservation 1:1 with no decoupling lever. A second widget window
+was ruled out for the same reasons the drawer's was, and judged not worth it for four glyphs.
+
+The bar has ~1400px of vertical room, though, and each menu option only needs to be one Font
+Awesome glyph — so the fix **expands the menu inline, vertically, inside the existing 52px-wide
+widget**, the same window, no new window.
+
+### Shape: a wrapper div, an absolutely-positioned panel, a pure controller
+
+`entries/layoutToggle.js`'s `register('layoutToggle', ...)` factory now returns a small wrapper
+(`.layout-toggle-wrap`, `inst.el`) containing two children in DOM order: `.layout-menu` (four
+`.layout-menu__item` buttons, one per `LAYOUT_CYCLE` entry, each carrying that layout's existing
+Font Awesome glyph — `diagram-project`/`table-columns`/`bars`/`table-cells`, unchanged from the old
+cycle) and then the main `.layout-toggle` button itself, styled identically to before.
+
+`.layout-menu` is `position: absolute; bottom: 100%` — it expands **upward** from the button,
+contributing zero size to the wrap's own flex box (the wrap is otherwise a bare `.entry`, so
+**collapsed, this entry's on-screen footprint is pixel-identical to the old bare button** — the
+requirement that "collapsed, the button still shows the current layout's glyph, exactly as now"
+holds by construction, not by a special-cased check). Visibility toggles via `opacity`/
+`pointer-events` (not `display: none`), so open/close actually animates through `--dur`/`--ease`
+instead of popping.
+
+**First cut had no background and looked broken, caught by actually screenshotting it (not
+skipped despite the no-mouse-automation rule — see "Verification" below for how).** The menu's
+real height (4 items × `--hit-size` + gaps, ~150px) reaches only as far as `clock`/`statusCluster`
+immediately above the button in the bottom group — nowhere near the true vacant middle run further
+up (that's `activeWindow` + two flex spacers, well above). Being unstyled and absolutely
+positioned, the menu's bare glyphs painted directly over the clock digits and the wifi/volume pill
+already sitting there — a real double-exposure, confirmed by screenshot, not a hypothetical.
+**Fixed by giving `.layout-menu` its own opaque elevated surface** — the exact
+`background: var(--surface-container); border-radius: var(--radius-lg)` treatment
+`.status-cluster` already established elsewhere in this bar for "related controls sit on one
+continuous surface." With a solid backdrop the menu fully occludes whatever it happens to overlap
+instead of blending into it — reads as a deliberate panel temporarily covering the clock/pill while
+a choice is being made, and stays correct regardless of how tall the clock/pill ever get. This is
+the "overlay the vacant middle run" option from the two the task offered, adapted: because
+`layoutToggle` sits in the bottom group (`clock`, `statusCluster`, `layoutToggle`, `power`), what's
+immediately above the button is the pill and clock, not the vacant run itself — the opaque panel
+means that distinction stops mattering, since either way the content underneath is cleanly covered,
+not partially visible.
+
+The **active layout is marked** with `.layout-menu__item--active` — solid `var(--primary)` fill /
+`var(--on-primary)` glyph, the same "filled, not outlined" language `.workspace--focused` already
+uses elsewhere in this bar for "this one is the current one," deliberately distinct from the
+transient `--surface-container-high` hover/press circle every `.bar-btn` (including these menu
+items) already has, so a hover doesn't read as if it were the active marker.
+
+### The state machine is DOM-free, on purpose
+
+`createLayoutMenuController(shell)` (`entries/layoutToggle.js`) owns open/closed, which layout is
+tracked as "current," and the no-redundant-call rule — with **no** `document`, modelled directly on
+`activeWindow.js`'s `createIconController`. This is what makes the task's three required behaviours
+directly unit-testable without a DOM (`tests/js/entries.test.mjs`):
+
+- **`toggle()`**/**`close()`** never touch `shell` at all — opening or closing the menu cannot call
+  `change-layout`, structurally, not just by convention.
+- **`select(layout)`** always closes the menu (choosing *any* item, including the active one, is a
+  complete action) and only calls `shellExec` when `layout !== current` — picking the already-active
+  layout returns `{ changed: false }` and fires nothing.
+- **`select(layout)`** on a genuinely different layout fires `shellExec` exactly once, with
+  `changeLayoutCommand(layout)`'s exact args — never more than one call per pick, which is the whole
+  point: reaching any of the four layouts from any other is now always exactly one retile, never a
+  chain of intermediate ones.
+
+The actual DOM wiring (`register('layoutToggle', ...)`) is a thin shell around this controller:
+button clicks call `toggle()`/`select()`, `update(out)` calls `controller.sync(...)` then re-renders
+the button glyph and the menu's active marker. `nextLayout()`/`LAYOUT_CYCLE`'s cycle-order helper
+stay exported (and still tested) even though nothing calls `nextLayout()` anymore — kept for the
+existing test surface and as a documented, no-longer-used record of the old design, not deleted
+out from under a test that still legitimately locks its ordering.
+
+### Dismissal: a second click, a same-document click-outside, and a 6s timeout
+
+Three ways to close the menu without picking anything:
+
+1. **A second click on the main button** — `toggle()` flips it shut. This is the explicit,
+   always-available path.
+2. **Clicking elsewhere inside this widget's own document** — a `document`-level capture-phase
+   click listener, registered only while the menu is open (removed on every close path, so it
+   never becomes a permanent leak), closes the menu if the click target isn't inside
+   `.layout-toggle-wrap`. This is reliable, but only for clicks that land inside *this widget's own
+   window* — clicking bar padding, another entry, etc.
+3. **A 6-second auto-dismiss timeout** (`MENU_DISMISS_MS`) — the *primary* mechanism, not a
+   backstop. The task's own framing explains why: there is no reliable "click outside" inside a
+   52px-wide widget, because the common real dismissal is the user clicking away to their actual
+   work — a *different OS window* — and this widget's document never receives any signal for a
+   click that lands somewhere else entirely (the same click-routing wall `pointer-events: none`
+   already hit for the media drawer, just facing the other direction: not "this widget can't let
+   clicks through," but "this widget gets no signal when a click happens elsewhere"). 6s was picked
+   to comfortably outlast reading four glyphs and deciding, without leaving a stale open panel
+   sitting over the clock/pill so long it reads as stuck.
+
+Opening/closing the menu through any of these three paths never calls `change-layout` — covered
+directly (`tests/js/entries.test.mjs`'s `createLayoutMenuController` tests exercise `toggle()` and
+`close()` against a call-tracking fake shell and assert zero calls).
+
+### The stale-provider problem: made honest, not fixed
+
+`docs/zebar-bar.md`'s own prior finding (see "A real, pre-existing limitation... the komorebi
+provider's `layout` field does not appear to re-emit live," above) stands: `zebar`'s komorebi
+provider reports a workspace's layout once, at the widget's connect time, and does not push a fresh
+value while the widget keeps running and the layout changes underneath it — confirmed there across
+three layouts, zero re-emissions each, and unchanged by this task (no fix was attempted on zebar's
+own provider; that's out of this pack's reach and was explicitly ruled out as in-scope). With a
+menu this matters more than it did for the old cycling button, because the menu now shows an
+**active marker** that would be silently wrong for however long the widget has been running since
+the layout last changed by any means OTHER than this menu.
+
+**What actually changed: `sync()` establishes its baseline once, then only a user's own pick moves
+it — never a stale re-read.** The old code called `currentLayout(out.komorebi)` fresh on every
+single provider tick; since the real provider's tick output is frozen at its connect-time value for
+the rest of the widget's life, doing that with a menu would have meant the tracked "active" layout
+snapped back to the stale connect-time value on the very next tick after every single user pick —
+actively worse than the old button, which had no marker to get wrong. `createLayoutMenuController`'s
+`sync(providerLayout)` only ever sets `current` the first time it sees a non-null value (i.e. at
+connect time); from then on `current` moves **only** in response to `select()`, which sets it
+**optimistically, immediately**, in the same call that fires the (at most one) `change-layout`
+command — satisfying the task's own "at minimum" bar: *"update the tracked layout immediately when
+the user picks one through the menu, so the marker is right for user-driven changes."*
+
+**Honestly, what is and isn't live, stated plainly:**
+
+- **Live for user-driven picks through this menu** — the marker updates the instant a pick is made,
+  not on the next widget restart.
+- **Not live for a layout changed any other way while the widget keeps running** — a hotkey, or
+  `komorebic change-layout` run externally, still shows stale in the menu's marker and the
+  collapsed button's own glyph until the widget restarts and reconnects (the same limitation the
+  prior pass already found and documented, unchanged here). No per-tick `komorebic` polling was
+  added to close this gap — the task's own safety rule ruled that out explicitly, and this pack has
+  already lost two real debugging sessions (`fullscreen-detect.exe` inheriting zebar's own
+  listening socket on port 6124, see the Troubleshooting section above) to exactly this class of
+  shelled-out poller outliving or piling up against its parent. A future pass wanting genuine
+  liveness for externally-driven changes should look at whether zebar's komorebi provider
+  subscribes to komorebi's event stream at all, per the prior finding's own suggestion — not at
+  adding a poll to this entry.
+
+### Verification
+
+`node --test`: 95 tests, up from 89 — six new `createLayoutMenuController` tests in
+`tests/js/entries.test.mjs` covering exactly the three behaviours the task called for (open/close
+never calls `change-layout`; picking the active layout is a no-op; picking a different layout fires
+exactly one call with the right argument) plus the `sync()` baseline-once/never-clobbers-a-pick
+behaviour and a no-shell fail-soft case. The Pester suite: 167 tests, unchanged (no PowerShell
+touched; `tests\Get-ColorLiterals.Tests.ps1`'s zero-color-literal check against `style.css` still
+passes against the new `.layout-toggle-wrap`/`.layout-menu`/`.layout-menu__item--active` rules,
+which use only `var(--...)` tokens, confirmed both by that Pester test and a direct
+`grep -inE '#[0-9a-f]{3,8}\b|rgb\(|rgba\(|hsl\('` — zero matches).
+
+Live: `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222` set for one session (the
+same CDP technique this file's own Font Awesome/layout-casing investigations already used, see "3.
+Tiling-layout control" above), `Restart-ZebarWidgets` run to pick it up, then the open/closed state
+was driven through the exact same code path a real click uses —
+`document.querySelector('.layout-toggle').click()` over a CDP `Runtime.evaluate` call, never
+`SendKeys` or simulated mouse input — with `CopyFromScreen` screenshots (`x:0-56, y:900-1440`, 4x)
+taken collapsed, then again immediately after the same click-driven open (a combined
+open-then-screenshot script was needed after an early attempt let the 6s auto-dismiss fire between
+two separate tool round-trips before the screenshot landed — not a bug, just this task's own
+tooling being slower than the shipped timeout). Confirmed by eye: collapsed shows exactly one glyph
+(bsp's `diagram-project`); expanded shows all four glyphs with no tofu inside a solid
+`--surface-container` panel, with `bsp` clearly marked active via the solid `--primary` circle,
+completely and cleanly covering the clock/pill underneath rather than overlapping them; a
+same-process double-click (`[false, true, false]`, no intervening timer) confirmed the toggle
+opens then closes correctly when not raced against the dismiss timer; a final collapsed screenshot
+after closing confirmed the bar returned to its exact prior appearance. `komorebic state` was
+re-read throughout and showed every workspace on `BSP` at every step — no `change-layout` call was
+ever made against the real, live desktop during this verification, per the task's own instruction
+to minimize real retiles; the "fires exactly one call" behaviour was verified against a fake shell
+in the unit tests instead. Remote debugging was disabled again (`Restart-ZebarWidgets` re-run
+without the env var) once verification finished, confirmed via `Get-NetTCPConnection -LocalPort
+9222` showing no `Listen` state afterward.

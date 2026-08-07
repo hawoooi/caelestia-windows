@@ -128,43 +128,275 @@ export function changeLayoutCommand(layout) {
   return { program: KOMOREBIC_PATH, args: ['change-layout', layout] };
 }
 
-register('layoutToggle', ({ shell, providers }) => {
-  const el = document.createElement('button');
-  el.type = 'button';
+// nextLayout()/LAYOUT_CYCLE's ordering are kept exported (and still tested,
+// see tests/js/entries.test.mjs) even though the click handler below no
+// longer calls nextLayout() at all -- direct user feedback: "can we make
+// the switch button a menu instead of blindly toggling as it messes up my
+// windows." Cycling forward one step at a time meant reaching a layout N
+// steps away required N intermediate `change-layout` calls, and komorebi
+// retiles every real window on EACH one -- destructive to whatever the user
+// had arranged, not just cosmetic. The menu below always fires at most one
+// `change-layout` call, for the exact layout the user picked.
+
+// Auto-dismiss timeout for the open menu. There is no reliable "click
+// outside" INSIDE this widget's own 52px-wide window -- clicking away to
+// the user's real work happens in a DIFFERENT OS window, whose clicks this
+// widget's document never receives at all (the same click-routing wall
+// docs/zebar-bar.md's "Known-incomplete: the media drawer" section already
+// hit: pointer-events has no OS-level click-through effect on this
+// Zebar/WebView2 build, and the inverse is also true -- this widget gets no
+// signal when the user clicks a window that isn't it). A same-document
+// "click outside the menu, still inside this widget" listener IS reliable
+// (see onDocumentClick below) and is wired as a secondary dismiss path, but
+// the timeout is the PRIMARY one, since the common case is the user picks a
+// layout or clicks away to their actual work, not clicking bar padding.
+// 6s was picked to comfortably outlast reading four glyphs and deciding,
+// without leaving a stale open menu sitting over the vacant middle run for
+// so long it reads as stuck.
+const MENU_DISMISS_MS = 6000;
+
+// Pure, DOM-free state machine for the menu: open/closed, which layout is
+// currently tracked as "active" (for the menu's marker and the collapsed
+// button's own glyph), and the no-redundant-call rule. Modelled on
+// activeWindow.js's createIconController -- kept free of `document` and
+// `shellExec` plumbing on purpose so open/close/select can be driven and
+// asserted directly in tests/js/entries.test.mjs without a DOM.
+//
+// **Honesty about live vs. not** (docs/zebar-bar.md's own finding, "the
+// komorebi provider's `layout` field does not appear to re-emit live" --
+// confirmed live, three layouts, zero re-emissions across 3-10s each): the
+// zebar komorebi provider only reports a workspace's layout at CONNECT
+// time; it does not push a fresh value while the widget keeps running and
+// the layout changes underneath it, whether via `komorebic change-layout`
+// run externally or a hotkey. Re-reading the provider on every tick
+// (the OLD code's `currentLayout(out.komorebi)` in update(), called fresh
+// every time) would therefore just keep re-reading the SAME stale
+// connect-time value forever -- which, with a menu, is actively harmful:
+// it would silently overwrite the "active" marker back to a stale layout
+// the instant after the user picked a different one through this exact
+// menu, on the very next provider tick. `sync()` below establishes the
+// tracked baseline from the provider only ONCE (the first non-null read,
+// i.e. connect time) and never again -- from then on, `current` moves ONLY
+// in response to a user's own `select()` call, which is the one thing this
+// pack CAN make genuinely accurate for every user-driven pick without
+// adding a per-tick `komorebic` shell-out (explicitly ruled out -- this
+// pack has already lost two debugging sessions to an orphaned shellExec
+// helper, `fullscreen-detect.exe`, inheriting zebar's own listening socket;
+// see fullscreen.js's doc comment). A layout changed by hotkey while this
+// widget keeps running will still show stale in the menu's marker until the
+// widget restarts -- documented, not silently papered over.
+export function createLayoutMenuController(shell) {
+  let open = false;
+  let current = null;
+
+  function runChangeLayout(layout) {
+    if (!shell || typeof shell.shellExec !== 'function') {
+      console.warn('layoutToggle: no shell handle in ctx, cannot run komorebic');
+      return;
+    }
+    const { program, args } = changeLayoutCommand(layout);
+    // Fail soft, same pattern as workspaces.js's focus-workspace click: a
+    // rejected/failed shellExec warns to console and never throws out of
+    // the click handler (which runs outside bar.js's per-entry try/catch).
+    shell.shellExec(program, args).catch((e) => {
+      console.warn(`change-layout ${layout} failed`, e);
+    });
+  }
+
+  return {
+    isOpen() { return open; },
+    getCurrent() { return current; },
+
+    // Called on every provider tick with currentLayout(out.komorebi). See
+    // the module comment above for why this only ever establishes the
+    // baseline once, never overwrites a user's own pick.
+    sync(providerLayout) {
+      if (current === null && providerLayout !== null) {
+        current = providerLayout;
+      }
+    },
+
+    // Main-button click: opens or closes the menu. Never touches `shell`,
+    // never changes `current` -- opening/closing the menu must never itself
+    // change the layout.
+    toggle() {
+      open = !open;
+      return open;
+    },
+
+    // Dismiss without choosing (timeout or click-outside). Returns whether
+    // the menu was actually open, so callers can skip redundant DOM work.
+    close() {
+      const wasOpen = open;
+      open = false;
+      return wasOpen;
+    },
+
+    // Menu-item click. Always closes the menu (choosing ANY item, including
+    // the already-active one, is a complete action). Fires `change-layout`
+    // -- exactly once -- only when the picked layout differs from the
+    // tracked current one; picking the active layout is a no-op, not a
+    // redundant call. Returns { changed } so callers/tests can assert on
+    // which branch ran without reaching into `shell` themselves.
+    select(layout) {
+      open = false;
+      if (layout === current) {
+        return { changed: false };
+      }
+      current = layout; // optimistic local update -- see module comment
+      runChangeLayout(layout);
+      return { changed: true };
+    },
+  };
+}
+
+register('layoutToggle', ({ shell }) => {
+  // The DOM this entry now renders:
+  //   <div class="layout-toggle-wrap">          <- inst.el; render.js adds
+  //                                                 "entry" to THIS, sized
+  //                                                 by the button alone
+  //                                                 (the menu is
+  //                                                 position: absolute, so
+  //                                                 it contributes no box
+  //                                                 to the wrap's own flex
+  //                                                 size when collapsed --
+  //                                                 collapsed, this entry
+  //                                                 occupies exactly the
+  //                                                 same footprint the bare
+  //                                                 button used to)
+  //     <div class="layout-menu">                <- absolutely positioned,
+  //                                                  bottom: 100% of the
+  //                                                  wrap -- expands UPWARD,
+  //                                                  overlaying the vacant
+  //                                                  middle run
+  //                                                  (activeWindow + its two
+  //                                                  spacers), never
+  //                                                  shoving the bottom
+  //                                                  group (clock /
+  //                                                  statusCluster / power)
+  //                                                  down or the top group
+  //                                                  up
+  //       <button class="layout-menu__item ...">  one per LAYOUT_CYCLE entry
+  //       ...
+  //     </div>
+  //     <button class="layout-toggle ...">        <- unchanged glyph/title
+  //                                                   contract: collapsed,
+  //                                                   this still shows
+  //                                                   exactly the current
+  //                                                   layout's glyph, same
+  //                                                   as before the menu
+  //                                                   existed
+  //   </div>
+  const wrap = document.createElement('div');
+  wrap.className = 'layout-toggle-wrap';
+
+  const btn = document.createElement('button');
+  btn.type = 'button';
   // 'bar-btn' (style.css): the one shared clickable-affordance style,
   // applied here because this button has a real click handler below --
   // styled consistently with change 1's power button, per the brief.
   // 'fa-solid' (Task 3): every LAYOUT_GLYPHS/FALLBACK_GLYPH codepoint above
   // is a Font Awesome Free Solid glyph, rendered through the locally
   // vendored webfont.
-  el.className = 'layout-toggle bar-btn fa-solid';
+  btn.className = 'layout-toggle bar-btn fa-solid';
 
-  el.addEventListener('click', () => {
-    if (!shell) {
-      console.warn('layoutToggle: no shell handle in ctx, cannot run komorebic');
-      return;
+  const menu = document.createElement('div');
+  menu.className = 'layout-menu';
+
+  const controller = createLayoutMenuController(shell);
+  const items = new Map(); // layout key -> its menu button, for the active marker
+
+  let dismissTimer = null;
+  function clearDismissTimer() {
+    if (dismissTimer !== null) {
+      clearTimeout(dismissTimer);
+      dismissTimer = null;
     }
-    // Reads the live provider output at CLICK time, not a value captured
-    // by update()'s closure -- avoids ever acting on a stale layout if a
-    // hotkey changed it between the last tick and this click.
-    const out = providers?.outputMap ?? {};
-    const cur = currentLayout(out.komorebi) ?? 'bsp';
-    const next = nextLayout(cur);
-    const { program, args } = changeLayoutCommand(next);
-    // Fail soft, same pattern as workspaces.js's focus-workspace click: a
-    // rejected/failed shellExec warns to console and never throws out of
-    // the click handler (which runs outside bar.js's per-entry try/catch).
-    shell.shellExec(program, args).catch((e) => {
-      console.warn(`change-layout ${next} failed`, e);
+  }
+  function armDismissTimer() {
+    clearDismissTimer();
+    dismissTimer = setTimeout(() => {
+      controller.close();
+      syncOpenClass();
+      document.removeEventListener('click', onDocumentClick, true);
+    }, MENU_DISMISS_MS);
+  }
+
+  // Reliable ONLY for clicks that land inside this widget's own document
+  // (see the module comment on MENU_DISMISS_MS for why a click on some
+  // other OS window can never reach this handler at all). Registered only
+  // while the menu is open, removed on every close path, so this never
+  // becomes a permanent listener leaking across entry lifetimes.
+  function onDocumentClick(e) {
+    if (!wrap.contains(e.target)) {
+      controller.close();
+      syncOpenClass();
+      clearDismissTimer();
+      document.removeEventListener('click', onDocumentClick, true);
+    }
+  }
+
+  function syncOpenClass() {
+    wrap.classList.toggle('layout-toggle-wrap--open', controller.isOpen());
+  }
+
+  function renderActiveMarker() {
+    const cur = controller.getCurrent();
+    for (const [layout, itemEl] of items) {
+      itemEl.classList.toggle('layout-menu__item--active', layout === cur);
+    }
+  }
+
+  function renderButtonGlyph() {
+    const cur = controller.getCurrent();
+    btn.textContent = layoutGlyph(cur);
+    btn.title = cur ? `Tiling layout: ${cur} (click to choose)` : 'Tiling layout (click to choose)';
+  }
+
+  LAYOUT_CYCLE.forEach((layout) => {
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.className = 'layout-menu__item bar-btn fa-solid';
+    item.textContent = layoutGlyph(layout);
+    item.title = `Tiling layout: ${layout}`;
+    item.addEventListener('click', () => {
+      // select() always closes the menu and only fires change-layout when
+      // this differs from the tracked current layout -- see
+      // createLayoutMenuController's own doc comment.
+      controller.select(layout);
+      syncOpenClass();
+      clearDismissTimer();
+      document.removeEventListener('click', onDocumentClick, true);
+      renderActiveMarker();
+      renderButtonGlyph();
     });
+    items.set(layout, item);
+    menu.appendChild(item);
   });
 
+  btn.addEventListener('click', () => {
+    // Opening/closing the menu never calls change-layout -- toggle() only
+    // ever flips the open/closed flag.
+    const isOpen = controller.toggle();
+    syncOpenClass();
+    if (isOpen) {
+      renderActiveMarker();
+      armDismissTimer();
+      document.addEventListener('click', onDocumentClick, true);
+    } else {
+      clearDismissTimer();
+      document.removeEventListener('click', onDocumentClick, true);
+    }
+  });
+
+  wrap.append(menu, btn);
+
   return {
-    el,
+    el: wrap,
     update(out) {
-      const cur = currentLayout(out.komorebi);
-      el.textContent = layoutGlyph(cur);
-      el.title = cur ? `Tiling layout: ${cur} (click to cycle)` : 'Tiling layout (click to cycle)';
+      controller.sync(currentLayout(out.komorebi));
+      renderButtonGlyph();
+      renderActiveMarker();
     },
   };
 });
