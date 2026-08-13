@@ -29,14 +29,19 @@
 //     itself on open -- its own hover only has to be reliable AFTER its
 //     geometry has settled, which it is.
 //
-// **Where the hot zone sits.** The desktop frame's top band (edges/top) is
-// 8px tall, `top_most`, and wins hit-testing against anything underneath.
-// Below it is the 8px wallpaper gap, which nothing else claims. So this
-// window spans y=0..16: the top half is shadowed by the band and never sees
-// a pointer, and the bottom half -- in the free gap -- is what actually
-// receives hover. The dock hit exactly this and was fixed the same way; a
-// zone that only covered the band would be unreachable, which is not
-// obvious from looking at it.
+// **Where the hot zone sits.** Directly above the panel: same width, same
+// centre, and 16px tall so it spans both the frame's top band (y=0..8) and the
+// wallpaper gap below it (y=8..16) that nothing else claims. komorebi's
+// windows start at y=21, so this window blocks nothing the user could
+// otherwise click.
+//
+// It does NOT reliably receive the pointer for all 16 of those pixels. The
+// frame's top band is `top_most` too, and Windows gives no ordering guarantee
+// between two top_most windows -- a WindowFromPoint scan resolved y=0..7 to
+// the band on one run of this pack and to this window on the next. That is
+// why edges/edges.js listens for the same gesture on the band itself: both
+// windows detect it, and neither needs to know which one won. See
+// ../dash-hotzone.js.
 
 import * as zebar from '../bar/vendor/zebar.js';
 import { startFullscreenWatch } from '../fullscreen.js';
@@ -44,23 +49,30 @@ import { createChannel, DASH_CMD_KEY, DASH_ACK_KEY } from '../widget-channel.js'
 // isRealDeparture lives in the shared pure module so it can be unit-tested
 // without a DOM -- this file cannot be imported outside a widget window.
 import { isRealDeparture } from '../dashboard-data.js';
+// The open gesture itself is shared with edges/edges.js, which listens for the
+// same thing on the frame's top band -- see dash-hotzone.js for why both do.
+import { createHotZone, OPEN_DELAY_MS, PANEL_W } from '../dash-hotzone.js';
+
+export { OPEN_DELAY_MS };
 
 // The hot zone's own geometry, mirrored by the `dashtrigger` preset in
 // zpack.json. Both must agree: this window is never resized at runtime, so
 // the preset is the single source of truth for its size, and these constants
 // exist to document the reasoning rather than to drive anything.
-export const ZONE_H = 16; // 8px frame band (dead) + 8px wallpaper gap (live)
-export const ZONE_W = 560;
+export const ZONE_H = 16; // 8px frame band + 8px wallpaper gap
 
-// How long the pointer must rest in the zone before the panel opens.
+// Exactly the panel's width, centred on the monitor like the panel is.
 //
-// The dock opens instantly because it is a 56px strip at the very bottom
-// edge -- somewhere a pointer rarely rests by accident. The top-centre of the
-// screen is not: it is directly above every window's title bar and on the
-// path to every tab. Opening a 440px panel the instant a cursor crosses that
-// line would be an ambush. A short dwell makes it deliberate without feeling
-// sluggish.
-export const OPEN_DELAY_MS = 220;
+// It was 560px, which is 22% of a 2560px top edge -- the gesture worked when
+// the pointer happened to arrive near the middle and did nothing at all
+// otherwise, which is what "hovering to open isnt consistent and sometimes
+// doesn't work" was describing. This is more than twice that, and it is now
+// the region directly above the thing it opens, so where it works is
+// predictable rather than arbitrary.
+//
+// It is NOT wider than the panel, and must never be: see dash-hotzone.js for
+// the full-width attempt and exactly how it failed.
+export const ZONE_W = PANEL_W;
 
 const channel = createChannel(localStorage, window, { sendKey: DASH_CMD_KEY, receiveKey: DASH_ACK_KEY });
 
@@ -80,7 +92,6 @@ function logEvent(what, detail) {
 }
 
 let fullscreen = false;
-let openTimer = null;
 
 function suppressed() {
   return fullscreen || document.body.classList.contains('fullscreen-hidden');
@@ -98,28 +109,15 @@ function post(open) {
   }
 }
 
-function cancelOpen() {
-  if (openTimer !== null) {
-    clearTimeout(openTimer);
-    openTimer = null;
-  }
-}
-
-zone.addEventListener('mouseenter', () => {
-  logEvent('enter');
-  if (suppressed()) { logEvent('enter ignored', 'fullscreen'); return; }
-  cancelOpen();
-  openTimer = setTimeout(() => {
-    openTimer = null;
-    // Re-check: the user may have gone fullscreen during the dwell.
-    if (suppressed()) return;
-    logEvent('post open=true');
-    post(true);
-  }, OPEN_DELAY_MS);
+const hotZone = createHotZone({
+  element: zone,
+  channel,
+  suppressed,
+  log: logEvent,
 });
 
 zone.addEventListener('mouseleave', (event) => {
-  cancelOpen();
+  hotZone.cancel();
   // Report the departure and let the PANEL decide whether to close -- the
   // pointer has very likely just moved down into the panel itself, and only
   // the panel knows that. Closing from here would race it.
@@ -140,7 +138,7 @@ startFullscreenWatch(
     fullscreen = isFullscreen;
     document.body.classList.toggle('fullscreen-hidden', isFullscreen);
     if (isFullscreen) {
-      cancelOpen();
+      hotZone.cancel();
       post(false);
     } else if (changed) {
       // Announce the release too, so a panel that latched itself shut on the

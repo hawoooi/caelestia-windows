@@ -13,6 +13,12 @@
   </head>
   <body>
     <div id="edge"></div>
+    <!-- A second hot zone for the top dashboard, armed and positioned by
+         edges.js on the TOP strip only. It exists because this band is
+         `top_most` and can win hit-testing over the dashtrigger window that
+         covers the same pixels -- see ../dash-hotzone.js. Invisible and
+         inert on every other strip. -->
+    <div id="dashHot" class="dash-hot"></div>
     <script type="module" src="./edges.js"></script>
   </body>
 </html>

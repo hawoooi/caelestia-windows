@@ -428,9 +428,9 @@
                                         {
                                             "name":  "default",
                                             "anchor":  "top_left",
-                                            "offsetX":  "1000px",
+                                            "offsetX":  "710px",
                                             "offsetY":  "0px",
-                                            "width":  "560px",
+                                            "width":  "1140px",
                                             "height":  "16px",
                                             "monitorSelection":  {
                                                                      "type":  "all"

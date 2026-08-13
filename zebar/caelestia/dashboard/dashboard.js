@@ -27,6 +27,9 @@ import { focusWorkspaceCommand } from '../komorebi-commands.js';
 import { createNetStats, formatRate } from '../net-stats.js';
 import { createGpuStats } from '../gpu-stats.js';
 import { createMediaArt } from '../media-art.js';
+// The panel's width is shared with the hot zones that open it -- they must
+// match exactly, so one constant owns it.
+import { PANEL_W } from '../dash-hotzone.js';
 import {
   formatUptime,
   formatBytes,
@@ -61,7 +64,7 @@ import {
 // over the user's desktop, so this is kept close to the real height rather
 // than padded generously. An earlier 470 clipped the quick actions; 520 left
 // 99px of dead zone. If a pane grows, this number moves with it.
-export const PANEL_W = 1140;
+export { PANEL_W };
 export const PANEL_H = 440;
 export const PARKED = 1;
 

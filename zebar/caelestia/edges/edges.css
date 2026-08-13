@@ -133,3 +133,19 @@ body {
 body.fullscreen-hidden #edge {
   display: none;
 }
+
+/* The dashboard's second hot zone, on the TOP strip only.
+   
+   Positioned and shown by edges.js, which is also the only thing that knows
+   which strip this is. It must line up with the panel exactly -- a zone wider
+   than the panel opens it out from under the pointer (see ../dash-hotzone.js)
+   -- so the left offset is computed rather than centred with a percentage:
+   this band spans x=68..2536, whose midpoint is 1302, while the panel is
+   centred on the MONITOR at 1280. A `left: 50%` would sit 22px off. */
+.dash-hot {
+  display: none;
+  position: absolute;
+  top: 0;
+  bottom: 0;
+}
+body.dash-armed .dash-hot { display: block; }
