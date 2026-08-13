@@ -24,9 +24,10 @@ import { createChannel, DASH_CMD_KEY, DASH_ACK_KEY } from '../widget-channel.js'
 // fullscreen. The trigger polls once and broadcasts the answer -- see the
 // channel subscriber in init().
 import { focusWorkspaceCommand } from '../komorebi-commands.js';
+import { createNetStats, formatRate } from '../net-stats.js';
+import { createGpuStats } from '../gpu-stats.js';
+import { createMediaArt } from '../media-art.js';
 import {
-  calendarGrid,
-  monthName,
   formatUptime,
   formatBytes,
   formatPercent,
@@ -44,14 +45,24 @@ import {
 // So the WINDOW is sized once, to the tallest pane, and the PANEL inside it
 // is content-height (the stage aligns it to flex-start). Switching to a
 // shorter tab shrinks the visible panel without touching the window at all;
-// the leftover window area is transparent. Measured live over CDP: dashboard
-// 507px (the tallest by far -- media 250, performance 231, workspaces 251),
-// tabs included. 520 leaves a little slack for a longer track title.
+// the leftover window area is transparent.
 //
-// The first live run had this at 470 and clipped the bottom row of quick
-// actions off the dashboard pane -- if a pane grows, this number moves.
+// **Measure this at the real width, never while parked.** The window sits at
+// 1x1 when closed, and measuring there reports the layout wrapped to one pixel
+// -- the prompt line alone came back as 195px tall instead of 36px, which sent
+// this number the wrong way entirely. Open the panel, hold the cursor on the
+// trigger, and measure then.
+//
+// Measured that way after the calendar was dropped: dashboard 421px (still the
+// tallest -- media 300, performance 281, workspaces 301), tabs and prompt
+// included. 440 leaves slack for a two-line track title.
+//
+// Every pixel of window BELOW the panel is a transparent but click-dead strip
+// over the user's desktop, so this is kept close to the real height rather
+// than padded generously. An earlier 470 clipped the quick actions; 520 left
+// 99px of dead zone. If a pane grows, this number moves with it.
 export const PANEL_W = 1140;
-export const PANEL_H = 520;
+export const PANEL_H = 440;
 export const PARKED = 1;
 
 // How long the pointer may be over neither surface before the panel closes.
@@ -90,6 +101,50 @@ function logEvent(what, detail) {
 
 let out = {};
 let isOpen = false;
+
+// Three shell-backed helpers, all polled ONLY while the panel is open.
+//
+// That is the whole discipline here. Each of these is a process spawn, and a
+// helper that outlives its parent zebar inherits zebar's listening socket on
+// port 6124 -- after which every later start binds nothing and the entire
+// desktop paints blank, under a PID that no longer exists. This pack has lost
+// two debugging sessions to exactly that. A panel that is closed 99% of the
+// time must not be spawning anything 100% of the time, so every timer below is
+// started on open and cleared on close (the same pattern panels/panels.js
+// established for its own mixer and network polls).
+const shell = zebar.shellExec ? zebar : null;
+const netStats = createNetStats(shell);
+const gpuStats = createGpuStats(shell);
+const mediaArt = createMediaArt(shell);
+
+// 1000ms: fast enough that a download visibly moves the number, slow enough
+// that two spawns a second is the ceiling for the whole panel.
+const SYSTEM_POLL_MS = 1000;
+let systemTimer = null;
+
+function stopSystemPoll() {
+  if (systemTimer !== null) { clearInterval(systemTimer); systemTimer = null; }
+  // Forget the last network sample. Differencing against a minutes-old read
+  // on reopen would average the entire gap into one bogus "current" rate.
+  netStats.reset();
+  latestNet = null;
+  latestGpu = null;
+}
+
+async function sampleSystem() {
+  // Both are independent and both fail soft to null, so they run together
+  // rather than one after the other.
+  const [net, gpu] = await Promise.all([netStats.sample(), gpuStats.sample()]);
+  if (net) latestNet = net;
+  if (gpu) latestGpu = gpu;
+  renderSystem();
+}
+
+function startSystemPoll() {
+  stopSystemPoll();
+  sampleSystem();
+  systemTimer = setInterval(sampleSystem, SYSTEM_POLL_MS);
+}
 
 // --- rendering: the dashboard pane ---------------------------------------
 
@@ -130,71 +185,90 @@ function renderClock() {
   if (date) date.textContent = out.date?.formatted ?? '';
 }
 
-// The month currently shown. Paging is deliberately NOT wired to a provider:
-// it is view state, and it resets to the current month every time the panel
-// closes, so the panel never reopens showing March.
-let shownMonth = new Date();
+// The System tile: live network throughput, and CPU / GPU / RAM load.
+//
+// Direct user feedback replacing what was here: "try to incorperate wifi
+// up/down speed and cpu/gpu/ram into the dashboard instead if sound volume and
+// those meaningless bars". Volume is gone -- it already lives in the bar's
+// pill and its panel, so it was duplicated here, and it is not a machine-load
+// reading like the other two were pretending to be.
+//
+// Rates are numbers, not bars: throughput has no ceiling, so a bar has no
+// scale to be a fraction OF, which is precisely what made the old ones
+// meaningless. The three loads are percentages, which do have a ceiling, so
+// they keep a bar.
+let latestNet = null;   // { rates: { down, up } } from net-stats.exe
+let latestGpu = null;   // { usage, temperature, usedBytes, totalBytes }
 
-function renderCalendar() {
-  const label = $('calLabel');
-  const body = $('calBody');
-  if (!label || !body) return;
-
-  label.textContent = `${monthName(shownMonth.getMonth())} ${shownMonth.getFullYear()}`;
-  body.textContent = '';
-
-  for (const week of calendarGrid(shownMonth)) {
-    const tr = document.createElement('tr');
-    for (const cell of week) {
-      const td = document.createElement('td');
-      if (!cell.inMonth) {
-        td.className = 'is-muted';
-        td.textContent = String(cell.day);
-      } else if (cell.isToday) {
-        // The one accent on this pane. The marker is a nested span because
-        // the accent is a filled disc behind the numeral, not a cell fill.
-        td.className = 'is-today';
-        const s = document.createElement('span');
-        s.textContent = String(cell.day);
-        td.appendChild(s);
-      } else {
-        td.textContent = String(cell.day);
-      }
-      tr.appendChild(td);
-    }
-    body.appendChild(tr);
+function renderSystem() {
+  const down = $('netDown');
+  const up = $('netUp');
+  if (down && up) {
+    // formatRate already returns "4.6 kB/s"; the unit is split onto its own
+    // span so it can be set smaller without the number reflowing.
+    setRate(down, latestNet?.rates ? latestNet.rates.down : null);
+    setRate(up, latestNet?.rates ? latestNet.rates.up : null);
   }
-}
 
-// Levels: output volume, plus CPU and memory as the other two "how loaded is
-// this machine" bars. Per-app mixing lives in the bar's own volume panel
-// (panels/panels.js) and is deliberately not duplicated here -- this is a
-// glance surface.
-function renderLevels() {
   const host = $('mixRows');
   if (!host) return;
 
-  const audio = out.audio;
-  // The audio provider reports isMuted SEPARATELY from volume: a device at
-  // 50% but muted still reports 50. Found live in the status-icons pass; the
-  // pill showed the loud glyph on a muted device before it was handled.
-  const muted = audio?.defaultPlaybackDevice?.isMuted;
-  const volume = audio?.defaultPlaybackDevice?.volume;
+  const disk = primaryDisk();
+  const diskUsed = disk && Number.isFinite(disk.totalSpace?.bytes) && Number.isFinite(disk.availableSpace?.bytes)
+    ? (1 - disk.availableSpace.bytes / disk.totalSpace.bytes) * 100
+    : null;
 
+  // Each row carries the raw figure behind its percentage. "68%" on its own
+  // does not say whether that is 11GB or 22GB, and this column is now wide
+  // enough to answer that -- which is the point of giving the panel the space
+  // the calendar was using.
   const rows = [
-    { glyph: muted ? '\uF6A9' : '\uF028', value: Number.isFinite(volume) ? volume : null },
-    { glyph: '\uF2DB', value: out.cpu?.usage },
-    { glyph: '\uF538', value: out.memory?.usage },
+    {
+      key: 'CPU',
+      value: out.cpu?.usage,
+      // NOT frequency. Read live over CDP, zebar's cpu provider reports
+      // { frequency: 0, vendor: '' } on this machine -- sysinfo cannot get a
+      // clock speed here -- so a GHz figure renders a confident "0.0 GHz".
+      // Core counts come back populated, and do not change.
+      detail: out.cpu
+        ? `${out.cpu.physicalCoreCount} cores  \u00B7  ${out.cpu.logicalCoreCount} threads`
+        : null,
+    },
+    // The GPU row is absent rather than zero on a machine with no nvidia-smi
+    // -- see gpu-stats.js for why this is NVIDIA-only on purpose.
+    {
+      key: 'GPU',
+      value: latestGpu ? latestGpu.usage : null,
+      absent: !gpuStats.available,
+      detail: gpuDetail(),
+    },
+    {
+      key: 'RAM',
+      value: out.memory?.usage,
+      detail: out.memory
+        ? `${formatBytes(out.memory.usedMemory) ?? '--'} of ${formatBytes(out.memory.totalMemory) ?? '--'}`
+        : null,
+    },
+    {
+      key: 'DISK',
+      value: diskUsed,
+      absent: !disk,
+      detail: disk
+        ? `${Math.round(disk.availableSpace?.siValue ?? 0)}${disk.availableSpace?.siUnit ?? ''} free`
+        : null,
+    },
   ];
 
   host.textContent = '';
   for (const row of rows) {
+    if (row.absent) continue;
+
     const el = document.createElement('div');
     el.className = 'mix__row';
 
-    const i = document.createElement('i');
-    i.className = 'fa-solid';
-    i.textContent = row.glyph;
+    const k = document.createElement('div');
+    k.className = 'mix__k';
+    k.textContent = row.key;
 
     const track = document.createElement('div');
     track.className = 'mix__track';
@@ -205,11 +279,41 @@ function renderLevels() {
 
     const val = document.createElement('div');
     val.className = 'mix__val';
-    val.textContent = Number.isFinite(row.value) ? String(Math.round(row.value)) : '--';
+    val.textContent = Number.isFinite(row.value) ? `${Math.round(row.value)}%` : '--';
 
-    el.append(i, track, val);
+    el.append(k, track, val);
+    if (row.detail) {
+      const d = document.createElement('div');
+      d.className = 'mix__detail';
+      d.textContent = row.detail;
+      el.appendChild(d);
+    }
     host.appendChild(el);
   }
+}
+
+function gpuDetail() {
+  if (!latestGpu) return null;
+  const bits = [];
+  if (Number.isFinite(latestGpu.temperature)) bits.push(`${Math.round(latestGpu.temperature)}\u00B0C`);
+  if (Number.isFinite(latestGpu.usedBytes) && Number.isFinite(latestGpu.totalBytes)) {
+    bits.push(`${formatBytes(latestGpu.usedBytes)} of ${formatBytes(latestGpu.totalBytes)}`);
+  }
+  return bits.length ? bits.join('  \u00B7  ') : null;
+}
+
+function setRate(el, bytesPerSecond) {
+  const text = formatRate(bytesPerSecond);
+  el.textContent = '';
+  if (!text || text === '--') { el.textContent = '--'; return; }
+  // "4.6 kB/s" -> number + unit, so the unit can be dimmed and shrunk.
+  const space = text.indexOf(' ');
+  if (space === -1) { el.textContent = text; return; }
+  el.appendChild(document.createTextNode(text.slice(0, space)));
+  const u = document.createElement('span');
+  u.className = 'sys__netu';
+  u.textContent = text.slice(space + 1);
+  el.appendChild(u);
 }
 
 // --- rendering: media -----------------------------------------------------
@@ -229,6 +333,8 @@ function renderMedia() {
   const pct = Number.isFinite(pos) && Number.isFinite(end) && end > 0
     ? Math.max(0, Math.min(100, (pos / end) * 100))
     : 0;
+
+  applyArt(title, artist);
 
   const set = (id, text) => { const el = $(id); if (el) el.textContent = text; };
   const width = (id) => { const el = $(id); if (el) el.style.width = `${pct}%`; };
@@ -256,6 +362,53 @@ function renderMedia() {
     if (icon) icon.textContent = playing ? PAUSE_GLYPH : PLAY_GLYPH;
     btn.setAttribute('aria-label', playing ? 'Pause' : 'Play');
     btn.disabled = !s;
+  }
+}
+
+// Album art, from tools/media-art.exe -- zebar's media provider has no
+// artwork field at all (verified against the vendored bundle), which is why a
+// helper exists. Direct user report: "it still can't fetch the current playing
+// media image (this was possible in my previous yasb bar)".
+//
+// The cache read is synchronous and happens on every render; the fetch happens
+// at most once per track. Both art elements are driven together so the compact
+// tile and the Media pane never disagree.
+function applyArt(title, artist) {
+  if (!title) { showArt(null); return; }
+
+  const cached = mediaArt.cached(title, artist);
+  if (cached !== undefined) { showArt(cached); return; }
+
+  // Not asked yet. Show nothing while it is in flight rather than leaving the
+  // PREVIOUS track's cover up, which would be confidently wrong.
+  showArt(null);
+  mediaArt.fetch(title, artist).then((url) => {
+    // The song may have changed while this was in flight. Re-read the current
+    // track rather than trusting the closure.
+    const now = out.media?.currentSession;
+    if (!now || now.title !== title) return;
+    if (url) showArt(url);
+  }).catch(() => { /* fail soft: keep the placeholder */ });
+}
+
+function showArt(dataUrl) {
+  for (const id of ['npArt', 'mediaArt']) {
+    const el = $(id);
+    if (!el) continue;
+    if (dataUrl) {
+      el.classList.remove('art--empty');
+      el.style.backgroundImage = `url("${dataUrl}")`;
+      el.style.backgroundSize = 'cover';
+      el.style.backgroundPosition = 'center';
+      el.textContent = '';
+    } else if (!el.classList.contains('art--empty')) {
+      el.classList.add('art--empty');
+      el.style.backgroundImage = '';
+      const i = document.createElement('i');
+      i.className = 'fa-solid';
+      i.textContent = '\uF001';
+      el.replaceChildren(i);
+    }
   }
 }
 
@@ -360,7 +513,6 @@ function renderPerformance() {
   // No GPU provider exists on this build of zebar, so the mockup's GPU ring
   // becomes a CPU-frequency ring rather than a fabricated reading. A gauge
   // showing a number nobody measured is worse than one fewer gauge.
-  const freqGhz = Number(out.cpu?.frequency);
   pane.appendChild(gaugeTile('CPU', {
     value: Number.isFinite(cpuUsage) ? cpuUsage / 100 : 0,
     display: formatPercent(cpuUsage) ?? '--',
@@ -387,8 +539,9 @@ function renderPerformance() {
 
   strip.textContent = '';
   const iface = out.network?.defaultInterface;
+  // Same reason as the dashboard pane: this provider's frequency reads 0.
   strip.appendChild(statTile(
-    Number.isFinite(freqGhz) ? (freqGhz / 1000).toFixed(1) : '--', 'GHz', 'CPU clock'));
+    out.cpu?.logicalCoreCount != null ? String(out.cpu.logicalCoreCount) : '--', '', 'CPU threads'));
   strip.appendChild(statTile(
     formatBytes(out.memory?.totalMemory) ?? '--', '', 'Memory total'));
   strip.appendChild(statTile(
@@ -628,7 +781,17 @@ async function init() {
     // The slide starts only after the geometry has settled. Starting it in
     // the same frame as the resize makes the first frames of the transition
     // land while the window is still the wrong size, which reads as a jump.
-    requestAnimationFrame(() => document.body.classList.add('is-open'));
+    startSystemPoll();
+
+    // Two frames, not one. The window was resized on the line above, and a
+    // single rAF can land before the compositor has taken the new size --
+    // which starts the slide from the wrong geometry and reads as a snap
+    // rather than a slide. The second frame guarantees the browser has laid
+    // out at the final size with the closed transform still applied, so the
+    // transition has something real to animate FROM.
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      document.body.classList.add('is-open');
+    }));
     channel.post({ open: true });
   }
 
@@ -637,6 +800,11 @@ async function init() {
     if (!isOpen) return;
     isOpen = false;
     disarm();
+    // Stop spawning helpers the moment the panel is on its way out -- see the
+    // note on the poll itself. Doing it here rather than after the slide means
+    // a fast open/close cycle cannot leave a timer running behind a panel that
+    // is already gone.
+    stopSystemPoll();
     document.body.classList.remove('is-open');
 
     // Park only after the slide has finished, or the window vanishes from
@@ -644,8 +812,6 @@ async function init() {
     await new Promise((resolve) => setTimeout(resolve, 200));
     // Re-check: the pointer may have come back during the slide out.
     if (isOpen) return;
-    shownMonth = new Date();
-    renderCalendar();
     showPane('dashboard');
     await park();
     channel.post({ open: false });
@@ -657,6 +823,27 @@ async function init() {
     cancelClose();
     closeTimer = setTimeout(() => {
       closeTimer = null;
+
+      // VERIFY BEFORE CLOSING. `mouseleave` cannot be taken at face value on
+      // this window, and the event log is what proved it: with the cursor held
+      // perfectly still at client (570, 12), the panel received
+      //
+      //   panel leave x=486 y=524 rel=null inner=1140x520
+      //
+      // -- a fabricated position four pixels past its own bottom edge, for a
+      // pointer that had not moved. It arrives roughly a second after opening,
+      // every time, and it closed the panel out from under the user.
+      //
+      // So the leave is treated as a HINT to re-check rather than as fact, and
+      // the engine's own hover state is the arbiter. This is a single check at
+      // the moment of decision, NOT a poll: polling :hover was already tried
+      // against the dock's oscillation and did not help there, and a per-tick
+      // check would burn CPU for the whole time the panel is open.
+      if (document.body.matches(':hover')) {
+        pointerOverPanel = true;
+        logEvent('close cancelled', 'still hovered');
+        return;
+      }
       logEvent('close fired');
       close();
     }, CLOSE_DELAY_MS);
@@ -700,8 +887,8 @@ async function init() {
     pointerOverPanel = true;
     cancelClose();
   });
-  document.body.addEventListener('mouseleave', () => {
-    logEvent('panel leave');
+  document.body.addEventListener('mouseleave', (e) => {
+    logEvent('panel leave', `x=${e.clientX} y=${e.clientY} rel=${e.relatedTarget ? e.relatedTarget.nodeName : 'null'} inner=${window.innerWidth}x${window.innerHeight}`);
     pointerOverPanel = false;
     reconsider();
   });
@@ -713,15 +900,13 @@ async function init() {
     out = next;
     renderPrompt();
     renderClock();
-    renderLevels();
+    renderSystem();
     renderMedia();
     // The hidden panes are still rendered: a tab switch must not show a
     // frame of stale or empty content while waiting for the next emission.
     renderPerformance();
     renderWorkspaces();
   });
-
-  renderCalendar();
 }
 
 init().catch((e) => console.error('dashboard: init failed', e));

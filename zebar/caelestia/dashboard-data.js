@@ -1,6 +1,5 @@
 // Pure data shaping for the top hover dashboard. DOM-free and provider-free,
-// so the parts with real edge cases -- month grids that straddle two months,
-// leap years, weeks that start on Monday -- are assertable in
+// so the parts with real edge cases are assertable in
 // tests/js/dashboardData.test.mjs instead of being eyeballed once and trusted.
 //
 // The panel itself (dashboard/dashboard.js) does the rendering and owns the
@@ -45,55 +44,6 @@ export function collectWindows(workspace) {
   if (workspace.monocleContainer?.windows) found.push(...workspace.monocleContainer.windows);
   if (workspace.maximizedWindow) found.push(workspace.maximizedWindow);
   return found;
-}
-
-// --- calendar -------------------------------------------------------------
-
-const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
-                'July', 'August', 'September', 'October', 'November', 'December'];
-
-export function monthName(monthIndex) {
-  return MONTHS[monthIndex] ?? '';
-}
-
-// A 6x7 grid of the weeks around a date, Monday-first.
-//
-// Monday-first is not cosmetic here: JS getDay() is Sunday=0, so every index
-// in this function is shifted, and getting it wrong silently offsets the whole
-// month by a day -- the kind of bug that looks right in one month and wrong in
-// the next. Six rows always, so the panel's height never changes as the user
-// pages through months.
-//
-// Every cell carries which month it belongs to, so the caller can dim the
-// leading and trailing days without recomputing anything.
-export function calendarGrid(date) {
-  const year = date.getFullYear();
-  const month = date.getMonth();
-
-  const firstOfMonth = new Date(year, month, 1);
-  // getDay(): Sun=0..Sat=6. Monday-first column index: Mon=0..Sun=6.
-  const leading = (firstOfMonth.getDay() + 6) % 7;
-
-  const start = new Date(year, month, 1 - leading);
-  const today = new Date();
-  const isSameDay = (a, b) =>
-    a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
-
-  const weeks = [];
-  const cursor = new Date(start);
-  for (let w = 0; w < 6; w++) {
-    const week = [];
-    for (let d = 0; d < 7; d++) {
-      week.push({
-        day: cursor.getDate(),
-        inMonth: cursor.getMonth() === month,
-        isToday: isSameDay(cursor, today),
-      });
-      cursor.setDate(cursor.getDate() + 1);
-    }
-    weeks.push(week);
-  }
-  return weeks;
 }
 
 // --- formatting -----------------------------------------------------------

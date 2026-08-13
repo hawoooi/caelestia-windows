@@ -164,17 +164,25 @@ body.is-open .stage { transform: translateY(0); }
    The scale came down a step, and the height the calendar and now-playing
    tiles set is now filled by THREE tiles in the left column instead of two
    stretched ones. */
+/* Direct user feedback: "i think the player and calendar has alot of wasted
+   space, notably, the calendar. we could cut off the calendar and replace it
+   with something else since i don't even use it. for now just system stats".
+
+   So the calendar is gone entirely -- not shrunk, not moved to another tab --
+   and its column, the widest one, now holds the system panel. That is the
+   right trade: a month grid is six rows of mostly-dead cells for a date the
+   clock tile already states in full, while every row of the system panel is a
+   number that changes while you are looking at it. */
 .dash {
   display: grid;
-  grid-template-columns: 232px minmax(0, 1fr) 252px;
-  grid-template-rows: auto auto auto;
+  grid-template-columns: 226px minmax(0, 1fr) 244px;
+  grid-template-rows: auto 1fr;
   gap: var(--gap);
 }
 .dash__time    { grid-column: 1; grid-row: 1; }
-.dash__mix     { grid-column: 1; grid-row: 2; }
-.dash__actions { grid-column: 1; grid-row: 3; }
-.dash__cal     { grid-column: 2; grid-row: 1 / span 3; }
-.dash__media   { grid-column: 3; grid-row: 1 / span 3; }
+.dash__actions { grid-column: 1; grid-row: 2; }
+.dash__mix     { grid-column: 2; grid-row: 1 / span 2; }
+.dash__media   { grid-column: 3; grid-row: 1 / span 2; }
 
 /* time -- one of three tiles in the column now, so it sits at its natural
    height rather than being stretched and centred over air. */
@@ -193,19 +201,27 @@ body.is-open .stage { transform: translateY(0); }
    behaviour -- the weeks breathe instead of the tile being padded out. */
 .dash__cal { display: flex; flex-direction: column; }
 .cal { width: 100%; height: 100%; border-collapse: collapse; }
+/* Direct user feedback: "for the calendar, we can try to make it a little
+   smaller, with numbers starting with 0 for numbers smaller than 10 for
+   consistent spacing". Both done -- the zero-padding is in dashboard.js's
+   renderCalendar, since it is content rather than style. The padded numerals
+   are all two glyphs wide, which is what makes a smaller size legible: every
+   column now has identical optical weight instead of alternating between one
+   and two digits. */
 .cal th {
-  font-size: 10.5px; font-weight: 600; color: var(--outline);
+  font-size: 9.5px; font-weight: 600; color: var(--outline);
   text-transform: uppercase; letter-spacing: 0.1em;
-  padding-bottom: 10px;
+  padding-bottom: 8px;
 }
 .cal td {
-  text-align: center; padding: 6px 0;
+  text-align: center; padding: 4px 0;
   font-family: var(--data); font-variant-numeric: tabular-nums;
-  font-size: 13px; color: var(--on-surface-variant);
+  font-size: 11.5px; color: var(--on-surface-variant);
 }
 .cal td.is-muted { color: var(--outline); opacity: 0.45; }
 /* THE one accent on this pane. */
 .cal td.is-today span {
+  min-width: 22px;
   display: inline-flex; align-items: center; justify-content: center;
   width: 26px; height: 26px; border-radius: var(--r-inner);
   background: var(--primary); color: var(--on-primary); font-weight: 600;
@@ -214,10 +230,59 @@ body.is-open .stage { transform: translateY(0); }
 /* levels -- horizontal rows, not vertical bars. Vertical sliders forced a
    narrow column that never sat well beside the calendar, and a labelled row
    says which channel it is without a legend. */
-.mix__row { display: grid; grid-template-columns: 15px minmax(0,1fr) 26px; align-items: center; gap: 9px; }
-.mix__row + .mix__row { margin-top: 9px; }
+/* Direct user feedback: "try to incorperate wifi up/down speed and
+   cpu/gpu/ram into the dashboard instead if sound volume and those meaningless
+   bars".
+
+   Volume is gone from here -- it already lives in the bar's own pill and its
+   panel, so it was duplicated, and it is not a machine-load reading like the
+   others. In its place: live network throughput as NUMBERS (a rate has no
+   ceiling, so a bar cannot express one -- that is what made the old ones
+   meaningless), and cpu/gpu/ram as three percentages, which do have a ceiling
+   and so keep a bar. */
+/* Promoted from a narrow side-tile to the widest column, so each reading now
+   gets a bar AND the raw figure behind the percentage -- "68%" alone does not
+   tell you whether that is 11GB or 22GB. */
+.sys__net { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px; }
+.sys__netcell { display: flex; flex-direction: column; gap: 3px; }
+.sys__netk {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 9px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.1em; color: var(--outline);
+}
+.sys__netk i { font-size: 9px; }
+.sys__netv {
+  font-family: var(--data); font-variant-numeric: tabular-nums;
+  font-size: 22px; font-weight: 600; color: var(--on-surface);
+  white-space: nowrap; line-height: 1.1;
+}
+.sys__netu { font-size: 10px; font-weight: 500; color: var(--outline); margin-left: 2px; }
+
+.mix__row {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) 40px;
+  align-items: center; gap: 10px;
+}
+.mix__row + .mix__row { margin-top: 13px; }
+/* The raw figure sits under the bar rather than beside it: a fourth column
+   would squeeze the bar, and the bar is what makes the row scannable. */
+.mix__detail {
+  grid-column: 2 / span 2;
+  margin-top: 5px;
+  font-family: var(--data); font-variant-numeric: tabular-nums;
+  font-size: 10.5px; color: var(--outline);
+}
+/* The three loads are labelled in words rather than glyphs: "GPU" is not a
+   thing Font Awesome has an unambiguous icon for, and CPU/RAM/GPU as text is
+   read faster than three similar-looking chips anyway. */
+.mix__k {
+  font-size: 9.5px; font-weight: 700; letter-spacing: 0.08em;
+  color: var(--outline); text-transform: uppercase;
+}
+.mix__row--absent { opacity: 0.4; }
 .mix__row i { color: var(--outline); font-size: 12px; text-align: center; }
-.mix__track { height: 4px; border-radius: var(--r-full); background: var(--track); overflow: hidden; }
+.mix__track {
+  height: 5px; height: 4px; border-radius: var(--r-full); background: var(--track); overflow: hidden; }
 .mix__fill { height: 100%; border-radius: var(--r-full); background: var(--on-surface-variant); }
 .mix__val { font-family: var(--data); font-size: 11.5px; color: var(--outline); text-align: right; }
 
@@ -225,40 +290,61 @@ body.is-open .stage { transform: translateY(0); }
    two are the exact scripts bound in ~/.config/whkdrc (alt+w, ctrl+alt+w);
    the rest are things the pack or the WM can already do. A macro row is the
    right use of reclaimed space on a panel you summon and dismiss in seconds. */
-.acts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+/* Direct user feedback: "I dont like the look of these icon and texts".
+
+   The old shape was a 3x2 grid of bordered squares with the icon stacked over
+   an uppercase caption -- six outlined boxes inside a tile that already has a
+   border, which read as a nested grid of nothing, and the tiny all-caps
+   captions had to be squeezed to fit the column.
+
+   These are icon-LEFT, label-right rows instead: the same shape the layout
+   menu uses, which is the one the user asked for by name ("a vertical list
+   with icons"). No per-item border -- the hover fill is the affordance, so
+   nothing is drawn until it is pointed at. Sentence case at a readable size,
+   because a six-character caption in 9px uppercase is a label you decode
+   rather than read. Two columns keep it to three rows. */
+.acts { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 6px; }
 .act {
-  appearance: none; border: 1px solid var(--edge);
+  appearance: none; border: 0;
   background: transparent; color: var(--on-surface-variant);
   border-radius: var(--r-inner);
-  padding: 9px 0 7px;
-  display: flex; flex-direction: column; align-items: center; gap: 5px;
-  font-family: var(--ui); font-size: 9px; font-weight: 600;
-  text-transform: uppercase; letter-spacing: 0.08em;
+  padding: 7px 9px;
+  display: flex; align-items: center; gap: 10px;
+  font-family: var(--ui); font-size: 12px; font-weight: 500;
+  text-align: left;
   cursor: pointer;
-  transition: background 150ms ease, color 150ms ease, border-color 150ms ease;
+  transition: background 140ms ease, color 140ms ease;
 }
-.act i { font-size: 13px; }
-.act:hover { background: var(--surface-container-high); color: var(--on-surface); border-color: var(--edge-strong); }
+/* Fixed-width icon cell so every label starts on the same x, whatever the
+   glyph's own width. */
+.act i { font-size: 13px; width: 15px; text-align: center; color: var(--outline); transition: color 140ms ease; }
+.act:hover { background: var(--surface-container-high); color: var(--on-surface); }
+.act:hover i { color: var(--primary); }
 .act:focus { outline: none; }
 .act:focus-visible { box-shadow: inset 0 0 0 2px var(--primary); }
 
 /* now playing */
 .np { display: flex; flex-direction: column; }
+/* Direct user feedback: the player "has alot of wasted space". The art was a
+   full-width square -- 244px of cover for a tile whose job is to say what is
+   playing -- with the text crammed under it. It is now a fixed, smaller square
+   and the reclaimed height goes to the track text and controls. */
 .np__art {
-  width: 100%; aspect-ratio: 1;
+  width: 148px; height: 148px;
+  margin: 0 auto;
   border-radius: var(--r-tile);
   object-fit: cover;
   background: var(--surface-container-high);
 }
-.np__title  { margin-top: 12px; font-size: 14px; font-weight: 600; color: var(--on-surface); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.np__artist { margin-top: 2px; font-size: 12px; color: var(--on-surface-variant); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.np__title  { margin-top: 14px; text-align: center; font-size: 14px; font-weight: 600; color: var(--on-surface); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.np__artist { margin-top: 3px; text-align: center; font-size: 12px; color: var(--on-surface-variant); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* The progress was Media-tab-only before, which left this tile with a gap
    under the controls. It is the single most useful thing to add here. */
-.np__scrub { margin-top: 12px; }
+.np__scrub { margin-top: 14px; }
 .np__track { height: 3px; border-radius: var(--r-full); background: var(--track); overflow: hidden; }
 .np__fill { height: 100%; background: var(--on-surface-variant); border-radius: var(--r-full); }
 .np__times { display: flex; justify-content: space-between; margin-top: 6px; font-family: var(--data); font-size: 10.5px; color: var(--outline); }
-.np__controls { display: flex; align-items: center; gap: 4px; margin-top: 8px; }
+.np__controls { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 12px; }
 
 .iconbtn {
   appearance: none; border: 0; background: transparent;
@@ -379,7 +465,23 @@ body.is-open .stage { transform: translateY(0); }
 }
 .ws__empty { font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--edge-strong); }
 
-@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+/* The blanket `@media (prefers-reduced-motion: reduce) { * { transition: none
+   !important } }` that used to sit here has been REMOVED, and that is a
+   deliberate decision rather than an oversight.
+
+   It came across from the standalone mockup, where it was the right default.
+   In the widget it silently killed every transition in the panel -- the slide,
+   the tab underline, every hover fill -- because this machine has Windows'
+   "Show animations" turned off, which WebView2 reports as reduced-motion. The
+   symptom was reported as "ui cut off without animations", and the cause was
+   invisible: the CSS was correct, the vars resolved, and getComputedStyle
+   simply returned `transition: none`.
+
+   It goes rather than being narrowed because the rest of this pack does not
+   honour the setting either -- the dock slides, the flyouts fade -- so the
+   dashboard was the one component out of step with the desktop it belongs to,
+   and the user asked for it to match. If reduced motion is ever wanted here,
+   it belongs across the whole pack at once, not in this one file. */
 
 
 /* --------------------------------------------------------------- states */

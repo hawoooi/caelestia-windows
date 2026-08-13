@@ -2,8 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  calendarGrid,
-  monthName,
   formatUptime,
   formatBytes,
   formatPercent,
@@ -12,76 +10,6 @@ import {
   isRealDeparture,
   collectWindows,
 } from '../../zebar/caelestia/dashboard-data.js';
-
-test('calendarGrid: a month starting on a Monday needs no leading days', () => {
-  // 2025-09-01 was a Monday.
-  const weeks = calendarGrid(new Date(2025, 8, 15));
-  assert.equal(weeks[0][0].day, 1);
-  assert.equal(weeks[0][0].inMonth, true);
-});
-
-test('calendarGrid: a month starting on a Sunday gets six leading days, not zero', () => {
-  // 2025-06-01 was a Sunday -- the case a Sunday-first grid gets wrong, and
-  // the one where an off-by-one is invisible if you only ever check a Monday.
-  const weeks = calendarGrid(new Date(2025, 5, 10));
-  assert.equal(weeks[0].filter((c) => !c.inMonth).length, 6);
-  assert.equal(weeks[0][6].day, 1);
-  assert.equal(weeks[0][6].inMonth, true);
-  // The leading run is the tail of May, ending on the 31st.
-  assert.equal(weeks[0][5].day, 31);
-  assert.equal(weeks[0][5].inMonth, false);
-});
-
-test('calendarGrid: always six rows of seven, so the panel never changes height', () => {
-  for (const d of [new Date(2025, 1, 5), new Date(2026, 1, 5), new Date(2025, 7, 20)]) {
-    const weeks = calendarGrid(d);
-    assert.equal(weeks.length, 6);
-    for (const w of weeks) assert.equal(w.length, 7);
-  }
-});
-
-test('calendarGrid: February in a leap year runs to the 29th', () => {
-  const weeks = calendarGrid(new Date(2024, 1, 10));
-  const days = weeks.flat().filter((c) => c.inMonth).map((c) => c.day);
-  assert.equal(days.length, 29);
-  assert.equal(days[days.length - 1], 29);
-});
-
-test('calendarGrid: February in a common year stops at the 28th', () => {
-  const weeks = calendarGrid(new Date(2025, 1, 10));
-  const days = weeks.flat().filter((c) => c.inMonth).map((c) => c.day);
-  assert.equal(days.length, 28);
-});
-
-test('calendarGrid: in-month days are contiguous and ascending', () => {
-  const days = calendarGrid(new Date(2025, 11, 1)).flat().filter((c) => c.inMonth).map((c) => c.day);
-  assert.deepEqual(days, Array.from({ length: 31 }, (_, i) => i + 1));
-});
-
-test('calendarGrid: exactly one cell is today, when today is in the rendered month', () => {
-  const now = new Date();
-  const marked = calendarGrid(now).flat().filter((c) => c.isToday);
-  assert.equal(marked.length, 1);
-  assert.equal(marked[0].day, now.getDate());
-  assert.equal(marked[0].inMonth, true);
-});
-
-test('calendarGrid: a month far from today marks nothing', () => {
-  assert.equal(calendarGrid(new Date(1999, 4, 15)).flat().filter((c) => c.isToday).length, 0);
-});
-
-test('calendarGrid: does not mutate the date it is given', () => {
-  const d = new Date(2025, 5, 10, 13, 45);
-  const before = d.getTime();
-  calendarGrid(d);
-  assert.equal(d.getTime(), before);
-});
-
-test('monthName maps indices, and is empty rather than undefined out of range', () => {
-  assert.equal(monthName(0), 'January');
-  assert.equal(monthName(11), 'December');
-  assert.equal(monthName(12), '');
-});
 
 test('formatUptime: minutes, hours, then days', () => {
   assert.equal(formatUptime(12 * 60000), '12m');
