@@ -269,21 +269,38 @@ body.is-open .stage { transform: translateY(0); }
    nothing is drawn until it is pointed at. Sentence case at a readable size,
    because a six-character caption in 9px uppercase is a label you decode
    rather than read. Two columns keep it to three rows. */
-.acts { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 6px; }
+/* Direct user feedback: "this menu looks ugly".
+
+   The fault was not the rows, it was the space around them. This tile sits in
+   grid row 2 of a column whose height is set by the SYSTEM panel beside it, so
+   it stretches -- and six small buttons in a 2x3 grid occupied the top third
+   and left the remaining two thirds visibly empty. Six things floating in a
+   tall box read as unfinished no matter how the six are styled.
+
+   So the rows now FILL the tile: one column, each row flexing to an equal
+   share of whatever height the tile has. That turns dead space into row
+   height, gives every action a full-width hover target instead of a half-width
+   one, and makes this read as a menu -- the same vertical icon-left list the
+   layout flyout uses, which is the shape asked for by name ("a vertical list
+   with icons"). No content was added to fill space; the existing content was
+   allowed to occupy it. */
+.dash__actions { display: flex; flex-direction: column; }
+.acts { flex: 1; display: flex; flex-direction: column; gap: 2px; }
 .act {
   appearance: none; border: 0;
+  flex: 1;
   background: transparent; color: var(--on-surface-variant);
   border-radius: var(--r-inner);
-  padding: 7px 9px;
-  display: flex; align-items: center; gap: 10px;
-  font-family: var(--ui); font-size: 12px; font-weight: 500;
+  padding: 0 11px;
+  display: flex; align-items: center; gap: 12px;
+  font-family: var(--ui); font-size: 12.5px; font-weight: 500;
   text-align: left;
   cursor: pointer;
   transition: background 140ms ease, color 140ms ease;
 }
 /* Fixed-width icon cell so every label starts on the same x, whatever the
    glyph's own width. */
-.act i { font-size: 13px; width: 15px; text-align: center; color: var(--outline); transition: color 140ms ease; }
+.act i { font-size: 14px; width: 17px; text-align: center; color: var(--outline); transition: color 140ms ease; }
 .act:hover { background: var(--surface-container-high); color: var(--on-surface); }
 .act:hover i { color: var(--primary); }
 .act:focus { outline: none; }
