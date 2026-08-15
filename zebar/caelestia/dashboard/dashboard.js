@@ -37,6 +37,7 @@ import {
   formatTrackTime,
   promptFields,
   collectWindows,
+  shouldOpen,
 } from '../dashboard-data.js';
 
 // --- geometry -------------------------------------------------------------
@@ -887,17 +888,33 @@ async function init() {
 
   async function open() {
     cancelClose();
-    if (isOpen || fullscreen) return;
+
+    // NOT a bare `if (isOpen) return`. That was a latch, and it killed this
+    // panel's hover for whole sessions at a time.
+    //
+    // isOpen is set true and THEN two window geometry calls are awaited below.
+    // If either rejects -- a transient Tauri IPC failure, which is rare but
+    // not impossible -- this function dies with the flag still claiming the
+    // panel is up, and it is called from the channel subscriber with no catch.
+    // Every later hover then returned here immediately and did nothing, while
+    // the trigger kept firing perfectly. Reported exactly that way: the top
+    // hover breaks, the dock keeps working -- and the dock keeps working
+    // because it never resizes its window, so it has no call that can fail.
+    //
+    // shouldOpen checks the flag against the window's own width, which cannot
+    // lie: parked is 1px. See dashboard-data.js.
+    if (!shouldOpen({ isOpen, fullscreen, innerWidth: window.innerWidth, parkedWidth: PARKED })) return;
     isOpen = true;
 
-    const width = Math.min(PANEL_W, monitor.width);
-    // Centred on this monitor, hanging from its top edge.
-    await win.setSize({ type: 'Physical', width, height: PANEL_H });
-    await win.setPosition({
-      type: 'Physical',
-      x: monitor.x + Math.round((monitor.width - width) / 2),
-      y: monitor.y,
-    });
+    try {
+      const width = Math.min(PANEL_W, monitor.width);
+      // Centred on this monitor, hanging from its top edge.
+      await win.setSize({ type: 'Physical', width, height: PANEL_H });
+      await win.setPosition({
+        type: 'Physical',
+        x: monitor.x + Math.round((monitor.width - width) / 2),
+        y: monitor.y,
+      });
 
     // The trigger's hover state is DEAD from this moment on, so stop
     // believing it.
@@ -928,10 +945,18 @@ async function init() {
     // rather than a slide. The second frame guarantees the browser has laid
     // out at the final size with the closed transform still applied, so the
     // transition has something real to animate FROM.
-    requestAnimationFrame(() => requestAnimationFrame(() => {
-      document.body.classList.add('is-open');
-    }));
-    channel.post({ open: true });
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        document.body.classList.add('is-open');
+      }));
+      channel.post({ open: true });
+    } catch (e) {
+      // The panel is not up, so the flag must not claim it is -- that is the
+      // latch described above. Releasing it means the next hover simply tries
+      // again, which is the correct behaviour for a transient failure.
+      isOpen = false;
+      logEvent('open FAILED', e && e.message ? e.message : String(e));
+      console.error('dashboard: open failed, released the open flag', e);
+    }
   }
 
   async function close() {
@@ -951,7 +976,14 @@ async function init() {
     // Re-check: the pointer may have come back during the slide out.
     if (isOpen) return;
     showPane('dashboard');
-    await park();
+    try {
+      await park();
+    } catch (e) {
+      // isOpen is already false here, so the next hover will re-open and
+      // re-size regardless. Worth logging, not worth latching on.
+      logEvent('park FAILED', e && e.message ? e.message : String(e));
+      console.error('dashboard: park failed', e);
+    }
     channel.post({ open: false });
   }
 
@@ -1013,7 +1045,7 @@ async function init() {
 
     logEvent('msg from trigger', `open=${msg.open}`);
     pointerOverTrigger = Boolean(msg.open);
-    if (msg.open) open();
+    if (msg.open) open().catch((e) => console.error('dashboard: open rejected', e));
     else reconsider();
   });
 

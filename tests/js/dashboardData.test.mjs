@@ -9,6 +9,7 @@ import {
   promptFields,
   isRealDeparture,
   collectWindows,
+  shouldOpen,
 } from '../../zebar/caelestia/dashboard-data.js';
 
 test('formatUptime: minutes, hours, then days', () => {
@@ -163,4 +164,33 @@ test('collectWindows: an empty or absent workspace yields an empty array, never 
   assert.deepEqual(collectWindows({}), []);
   assert.deepEqual(collectWindows({ tilingContainers: [{}] }), []);
   assert.deepEqual(collectWindows({ monocleContainer: {} }), []);
+});
+
+// --- open-state recovery --------------------------------------------------
+
+test('shouldOpen: a closed panel opens', () => {
+  assert.equal(shouldOpen({ isOpen: false, fullscreen: false, innerWidth: 1, parkedWidth: 1 }), true);
+});
+
+test('shouldOpen: a genuinely open panel is not reopened', () => {
+  assert.equal(shouldOpen({ isOpen: true, fullscreen: false, innerWidth: 1140, parkedWidth: 1 }), false);
+});
+
+test('shouldOpen: a panel that BELIEVES it is open but is still parked reopens', () => {
+  // The latch this exists for: open() sets isOpen = true, then awaits two
+  // window geometry calls. If one rejects, the flag is left claiming the panel
+  // is up while the window is still 1x1 -- and every later hover returned
+  // early, killing the top hover for the rest of the session.
+  assert.equal(shouldOpen({ isOpen: true, fullscreen: false, innerWidth: 1, parkedWidth: 1 }), true);
+});
+
+test('shouldOpen: fullscreen refuses regardless of state', () => {
+  assert.equal(shouldOpen({ isOpen: false, fullscreen: true, innerWidth: 1, parkedWidth: 1 }), false);
+  assert.equal(shouldOpen({ isOpen: true, fullscreen: true, innerWidth: 1, parkedWidth: 1 }), false);
+});
+
+test('shouldOpen: an unreadable width does not retrigger an open panel', () => {
+  // Fail toward doing nothing: a spurious reopen would resize the window out
+  // from under a pointer that is already on the panel.
+  assert.equal(shouldOpen({ isOpen: true, fullscreen: false, innerWidth: NaN, parkedWidth: 1 }), false);
 });
