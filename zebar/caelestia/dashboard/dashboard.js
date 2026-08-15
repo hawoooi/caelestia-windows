@@ -105,34 +105,53 @@ function logEvent(what, detail) {
 let out = {};
 let isOpen = false;
 
-// Three shell-backed helpers, all polled ONLY while the panel is open.
+// Two shell-backed helpers behind the System tile, plus album art.
 //
-// That is the whole discipline here. Each of these is a process spawn, and a
-// helper that outlives its parent zebar inherits zebar's listening socket on
-// port 6124 -- after which every later start binds nothing and the entire
-// desktop paints blank, under a PID that no longer exists. This pack has lost
-// two debugging sessions to exactly that. A panel that is closed 99% of the
-// time must not be spawning anything 100% of the time, so every timer below is
-// started on open and cleared on close (the same pattern panels/panels.js
-// established for its own mixer and network polls).
+// **These keep sampling while the panel is closed, at a slower cadence.**
+//
+// Direct user request: "The menu takes a while to load when opened, is it
+// possible to keep the stats running even when it is not active to show more
+// immediately". It was: the tile went up showing "--" for GPU and for both
+// network rates, and only filled in a second later.
+//
+// The delay was not process startup, which is ~100ms. It is that a RATE cannot
+// be measured from one reading. net-stats.exe reports cumulative byte
+// counters, so throughput is the difference between two samples -- with no
+// previous sample there is nothing to subtract, and the first render after
+// opening had no rate to show by definition. Stopping the poll on close threw
+// that baseline away every single time, guaranteeing the blank second on every
+// open. CPU, RAM, disk and the clock never had this problem because they come
+// from zebar providers that emit continuously regardless of this panel.
+//
+// So the poll never stops now, it changes GEAR: every second while open,
+// every five while closed. And it keeps RENDERING while closed, which is the
+// other half -- the DOM is already correct before the window is ever sized, so
+// there is nothing to fill in.
+//
+// On the cost, which is the reason it was open-only to begin with: each sample
+// is two process spawns, and a helper that outlives its parent zebar inherits
+// zebar's listening socket on port 6124, after which every later start binds
+// nothing and the whole desktop paints blank. That risk is real and this pack
+// has lost two sessions to it. But it is not avoided by this timer: the same
+// fullscreen-detect.exe is already polled once a second by the bar, all four
+// corners, all three edges, the dock and the dashtrigger. Against that, 0.4
+// spawns a second while idle is not a new class of cost, and the mitigations
+// that actually matter are the in-flight guard in each helper and the reap in
+// Restart-ZebarWidgets, both of which are already in place.
 const shell = zebar.shellExec ? zebar : null;
 const netStats = createNetStats(shell);
 const gpuStats = createGpuStats(shell);
 const mediaArt = createMediaArt(shell);
 
-// 1000ms: fast enough that a download visibly moves the number, slow enough
-// that two spawns a second is the ceiling for the whole panel.
-const SYSTEM_POLL_MS = 1000;
-let systemTimer = null;
+// Open: fast enough that a download visibly moves the number.
+// Closed: slow enough to be background noise, frequent enough that the rate
+// shown the instant the panel opens is at most this stale -- and it is a real
+// measurement over this interval, not a placeholder.
+const SYSTEM_POLL_OPEN_MS = 1000;
+const SYSTEM_POLL_IDLE_MS = 5000;
 
-function stopSystemPoll() {
-  if (systemTimer !== null) { clearInterval(systemTimer); systemTimer = null; }
-  // Forget the last network sample. Differencing against a minutes-old read
-  // on reopen would average the entire gap into one bogus "current" rate.
-  netStats.reset();
-  latestNet = null;
-  latestGpu = null;
-}
+let systemTimer = null;
+let systemCadence = null;
 
 async function sampleSystem() {
   // Both are independent and both fail soft to null, so they run together
@@ -140,13 +159,20 @@ async function sampleSystem() {
   const [net, gpu] = await Promise.all([netStats.sample(), gpuStats.sample()]);
   if (net) latestNet = net;
   if (gpu) latestGpu = gpu;
+  // Rendered even while closed. This is what makes the panel correct the
+  // moment it appears rather than a moment after.
   renderSystem();
 }
 
-function startSystemPoll() {
-  stopSystemPoll();
+// Switches cadence without dropping the baseline. Deliberately NOT a
+// stop/start pair: netStats.reset() would discard the previous sample, which
+// is the very thing being kept warm.
+function setSystemPoll(intervalMs) {
+  if (systemCadence === intervalMs && systemTimer !== null) return;
+  systemCadence = intervalMs;
+  if (systemTimer !== null) clearInterval(systemTimer);
   sampleSystem();
-  systemTimer = setInterval(sampleSystem, SYSTEM_POLL_MS);
+  systemTimer = setInterval(sampleSystem, intervalMs);
 }
 
 // --- rendering: the dashboard pane ---------------------------------------
@@ -784,7 +810,7 @@ async function init() {
     // The slide starts only after the geometry has settled. Starting it in
     // the same frame as the resize makes the first frames of the transition
     // land while the window is still the wrong size, which reads as a jump.
-    startSystemPoll();
+    setSystemPoll(SYSTEM_POLL_OPEN_MS);
 
     // Two frames, not one. The window was resized on the line above, and a
     // single rAF can land before the compositor has taken the new size --
@@ -803,11 +829,10 @@ async function init() {
     if (!isOpen) return;
     isOpen = false;
     disarm();
-    // Stop spawning helpers the moment the panel is on its way out -- see the
-    // note on the poll itself. Doing it here rather than after the slide means
-    // a fast open/close cycle cannot leave a timer running behind a panel that
-    // is already gone.
-    stopSystemPoll();
+    // Back down to the idle cadence rather than stopping: the network
+    // baseline has to survive the panel being closed, or the next open is
+    // blank again for a second. See the note on the poll itself.
+    setSystemPoll(SYSTEM_POLL_IDLE_MS);
     document.body.classList.remove('is-open');
 
     // Park only after the slide has finished, or the window vanishes from
@@ -899,6 +924,10 @@ async function init() {
   // Render on every provider emission. Cheap enough at this size, and it
   // keeps the panel correct while it is open without a second timer; the
   // date provider ticks once a second, which drives the clock.
+  // Start sampling immediately, at the idle cadence, so the first open of a
+  // session is populated too -- not just opens after the first.
+  setSystemPoll(SYSTEM_POLL_IDLE_MS);
+
   providers.onOutput((next) => {
     out = next;
     renderPrompt();

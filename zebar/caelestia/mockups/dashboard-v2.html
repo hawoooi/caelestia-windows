@@ -1,0 +1,519 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Caelestia dashboard &mdash; redesign</title>
+<link rel="stylesheet" href="../bar/vendor/fontawesome/fontawesome.css">
+<style>
+/* ==========================================================================
+   MOCKUP ONLY -- not wired into zebar. Open in a browser, confirm, then it
+   gets ported.
+
+   WHAT CHANGED AND WHY.
+
+   The panel now samples continuously in the background (that was the fix for
+   "the menu takes a while to load when opened"). So it HAS HISTORY, and the
+   previous design threw all of it away -- every metric was a bare instant,
+   rendered as a long thin bar with an enormous amount of horizontal air
+   either side of it.
+
+   So the redesign's one idea: SHOW THE TREND, not just the value. Each metric
+   keeps its number and gains a sparkline of the last minute. That is more
+   information in LESS space than the full-width bars it replaces, it is the
+   thing you actually want from a glance surface ("is this spike now or has it
+   been like that?"), and it is only honest to draw because the data genuinely
+   exists now.
+
+   Density: the old dashboard pane put four readings in a column of full-width
+   bars, one per row, each with a detail line floating underneath. Here a
+   reading is one tight row -- label, value, sparkline, detail -- so four
+   metrics plus both network directions fit in the space three metrics used.
+
+   NOW PLAYING collapses. It was a 148px art square with a music glyph and
+   "Nothing playing" underneath, which is a lot of panel spent on silence. It
+   is a slim strip when idle and only claims the full column when something is
+   actually playing.
+
+   Kept deliberately: the tile-and-gap grammar (it matches komorebi's own
+   container padding, which is the whole visual argument of this desktop), the
+   prompt line as the signature, every numeral in the bar's mono face, and one
+   accent per pane.
+   ========================================================================== */
+
+:root {
+  /* Live matugen palette -- inlined so this file opens standalone. Wired up,
+     it links ../bar/theme.css and these disappear. */
+  --surface: #0e1415;
+  --on-surface: #dde4e4;
+  --on-surface-variant: #bec8c9;
+  --primary: #80d4d9;
+  --on-primary: #003739;
+  --outline: #899393;
+  --surface-container: #1a2121;
+  --surface-container-high: #252b2b;
+
+  --edge: color-mix(in srgb, var(--outline) 13%, transparent);
+  --edge-strong: color-mix(in srgb, var(--outline) 22%, transparent);
+  --track: color-mix(in srgb, var(--outline) 18%, transparent);
+  --spark: color-mix(in srgb, var(--outline) 55%, transparent);
+  --spark-fill: color-mix(in srgb, var(--outline) 10%, transparent);
+
+  --gap: 10px;
+  --pad: 15px;
+
+  --r-panel: 24px;
+  --r-tile: 14px;
+  --r-inner: 10px;
+  --r-full: 999px;
+
+  --ui: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --data: "0xProto Nerd Font", ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0; padding: 0; min-height: 100%;
+  font-family: var(--ui);
+  background: radial-gradient(120% 90% at 20% 0%, #16302f 0%, #0b1112 60%), #0b1112;
+  color: var(--on-surface);
+}
+
+.stage { min-height: 100vh; display: flex; justify-content: center; align-items: flex-start; padding: 0 24px 44px; }
+
+.panel {
+  width: min(1140px, 100%);
+  background: var(--surface);
+  border-bottom-left-radius: var(--r-panel);
+  border-bottom-right-radius: var(--r-panel);
+  padding: 0 var(--gap) var(--gap);
+  box-shadow: 0 20px 60px color-mix(in srgb, var(--surface) 72%, transparent);
+}
+
+/* ----------------------------------------------------------------- tabs */
+.tabs { display: flex; justify-content: center; gap: 2px; border-bottom: 1px solid var(--edge); }
+.tab {
+  appearance: none; border: 0; background: transparent;
+  color: var(--on-surface-variant);
+  font-family: var(--ui);
+  font-size: 11px; font-weight: 500;
+  text-transform: uppercase; letter-spacing: 0.12em;
+  padding: 13px 24px 11px;
+  display: flex; align-items: center; gap: 9px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: color 150ms ease, border-color 150ms ease;
+}
+.tab i { font-size: 14px; line-height: 1; }
+.tab:hover { color: var(--on-surface); }
+.tab[aria-selected="true"] { color: var(--primary); border-bottom-color: var(--primary); }
+.tab:focus { outline: none; }
+.tab:focus-visible { box-shadow: inset 0 0 0 2px var(--primary); border-radius: var(--r-inner); }
+
+.pane { display: none; padding-top: var(--gap); }
+.pane[data-active] { display: block; }
+
+.tile {
+  background: var(--surface-container);
+  border: 1px solid var(--edge);
+  border-radius: var(--r-tile);
+  padding: var(--pad);
+}
+
+.label {
+  font-size: 10px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.14em;
+  color: var(--outline);
+  margin-bottom: 10px;
+}
+
+/* --------------------------------------------------------------- prompt */
+.prompt {
+  font-family: var(--data);
+  font-size: 12.5px;
+  padding: 10px var(--pad);
+  background: var(--surface-container);
+  border: 1px solid var(--edge);
+  border-radius: var(--r-tile);
+  margin-bottom: var(--gap);
+  display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
+}
+.prompt__host { color: var(--primary); font-weight: 600; }
+.prompt__sep { color: var(--outline); opacity: 0.5; }
+.prompt__k { color: var(--outline); }
+.prompt__v { color: var(--on-surface-variant); font-weight: 600; }
+
+/* ----------------------------------------------------------------- grid */
+.dash {
+  display: grid;
+  grid-template-columns: 208px minmax(0, 1fr) 236px;
+  grid-template-rows: auto 1fr;
+  gap: var(--gap);
+}
+.dash__time    { grid-column: 1; grid-row: 1; }
+.dash__actions { grid-column: 1; grid-row: 2; }
+.dash__sys     { grid-column: 2; grid-row: 1 / span 2; }
+.dash__media   { grid-column: 3; grid-row: 1 / span 2; }
+
+/* When nothing is playing the media column collapses to a strip and the
+   system panel takes the width back. */
+.dash.is-idle { grid-template-columns: 208px minmax(0, 1fr) 236px; }
+
+/* ----------------------------------------------------------------- time */
+.time__clock { font-size: 38px; font-weight: 600; line-height: 1; letter-spacing: -0.01em; font-family: var(--data); font-variant-numeric: tabular-nums; }
+.time__secs  { color: var(--outline); font-size: 17px; font-weight: 400; margin-left: 2px; }
+.time__date  { margin-top: 8px; font-size: 12px; color: var(--on-surface-variant); font-family: var(--data); }
+
+/* -------------------------------------------------------------- actions */
+.acts { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 6px; }
+.act {
+  appearance: none; border: 0;
+  background: transparent; color: var(--on-surface-variant);
+  border-radius: var(--r-inner);
+  padding: 7px 9px;
+  display: flex; align-items: center; gap: 10px;
+  font-family: var(--ui); font-size: 12px; font-weight: 500;
+  text-align: left; cursor: pointer;
+  transition: background 140ms ease, color 140ms ease;
+}
+.act i { font-size: 13px; width: 15px; text-align: center; color: var(--outline); transition: color 140ms ease; }
+.act:hover { background: var(--surface-container-high); color: var(--on-surface); }
+.act:hover i { color: var(--primary); }
+.act:focus { outline: none; }
+.act:focus-visible { box-shadow: inset 0 0 0 2px var(--primary); }
+
+/* ---------------------------------------------------------------- system
+
+   THE CHANGE. One metric is one row: name, value, sparkline, detail. The
+   sparkline is the widest element because trend is the thing worth the space
+   -- the old full-width bar spent that same width saying only "52%", which
+   the numeral already said. */
+.metric {
+  display: grid;
+  grid-template-columns: 42px 54px minmax(0, 1fr);
+  align-items: center;
+  column-gap: 12px;
+  padding: 10px 0 11px;
+}
+.metric + .metric { border-top: 1px solid var(--edge); }
+
+.metric__k {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.1em;
+  color: var(--outline); text-transform: uppercase;
+}
+.metric__v {
+  font-family: var(--data); font-variant-numeric: tabular-nums;
+  font-size: 19px; font-weight: 600; color: var(--on-surface);
+  text-align: right;
+}
+.metric__v small { font-size: 11px; color: var(--outline); font-weight: 500; margin-left: 1px; }
+
+.metric__spark { position: relative; height: 26px; }
+.metric__spark svg { width: 100%; height: 100%; display: block; overflow: visible; }
+.spark__line { fill: none; stroke: var(--spark); stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; }
+.spark__area { fill: none; stroke: none; }
+
+/* The detail sits under the sparkline, in the same column, so the numerals
+   stay in one vertical rhythm rather than scattering across the row. */
+.metric__detail {
+  grid-column: 3;
+  font-family: var(--data); font-variant-numeric: tabular-nums;
+  font-size: 10.5px; color: var(--outline);
+  margin-top: 4px;
+}
+
+/* The one accent on this pane: whichever metric is currently the busiest. */
+.metric.is-hot .metric__v { color: var(--primary); }
+.metric.is-hot .spark__line { stroke: var(--primary); }
+.metric.is-hot .spark__area { fill: color-mix(in srgb, var(--primary) 14%, transparent); }
+
+/* network: the two directions side by side, same row grammar */
+.net {
+  display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap);
+  margin-top: 12px; padding-top: 13px; border-top: 1px solid var(--edge);
+}
+.net__cell { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; column-gap: 10px; }
+.net__k {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 9px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.1em; color: var(--outline);
+  grid-column: 1 / span 2;
+  margin-bottom: 3px;
+}
+.net__v {
+  font-family: var(--data); font-variant-numeric: tabular-nums;
+  font-size: 21px; font-weight: 600; color: var(--on-surface); white-space: nowrap;
+}
+.net__v small { font-size: 10px; color: var(--outline); font-weight: 500; margin-left: 2px; }
+.net__spark { height: 26px; }
+.net__spark svg { width: 100%; height: 100%; display: block; }
+
+/* ----------------------------------------------------------- now playing */
+.np { display: flex; flex-direction: column; }
+.np__art {
+  width: 100%; aspect-ratio: 1;
+  border-radius: var(--r-tile);
+  background: var(--surface-container-high);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--outline); font-size: 30px;
+  overflow: hidden;
+}
+.np__art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.np__title  { margin-top: 14px; font-size: 14px; font-weight: 600; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.np__artist { margin-top: 3px; font-size: 12px; color: var(--on-surface-variant); text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.np__scrub { margin-top: 14px; }
+.np__track { height: 3px; border-radius: var(--r-full); background: var(--track); overflow: hidden; }
+.np__fill { height: 100%; background: var(--primary); border-radius: var(--r-full); }
+.np__times { display: flex; justify-content: space-between; margin-top: 6px; font-family: var(--data); font-size: 10.5px; color: var(--outline); }
+.np__controls { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 12px; }
+
+.iconbtn {
+  appearance: none; border: 0; background: transparent;
+  color: var(--on-surface-variant);
+  width: 32px; height: 32px; border-radius: var(--r-full);
+  display: grid; place-items: center; cursor: pointer; font-size: 12px;
+  transition: background 140ms ease, color 140ms ease;
+}
+.iconbtn:hover { background: var(--surface-container-high); color: var(--on-surface); }
+.iconbtn--play { background: var(--primary); color: var(--on-primary); width: 38px; height: 38px; font-size: 14px; }
+.iconbtn--play:hover { background: var(--primary); color: var(--on-primary); filter: brightness(1.08); }
+
+/* Idle: silence should not cost a whole column. */
+.np.is-idle { justify-content: center; align-items: center; text-align: center; gap: 10px; }
+.np.is-idle .np__art { width: 56px; aspect-ratio: 1; font-size: 18px; }
+.np.is-idle .np__title { margin-top: 10px; color: var(--outline); font-weight: 500; font-size: 12.5px; }
+.np.is-idle .np__artist,
+.np.is-idle .np__scrub { display: none; }
+.np.is-idle .np__controls { margin-top: 10px; opacity: 0.5; }
+
+/* --------------------------------------------------------------- toggles */
+.demo {
+  position: fixed; left: 50%; transform: translateX(-50%); bottom: 14px;
+  display: flex; gap: 8px; align-items: center;
+  font-family: var(--data); font-size: 11px; color: var(--outline);
+  background: var(--surface-container); border: 1px solid var(--edge);
+  border-radius: var(--r-full); padding: 7px 14px;
+}
+.demo button {
+  appearance: none; border: 1px solid var(--edge); background: transparent;
+  color: var(--on-surface-variant); border-radius: var(--r-full);
+  padding: 4px 12px; font-family: var(--ui); font-size: 11px; cursor: pointer;
+}
+.demo button:hover { border-color: var(--edge-strong); color: var(--on-surface); }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="panel">
+
+    <div class="tabs" role="tablist" aria-label="Dashboard sections">
+      <button class="tab" role="tab" aria-selected="true"  data-tab="dashboard"><i class="fa-solid">&#xf009;</i>Dashboard</button>
+      <button class="tab" role="tab" aria-selected="false" data-tab="media"><i class="fa-solid">&#xf001;</i>Media</button>
+      <button class="tab" role="tab" aria-selected="false" data-tab="performance"><i class="fa-solid">&#xf625;</i>Performance</button>
+      <button class="tab" role="tab" aria-selected="false" data-tab="workspaces"><i class="fa-solid">&#xf00a;</i>Workspaces</button>
+    </div>
+
+    <section class="pane" data-pane="dashboard" data-active role="tabpanel">
+
+      <div class="prompt">
+        <span class="prompt__host">hwoi</span>
+        <span class="prompt__sep">~</span>
+        <span class="prompt__k">komorebi</span><span class="prompt__v">[bsp]</span>
+        <span class="prompt__sep">~</span>
+        <span class="prompt__k">up</span><span class="prompt__v">2h 14m</span>
+        <span class="prompt__sep">~</span>
+        <span class="prompt__k">net</span><span class="prompt__v">585 Mbps</span>
+        <span class="prompt__sep">~</span>
+        <span class="prompt__v">28&deg;C</span>
+      </div>
+
+      <div class="dash">
+
+        <div class="tile dash__time">
+          <div class="label">Time</div>
+          <div class="time__clock" id="clock">13:32<span class="time__secs" id="secs">:09</span></div>
+          <div class="time__date">Sat 15 Aug 2026</div>
+        </div>
+
+        <div class="tile dash__actions">
+          <div class="label">Quick actions</div>
+          <div class="acts">
+            <button class="act"><i class="fa-solid">&#xf03e;</i>Wallpaper</button>
+            <button class="act"><i class="fa-solid">&#xf1fc;</i>Retheme</button>
+            <button class="act"><i class="fa-solid">&#xf2f1;</i>Reload</button>
+            <button class="act"><i class="fa-solid">&#xf023;</i>Lock</button>
+            <button class="act"><i class="fa-solid">&#xf186;</i>Sleep</button>
+            <button class="act"><i class="fa-solid">&#xf011;</i>Power</button>
+          </div>
+        </div>
+
+        <div class="tile dash__sys">
+          <div class="label">System</div>
+          <div id="metrics"></div>
+          <div class="net">
+            <div class="net__cell">
+              <div class="net__k"><i class="fa-solid">&#xf063;</i>Down</div>
+              <div class="net__v" id="downV">982<small>kB/s</small></div>
+              <div class="net__spark" id="downS"></div>
+            </div>
+            <div class="net__cell">
+              <div class="net__k"><i class="fa-solid">&#xf062;</i>Up</div>
+              <div class="net__v" id="upV">50.7<small>kB/s</small></div>
+              <div class="net__spark" id="upS"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="tile dash__media np is-idle" id="np">
+          <div class="label" style="align-self:flex-start">Now playing</div>
+          <div class="np__art" id="npArt"><i class="fa-solid">&#xf001;</i></div>
+          <div class="np__title" id="npTitle">Nothing playing</div>
+          <div class="np__artist" id="npArtist"></div>
+          <div class="np__scrub">
+            <div class="np__track"><div class="np__fill" id="npFill" style="width:34%"></div></div>
+            <div class="np__times"><span id="npPos">1:48</span><span id="npDur">5:17</span></div>
+          </div>
+          <div class="np__controls">
+            <button class="iconbtn"><i class="fa-solid">&#xf048;</i></button>
+            <button class="iconbtn iconbtn--play"><i class="fa-solid">&#xf04b;</i></button>
+            <button class="iconbtn"><i class="fa-solid">&#xf051;</i></button>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <section class="pane" data-pane="media" role="tabpanel"><div class="tile">Media pane &mdash; unchanged in this pass.</div></section>
+    <section class="pane" data-pane="performance" role="tabpanel"><div class="tile">Performance pane &mdash; unchanged in this pass.</div></section>
+    <section class="pane" data-pane="workspaces" role="tabpanel"><div class="tile">Workspaces pane &mdash; unchanged in this pass.</div></section>
+
+  </div>
+</div>
+
+<div class="demo">
+  <span>mockup</span>
+  <button id="togglePlaying">toggle now playing</button>
+</div>
+
+<script>
+// ---- tabs ----------------------------------------------------------------
+const tabs = [...document.querySelectorAll('.tab')];
+const panes = [...document.querySelectorAll('.pane')];
+for (const t of tabs) t.addEventListener('click', () => {
+  for (const x of tabs) x.setAttribute('aria-selected', String(x === t));
+  for (const p of panes) p.toggleAttribute('data-active', p.dataset.pane === t.dataset.tab);
+});
+
+// ---- sparklines ----------------------------------------------------------
+// A sparkline is only worth drawing because the panel now samples in the
+// background -- these are the last 60 readings, which is exactly what the real
+// widget will have in hand the moment it opens.
+const HISTORY = 60;
+
+function sparkline(values, { max = 100, area = true } = {}) {
+  const w = 100, h = 30;
+  const n = values.length;
+  const x = (i) => (i / (n - 1)) * w;
+  const y = (v) => h - Math.max(0, Math.min(1, v / max)) * (h - 2) - 1;
+  const line = values.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(2)},${y(v).toFixed(2)}`).join(' ');
+  const fill = area ? `<path class="spark__area" d="${line} L${w},${h} L0,${h} Z"/>` : '';
+  return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">${fill}<path class="spark__line" d="${line}"/></svg>`;
+}
+
+// ---- fake-but-plausible telemetry ---------------------------------------
+function walk(seed, lo, hi, step) {
+  const out = [];
+  let v = seed;
+  for (let i = 0; i < HISTORY; i++) {
+    v += (Math.random() - 0.5) * step;
+    v = Math.max(lo, Math.min(hi, v));
+    out.push(v);
+  }
+  return out;
+}
+
+const series = {
+  CPU:  walk(45, 4, 95, 18),
+  GPU:  walk(18, 0, 90, 14),
+  RAM:  walk(70, 55, 82, 3),
+  DISK: walk(65, 65, 65, 0),
+};
+const netSeries = { down: walk(700, 0, 1400, 500), up: walk(50, 0, 180, 60) };
+
+const details = {
+  CPU:  () => '6 cores  ·  12 threads',
+  GPU:  () => `${Math.round(48 + Math.random() * 6)}°C  ·  1.8 GB of 17.2 GB`,
+  RAM:  () => `${(series.RAM.at(-1) / 100 * 34.2).toFixed(1)} GB of 34.2 GB`,
+  DISK: () => '349GB free',
+};
+
+function renderMetrics() {
+  const host = document.getElementById('metrics');
+  // The accent goes to whichever metric is currently busiest -- one accent,
+  // and it means something rather than decorating a fixed row.
+  const hottest = Object.keys(series).reduce((a, b) => (series[a].at(-1) > series[b].at(-1) ? a : b));
+  host.innerHTML = Object.entries(series).map(([k, vals]) => `
+    <div class="metric ${k === hottest ? 'is-hot' : ''}">
+      <div class="metric__k">${k}</div>
+      <div class="metric__v">${Math.round(vals.at(-1))}<small>%</small></div>
+      <div class="metric__spark">${sparkline(vals)}</div>
+      <div class="metric__detail">${details[k]()}</div>
+    </div>`).join('');
+}
+
+function fmtRate(kb) {
+  return kb >= 1000 ? [(kb / 1000).toFixed(1), 'MB/s'] : [kb < 100 ? kb.toFixed(1) : String(Math.round(kb)), 'kB/s'];
+}
+
+function renderNet() {
+  for (const [dir, id] of [['down', 'down'], ['up', 'up']]) {
+    const vals = netSeries[dir];
+    const [n, u] = fmtRate(vals.at(-1));
+    document.getElementById(id + 'V').innerHTML = `${n}<small>${u}</small>`;
+    document.getElementById(id + 'S').innerHTML =
+      sparkline(vals, { max: Math.max(...vals) * 1.15 || 1 });
+  }
+}
+
+function tick() {
+  for (const k of Object.keys(series)) {
+    const s = series[k];
+    const step = k === 'DISK' ? 0 : k === 'RAM' ? 2 : 16;
+    let v = s.at(-1) + (Math.random() - 0.5) * step;
+    s.push(Math.max(0, Math.min(100, v)));
+    s.shift();
+  }
+  for (const k of Object.keys(netSeries)) {
+    const s = netSeries[k];
+    const cap = k === 'down' ? 1400 : 180;
+    s.push(Math.max(0, Math.min(cap, s.at(-1) + (Math.random() - 0.5) * cap * 0.4)));
+    s.shift();
+  }
+  renderMetrics();
+  renderNet();
+
+  const d = new Date();
+  document.getElementById('clock').firstChild.nodeValue =
+    `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  document.getElementById('secs').textContent = ':' + String(d.getSeconds()).padStart(2, '0');
+}
+
+renderMetrics();
+renderNet();
+setInterval(tick, 1000);
+
+// ---- the idle / playing states ------------------------------------------
+document.getElementById('togglePlaying').addEventListener('click', () => {
+  const np = document.getElementById('np');
+  const idle = np.classList.toggle('is-idle');
+  document.getElementById('npTitle').textContent = idle ? 'Nothing playing' : '累ぎて';
+  document.getElementById('npArtist').textContent = idle ? '' : 'rintaro soma';
+  document.getElementById('npArt').innerHTML = idle
+    ? '<i class="fa-solid">&#xf001;</i>'
+    : '<img src="./assets/media-art-placeholder.png" alt="">';
+});
+</script>
+</body>
+</html>
