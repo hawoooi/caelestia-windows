@@ -31,6 +31,7 @@
   --edge-strong: color-mix(in srgb, var(--outline) 22%, transparent);
   --accent-soft: color-mix(in srgb, var(--primary) 10%, transparent);
   --track: color-mix(in srgb, var(--outline) 18%, transparent);
+  --spark: color-mix(in srgb, var(--outline) 55%, transparent);
 
   /* One gap, used between tiles AND as the base of every internal rhythm --
      the komorebi-padding idea. */
@@ -175,7 +176,7 @@ body.is-open .stage { transform: translateY(0); }
    number that changes while you are looking at it. */
 .dash {
   display: grid;
-  grid-template-columns: 226px minmax(0, 1fr) 244px;
+  grid-template-columns: 208px minmax(0, 1fr) 236px;
   grid-template-rows: auto 1fr;
   gap: var(--gap);
 }
@@ -243,48 +244,13 @@ body.is-open .stage { transform: translateY(0); }
 /* Promoted from a narrow side-tile to the widest column, so each reading now
    gets a bar AND the raw figure behind the percentage -- "68%" alone does not
    tell you whether that is 11GB or 22GB. */
-.sys__net { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px; }
-.sys__netcell { display: flex; flex-direction: column; gap: 3px; }
-.sys__netk {
-  display: flex; align-items: center; gap: 5px;
-  font-size: 9px; font-weight: 600; text-transform: uppercase;
-  letter-spacing: 0.1em; color: var(--outline);
-}
-.sys__netk i { font-size: 9px; }
-.sys__netv {
-  font-family: var(--data); font-variant-numeric: tabular-nums;
-  font-size: 22px; font-weight: 600; color: var(--on-surface);
-  white-space: nowrap; line-height: 1.1;
-}
-.sys__netu { font-size: 10px; font-weight: 500; color: var(--outline); margin-left: 2px; }
 
-.mix__row {
-  display: grid;
-  grid-template-columns: 34px minmax(0, 1fr) 40px;
-  align-items: center; gap: 10px;
-}
-.mix__row + .mix__row { margin-top: 13px; }
 /* The raw figure sits under the bar rather than beside it: a fourth column
    would squeeze the bar, and the bar is what makes the row scannable. */
-.mix__detail {
-  grid-column: 2 / span 2;
-  margin-top: 5px;
-  font-family: var(--data); font-variant-numeric: tabular-nums;
-  font-size: 10.5px; color: var(--outline);
-}
 /* The three loads are labelled in words rather than glyphs: "GPU" is not a
    thing Font Awesome has an unambiguous icon for, and CPU/RAM/GPU as text is
    read faster than three similar-looking chips anyway. */
-.mix__k {
-  font-size: 9.5px; font-weight: 700; letter-spacing: 0.08em;
-  color: var(--outline); text-transform: uppercase;
-}
-.mix__row--absent { opacity: 0.4; }
 .mix__row i { color: var(--outline); font-size: 12px; text-align: center; }
-.mix__track {
-  height: 5px; height: 4px; border-radius: var(--r-full); background: var(--track); overflow: hidden; }
-.mix__fill { height: 100%; border-radius: var(--r-full); background: var(--on-surface-variant); }
-.mix__val { font-family: var(--data); font-size: 11.5px; color: var(--outline); text-align: right; }
 
 /* quick actions -- REAL ones this setup already has, not filler. The first
    two are the exact scripts bound in ~/.config/whkdrc (alt+w, ctrl+alt+w);
@@ -329,22 +295,9 @@ body.is-open .stage { transform: translateY(0); }
    full-width square -- 244px of cover for a tile whose job is to say what is
    playing -- with the text crammed under it. It is now a fixed, smaller square
    and the reclaimed height goes to the track text and controls. */
-.np__art {
-  width: 148px; height: 148px;
-  margin: 0 auto;
-  border-radius: var(--r-tile);
-  object-fit: cover;
-  background: var(--surface-container-high);
-}
 .np__title  { margin-top: 14px; text-align: center; font-size: 14px; font-weight: 600; color: var(--on-surface); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.np__artist { margin-top: 3px; text-align: center; font-size: 12px; color: var(--on-surface-variant); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* The progress was Media-tab-only before, which left this tile with a gap
    under the controls. It is the single most useful thing to add here. */
-.np__scrub { margin-top: 14px; }
-.np__track { height: 3px; border-radius: var(--r-full); background: var(--track); overflow: hidden; }
-.np__fill { height: 100%; background: var(--on-surface-variant); border-radius: var(--r-full); }
-.np__times { display: flex; justify-content: space-between; margin-top: 6px; font-family: var(--data); font-size: 10.5px; color: var(--outline); }
-.np__controls { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 12px; }
 
 .iconbtn {
   appearance: none; border: 0; background: transparent;
@@ -519,3 +472,108 @@ body.fullscreen-hidden .stage { transform: translateY(-100%); }
    ones use this. */
 .act.is-arming { color: var(--primary); border-color: var(--primary); }
 
+
+
+/* ============================================================ SYSTEM (v2)
+
+   Ported from mockups/dashboard-v2.html. One metric is one row -- name,
+   value, sparkline, detail -- replacing the full-width bar each reading used
+   to get.
+
+   The bar had to go because it spent its entire width restating the numeral
+   beside it. The sparkline spends the same width on something the numeral
+   cannot say: whether this reading is a spike or a plateau. It is only honest
+   to draw it because the panel now samples continuously in the background
+   rather than starting from nothing on every open. */
+.metric {
+  display: grid;
+  grid-template-columns: 42px 54px minmax(0, 1fr);
+  align-items: center;
+  column-gap: 12px;
+  padding: 10px 0 11px;
+}
+.metric + .metric { border-top: 1px solid var(--edge); }
+
+.metric__k {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.1em;
+  color: var(--outline); text-transform: uppercase;
+}
+.metric__v {
+  font-family: var(--data); font-variant-numeric: tabular-nums;
+  font-size: 19px; font-weight: 600; color: var(--on-surface);
+  text-align: right;
+}
+.metric__v small { font-size: 11px; color: var(--outline); font-weight: 500; margin-left: 1px; }
+
+.metric__spark { position: relative; height: 26px; }
+.metric__spark svg { width: 100%; height: 100%; display: block; overflow: visible; }
+.spark__line { fill: none; stroke: var(--spark); stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; }
+/* Unfilled by default: filling all four made four solid blocks competing for
+   attention. The fill is part of the accent below. */
+.spark__area { fill: none; stroke: none; }
+
+/* The detail sits under the sparkline in the same column, so the numerals
+   keep one vertical rhythm instead of scattering across the row. */
+.metric__detail {
+  grid-column: 3;
+  font-family: var(--data); font-variant-numeric: tabular-nums;
+  font-size: 10.5px; color: var(--outline);
+  margin-top: 4px;
+}
+
+/* THE one accent on this pane, and it is earned rather than assigned: it
+   follows whichever metric is currently busiest. */
+.metric.is-hot .metric__v { color: var(--primary); }
+.metric.is-hot .spark__line { stroke: var(--primary); }
+.metric.is-hot .spark__area { fill: color-mix(in srgb, var(--primary) 14%, transparent); }
+
+/* network -- the two directions side by side, same row grammar. Rates keep
+   numbers rather than bars: throughput has no ceiling for a bar to be a
+   fraction of. */
+.net {
+  display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap);
+  margin-top: 12px; padding-top: 13px; border-top: 1px solid var(--edge);
+}
+.net__cell { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; column-gap: 10px; }
+.net__k {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 9px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.1em; color: var(--outline);
+  grid-column: 1 / span 2;
+  margin-bottom: 3px;
+}
+.net__v {
+  font-family: var(--data); font-variant-numeric: tabular-nums;
+  font-size: 21px; font-weight: 600; color: var(--on-surface); white-space: nowrap;
+}
+.net__v small { font-size: 10px; color: var(--outline); font-weight: 500; margin-left: 2px; }
+.net__spark { height: 26px; }
+.net__spark svg { width: 100%; height: 100%; display: block; }
+
+/* ======================================================= NOW PLAYING (v2) */
+.np { display: flex; flex-direction: column; }
+.np__art {
+  width: 100%; aspect-ratio: 1;
+  border-radius: var(--r-tile);
+  background: var(--surface-container-high);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--outline); font-size: 30px;
+  overflow: hidden;
+  background-size: cover; background-position: center;
+}
+.np__title  { margin-top: 14px; font-size: 14px; font-weight: 600; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.np__artist { margin-top: 3px; font-size: 12px; color: var(--on-surface-variant); text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.np__scrub { margin-top: 14px; }
+.np__track { height: 3px; border-radius: var(--r-full); background: var(--track); overflow: hidden; }
+.np__fill { height: 100%; background: var(--primary); border-radius: var(--r-full); }
+.np__times { display: flex; justify-content: space-between; margin-top: 6px; font-family: var(--data); font-size: 10.5px; color: var(--outline); }
+.np__controls { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 12px; }
+
+/* Silence should not cost a whole column: a full-width art square holding a
+   music glyph over the words "Nothing playing" was most of this tile. */
+.np.is-idle { justify-content: center; align-items: center; text-align: center; }
+.np.is-idle .np__art { width: 56px; aspect-ratio: 1; font-size: 18px; }
+.np.is-idle .np__title { margin-top: 10px; color: var(--outline); font-weight: 500; font-size: 12.5px; }
+.np.is-idle .np__artist,
+.np.is-idle .np__scrub { display: none; }
+.np.is-idle .np__controls { margin-top: 10px; opacity: 0.5; }

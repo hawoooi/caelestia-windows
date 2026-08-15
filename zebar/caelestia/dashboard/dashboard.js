@@ -56,16 +56,16 @@ import {
 // this number the wrong way entirely. Open the panel, hold the cursor on the
 // trigger, and measure then.
 //
-// Measured that way after the calendar was dropped: dashboard 421px (still the
-// tallest -- media 300, performance 281, workspaces 301), tabs and prompt
-// included. 440 leaves slack for a two-line track title.
+// Measured that way after the v2 sparkline pass: dashboard 481px (still the
+// tallest by far), tabs and prompt included. 500 leaves slack for a two-line
+// track title and for the Now Playing tile expanding out of its idle state.
 //
 // Every pixel of window BELOW the panel is a transparent but click-dead strip
 // over the user's desktop, so this is kept close to the real height rather
 // than padded generously. An earlier 470 clipped the quick actions; 520 left
 // 99px of dead zone. If a pane grows, this number moves with it.
 export { PANEL_W };
-export const PANEL_H = 440;
+export const PANEL_H = 500;
 export const PARKED = 1;
 
 // How long the pointer may be over neither surface before the panel closes.
@@ -159,6 +159,7 @@ async function sampleSystem() {
   const [net, gpu] = await Promise.all([netStats.sample(), gpuStats.sample()]);
   if (net) latestNet = net;
   if (gpu) latestGpu = gpu;
+  recordHistory();
   // Rendered even while closed. This is what makes the panel correct the
   // moment it appears rather than a moment after.
   renderSystem();
@@ -214,111 +215,104 @@ function renderClock() {
   if (date) date.textContent = out.date?.formatted ?? '';
 }
 
-// The System tile: live network throughput, and CPU / GPU / RAM load.
+// The System tile: CPU / GPU / RAM / DISK load, and live network throughput.
 //
-// Direct user feedback replacing what was here: "try to incorperate wifi
-// up/down speed and cpu/gpu/ram into the dashboard instead if sound volume and
-// those meaningless bars". Volume is gone -- it already lives in the bar's
-// pill and its panel, so it was duplicated here, and it is not a machine-load
-// reading like the other two were pretending to be.
+// Direct user feedback that shaped it: "try to incorperate wifi up/down speed
+// and cpu/gpu/ram into the dashboard instead if sound volume and those
+// meaningless bars". Volume went because it already lives in the bar's own
+// pill and panel, and it is not a machine-load reading like the others.
 //
-// Rates are numbers, not bars: throughput has no ceiling, so a bar has no
-// scale to be a fraction OF, which is precisely what made the old ones
-// meaningless. The three loads are percentages, which do have a ceiling, so
-// they keep a bar.
+// The bars went too, in the v2 pass. A full-width bar spends its whole width
+// restating the numeral beside it; a sparkline spends the same width on the
+// one thing the numeral cannot say -- whether this reading is a spike or a
+// plateau. Drawing it is only honest because the panel samples continuously in
+// the background now (see setSystemPoll) rather than starting from nothing on
+// every open.
+//
+// Rates keep numbers rather than bars for a different reason: throughput has
+// no ceiling, so a bar has no scale to be a fraction OF.
 let latestNet = null;   // { rates: { down, up } } from net-stats.exe
 let latestGpu = null;   // { usage, temperature, usedBytes, totalBytes }
 
-function renderSystem() {
-  const down = $('netDown');
-  const up = $('netUp');
-  if (down && up) {
-    // formatRate already returns "4.6 kB/s"; the unit is split onto its own
-    // span so it can be set smaller without the number reflowing.
-    setRate(down, latestNet?.rates ? latestNet.rates.down : null);
-    setRate(up, latestNet?.rates ? latestNet.rates.up : null);
-  }
+// How many samples the sparklines show. The cadence behind them is not
+// constant -- 1s while the panel is open, 5s while closed -- so this is "the
+// last 60 readings", not a fixed span of time. That is a deliberate trade: a
+// fixed span would mean either polling fast while closed (which is the cost
+// this design avoids) or throwing away the idle history entirely (which is the
+// blank-on-open problem it was built to fix).
+const HISTORY = 60;
 
-  const host = $('mixRows');
-  if (!host) return;
+const history = { cpu: [], gpu: [], ram: [], disk: [], down: [], up: [] };
 
+function pushHistory(key, value) {
+  const series = history[key];
+  if (!series) return;
+  // A missing reading holds the previous value rather than dropping to zero: a
+  // failed nvidia-smi call is not the GPU going idle, and drawing it as a
+  // cliff would be a lie.
+  const v = Number.isFinite(value) ? value : (series.length ? series[series.length - 1] : 0);
+  series.push(v);
+  while (series.length > HISTORY) series.shift();
+}
+
+// Records one sample of everything the sparklines draw. Called from
+// sampleSystem so all six series share a timeline, whatever the cadence.
+function recordHistory() {
+  pushHistory('cpu', out.cpu?.usage);
+  pushHistory('gpu', latestGpu ? latestGpu.usage : undefined);
+  pushHistory('ram', out.memory?.usage);
   const disk = primaryDisk();
-  const diskUsed = disk && Number.isFinite(disk.totalSpace?.bytes) && Number.isFinite(disk.availableSpace?.bytes)
+  pushHistory('disk', disk && Number.isFinite(disk.totalSpace?.bytes) && Number.isFinite(disk.availableSpace?.bytes)
     ? (1 - disk.availableSpace.bytes / disk.totalSpace.bytes) * 100
-    : null;
+    : undefined);
+  pushHistory('down', latestNet?.rates ? latestNet.rates.down : undefined);
+  pushHistory('up', latestNet?.rates ? latestNet.rates.up : undefined);
+}
 
-  // Each row carries the raw figure behind its percentage. "68%" on its own
-  // does not say whether that is 11GB or 22GB, and this column is now wide
-  // enough to answer that -- which is the point of giving the panel the space
-  // the calendar was using.
-  const rows = [
-    {
-      key: 'CPU',
-      value: out.cpu?.usage,
-      // NOT frequency. Read live over CDP, zebar's cpu provider reports
-      // { frequency: 0, vendor: '' } on this machine -- sysinfo cannot get a
-      // clock speed here -- so a GHz figure renders a confident "0.0 GHz".
-      // Core counts come back populated, and do not change.
-      detail: out.cpu
-        ? `${out.cpu.physicalCoreCount} cores  \u00B7  ${out.cpu.logicalCoreCount} threads`
-        : null,
-    },
-    // The GPU row is absent rather than zero on a machine with no nvidia-smi
-    // -- see gpu-stats.js for why this is NVIDIA-only on purpose.
-    {
-      key: 'GPU',
-      value: latestGpu ? latestGpu.usage : null,
-      absent: !gpuStats.available,
-      detail: gpuDetail(),
-    },
-    {
-      key: 'RAM',
-      value: out.memory?.usage,
-      detail: out.memory
-        ? `${formatBytes(out.memory.usedMemory) ?? '--'} of ${formatBytes(out.memory.totalMemory) ?? '--'}`
-        : null,
-    },
-    {
-      key: 'DISK',
-      value: diskUsed,
-      absent: !disk,
-      detail: disk
-        ? `${Math.round(disk.availableSpace?.siValue ?? 0)}${disk.availableSpace?.siUnit ?? ''} free`
-        : null,
-    },
-  ];
+const SVG_NS = 'http://www.w3.org/2000/svg';
 
-  host.textContent = '';
-  for (const row of rows) {
-    if (row.absent) continue;
+/**
+ * Builds a sparkline as an <svg> element.
+ *
+ * Drawn in a 100x26 viewBox with preserveAspectRatio="none", so it stretches
+ * to whatever width the grid column ends up being without the caller needing
+ * to measure anything -- which matters because this panel must never measure
+ * its own layout at open time (the window is 1x1 until then, and measuring
+ * there reports everything wrapped to one pixel).
+ */
+function sparkline(values, { max = 100 } = {}) {
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 100 26');
+  svg.setAttribute('preserveAspectRatio', 'none');
+  svg.setAttribute('aria-hidden', 'true');
+  if (!values || values.length < 2) return svg;
 
-    const el = document.createElement('div');
-    el.className = 'mix__row';
+  const ceiling = max > 0 ? max : 1;
+  const n = values.length;
+  const x = (i) => (i / (n - 1)) * 100;
+  const y = (v) => 26 - Math.max(0, Math.min(1, v / ceiling)) * 24 - 1;
 
-    const k = document.createElement('div');
-    k.className = 'mix__k';
-    k.textContent = row.key;
+  const d = values.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(2)},${y(v).toFixed(2)}`).join(' ');
 
-    const track = document.createElement('div');
-    track.className = 'mix__track';
-    const fill = document.createElement('div');
-    fill.className = 'mix__fill';
-    fill.style.width = `${Math.max(0, Math.min(100, Math.round(row.value ?? 0)))}%`;
-    track.appendChild(fill);
+  const area = document.createElementNS(SVG_NS, 'path');
+  area.setAttribute('class', 'spark__area');
+  area.setAttribute('d', `${d} L100,26 L0,26 Z`);
 
-    const val = document.createElement('div');
-    val.className = 'mix__val';
-    val.textContent = Number.isFinite(row.value) ? `${Math.round(row.value)}%` : '--';
+  const line = document.createElementNS(SVG_NS, 'path');
+  line.setAttribute('class', 'spark__line');
+  line.setAttribute('d', d);
 
-    el.append(k, track, val);
-    if (row.detail) {
-      const d = document.createElement('div');
-      d.className = 'mix__detail';
-      d.textContent = row.detail;
-      el.appendChild(d);
-    }
-    host.appendChild(el);
-  }
+  svg.append(area, line);
+  return svg;
+}
+
+// The disk provider PRE-CONVERTS its sizes and exposes siValue/siUnit.
+// Recomputing from `bytes` is the documented trap here -- it produced figures
+// that disagreed with every other disk readout on the desktop.
+function primaryDisk() {
+  const disks = out.disk?.disks;
+  if (!Array.isArray(disks) || !disks.length) return null;
+  return disks.find((d) => /^C:/i.test(d.mountPoint ?? '')) ?? disks[0];
 }
 
 function gpuDetail() {
@@ -331,16 +325,111 @@ function gpuDetail() {
   return bits.length ? bits.join('  \u00B7  ') : null;
 }
 
+function renderSystem() {
+  const host = $('metrics');
+  if (host) {
+    const disk = primaryDisk();
+    const diskUsed = disk && Number.isFinite(disk.totalSpace?.bytes) && Number.isFinite(disk.availableSpace?.bytes)
+      ? (1 - disk.availableSpace.bytes / disk.totalSpace.bytes) * 100
+      : null;
+
+    const rows = [
+      {
+        key: 'CPU', series: 'cpu', value: out.cpu?.usage,
+        // NOT frequency. Read live over CDP, zebar's cpu provider reports
+        // { frequency: 0, vendor: '' } on this machine, so a GHz figure
+        // renders a confident "0.0 GHz". Core counts come back populated.
+        detail: out.cpu ? `${out.cpu.physicalCoreCount} cores  \u00B7  ${out.cpu.logicalCoreCount} threads` : null,
+      },
+      {
+        key: 'GPU', series: 'gpu', value: latestGpu ? latestGpu.usage : null,
+        // Absent, not zero, where nvidia-smi is missing -- gpu-stats.js
+        // explains why this is NVIDIA-only on purpose.
+        absent: !gpuStats.available,
+        detail: gpuDetail(),
+      },
+      {
+        key: 'RAM', series: 'ram', value: out.memory?.usage,
+        detail: out.memory
+          ? `${formatBytes(out.memory.usedMemory) ?? '--'} of ${formatBytes(out.memory.totalMemory) ?? '--'}`
+          : null,
+      },
+      {
+        key: 'DISK', series: 'disk', value: diskUsed, absent: !disk,
+        detail: disk ? `${Math.round(disk.availableSpace?.siValue ?? 0)}${disk.availableSpace?.siUnit ?? ''} free` : null,
+      },
+    ].filter((r) => !r.absent);
+
+    // The one accent on this pane, and it is earned rather than pinned to a
+    // fixed row: it follows whichever metric is currently busiest.
+    let hottest = null;
+    for (const r of rows) {
+      if (Number.isFinite(r.value) && (!hottest || r.value > hottest.value)) hottest = r;
+    }
+
+    host.textContent = '';
+    for (const row of rows) {
+      const el = document.createElement('div');
+      el.className = row === hottest ? 'metric is-hot' : 'metric';
+
+      const k = document.createElement('div');
+      k.className = 'metric__k';
+      k.textContent = row.key;
+
+      const v = document.createElement('div');
+      v.className = 'metric__v';
+      if (Number.isFinite(row.value)) {
+        v.textContent = String(Math.round(row.value));
+        const u = document.createElement('small');
+        u.textContent = '%';
+        v.appendChild(u);
+      } else {
+        v.textContent = '--';
+      }
+
+      const spark = document.createElement('div');
+      spark.className = 'metric__spark';
+      spark.appendChild(sparkline(history[row.series]));
+
+      el.append(k, v, spark);
+      if (row.detail) {
+        const d = document.createElement('div');
+        d.className = 'metric__detail';
+        d.textContent = row.detail;
+        el.appendChild(d);
+      }
+      host.appendChild(el);
+    }
+  }
+
+  // Network. Both directions are scaled to the same ceiling as each other's
+  // own peak rather than a shared one -- upload is routinely two orders of
+  // magnitude smaller than download, and a shared scale would flatten it to a
+  // dead line along the bottom.
+  setRate($('netDown'), latestNet?.rates ? latestNet.rates.down : null);
+  setRate($('netUp'), latestNet?.rates ? latestNet.rates.up : null);
+  drawNetSpark($('netDownSpark'), history.down);
+  drawNetSpark($('netUpSpark'), history.up);
+}
+
+function drawNetSpark(el, series) {
+  if (!el) return;
+  el.textContent = '';
+  const peak = series.length ? Math.max(...series) : 0;
+  el.appendChild(sparkline(series, { max: peak * 1.15 }));
+}
+
 function setRate(el, bytesPerSecond) {
+  if (!el) return;
   const text = formatRate(bytesPerSecond);
   el.textContent = '';
   if (!text || text === '--') { el.textContent = '--'; return; }
-  // "4.6 kB/s" -> number + unit, so the unit can be dimmed and shrunk.
+  // "4.6 kB/s" -> number + unit, so the unit can be dimmed and shrunk without
+  // the numeral reflowing.
   const space = text.indexOf(' ');
   if (space === -1) { el.textContent = text; return; }
   el.appendChild(document.createTextNode(text.slice(0, space)));
-  const u = document.createElement('span');
-  u.className = 'sys__netu';
+  const u = document.createElement('small');
   u.textContent = text.slice(space + 1);
   el.appendChild(u);
 }
@@ -364,6 +453,11 @@ function renderMedia() {
     : 0;
 
   applyArt(title, artist);
+
+  // Silence should not cost a whole column: idle collapses the art to a chip
+  // and hides the scrubber, per the v2 design.
+  const npTile = $('npTile');
+  if (npTile) npTile.classList.toggle('is-idle', !s || !title);
 
   const set = (id, text) => { const el = $(id); if (el) el.textContent = text; };
   const width = (id) => { const el = $(id); if (el) el.style.width = `${pct}%`; };
@@ -519,14 +613,6 @@ function statTile(value, unit, key) {
   return tile;
 }
 
-// The disk provider PRE-CONVERTS its sizes and exposes siValue/siUnit.
-// Recomputing from `bytes` is the documented trap here -- it produced figures
-// that disagreed with every other disk readout on the desktop.
-function primaryDisk() {
-  const disks = out.disk?.disks;
-  if (!Array.isArray(disks) || !disks.length) return null;
-  return disks.find((d) => /^C:/i.test(d.mountPoint ?? '')) ?? disks[0];
-}
 
 function renderPerformance() {
   const pane = $('perfPane');

@@ -51,23 +51,28 @@
 
         <div class="tile dash__mix" id="mixTile">
           <div class="label">System</div>
-          <!-- Network throughput as numbers: a rate has no ceiling, so a bar
-               cannot express one. Percentages below it do, so they keep one. -->
-          <div class="sys__net">
-            <div class="sys__netcell">
-              <div class="sys__netk"><i class="fa-solid">&#xf063;</i>Down</div>
-              <div class="sys__netv" id="netDown">--</div>
+          <!-- One row per metric: name, value, sparkline, detail. Built by
+               dashboard.js from the rolling history it keeps while closed. -->
+          <div id="metrics"></div>
+          <!-- Rates keep numbers rather than bars -- throughput has no ceiling
+               for a bar to be a fraction of -- but they get a sparkline, which
+               is the most volatile reading on the panel. -->
+          <div class="net">
+            <div class="net__cell">
+              <div class="net__k"><i class="fa-solid">&#xf063;</i>Down</div>
+              <div class="net__v" id="netDown">--</div>
+              <div class="net__spark" id="netDownSpark"></div>
             </div>
-            <div class="sys__netcell">
-              <div class="sys__netk"><i class="fa-solid">&#xf062;</i>Up</div>
-              <div class="sys__netv" id="netUp">--</div>
+            <div class="net__cell">
+              <div class="net__k"><i class="fa-solid">&#xf062;</i>Up</div>
+              <div class="net__v" id="netUp">--</div>
+              <div class="net__spark" id="netUpSpark"></div>
             </div>
           </div>
-          <div id="mixRows"></div>
         </div>
 
-        <div class="tile dash__media np" id="npTile">
-          <div class="label">Now playing</div>
+        <div class="tile dash__media np is-idle" id="npTile">
+          <div class="label" style="align-self:flex-start">Now playing</div>
           <div class="np__art art--empty" id="npArt"><i class="fa-solid">&#xf001;</i></div>
           <div class="np__title" id="npTitle"></div>
           <div class="np__artist" id="npArtist"></div>
