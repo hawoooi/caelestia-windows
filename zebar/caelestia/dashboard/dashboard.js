@@ -92,6 +92,16 @@ export const PANEL_H = 500;
 // and komorebi's windows start at y=21.
 export const STRIP_H = 16;
 
+// The inverse-arc fillets either side of the panel's top corners, so the panel
+// reads as carved out of the frame's top band rather than pasted over it --
+// the same concave corner the four screen corners use, and the same radius.
+//
+// They have to be painted OUTSIDE the panel's own box, so the window is wider
+// than the panel by this much on each side. The panel stays PANEL_W; only the
+// window grows.
+export const ARCH_W = 16;
+export const WINDOW_W = PANEL_W + ARCH_W * 2;
+
 // How long the pointer may be over neither surface before the panel closes.
 // Long enough to cross the seam between the trigger and the panel without
 // losing it; short enough that a deliberate exit feels immediate.
@@ -901,11 +911,13 @@ async function init() {
   // 16px is inside the window in BOTH states, so growing the panel cannot move
   // it out -- there is nothing for the resize to invalidate.
   async function setWindowHeight(height) {
-    await win.setSize({ type: 'Physical', width: PANEL_W, height });
+    await win.setSize({ type: 'Physical', width: WINDOW_W, height });
   }
 
   // Place it once, at the panel's final x, and never touch position again.
-  const left = monitor.x + Math.round((monitor.width - PANEL_W) / 2);
+  // Centre the WINDOW, so the panel inside it lands centred on the monitor
+  // with its arches spilling into the margins either side.
+  const left = monitor.x + Math.round((monitor.width - WINDOW_W) / 2);
   try {
     await win.setPosition({ type: 'Physical', x: left, y: monitor.y });
     await setWindowHeight(STRIP_H);
@@ -923,6 +935,8 @@ async function init() {
   // transform always hides it completely -- a percentage transform against a
   // 16px window would only move it 16px.
   document.documentElement.style.setProperty('--panel-h', `${PANEL_H}px`);
+  document.documentElement.style.setProperty('--panel-w', `${PANEL_W}px`);
+  document.documentElement.style.setProperty('--arch-w', `${ARCH_W}px`);
 
   // Receive-only now. The frame's top band (edges/edges.js) still posts an
   // open, because it is `top_most` and can win hit-testing over this window's

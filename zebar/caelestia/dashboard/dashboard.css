@@ -83,7 +83,10 @@ body.is-open .stage { transform: translateY(0); }
 
 /* --------------------------------------------------------------- the panel */
 .panel {
-  width: 100%;
+  /* The panel is narrower than its window: the margins either side hold the
+     arches (see below), which have to paint outside the panel's own box. */
+  width: var(--panel-w, 1140px);
+  position: relative;
   background: var(--surface);
   border-bottom-left-radius: var(--r-panel);
   border-bottom-right-radius: var(--r-panel);
@@ -612,3 +615,56 @@ body.fullscreen-hidden .stage { transform: translateY(-100%); }
 .np.is-idle .np__artist,
 .np.is-idle .np__scrub { display: none; }
 .np.is-idle .np__controls { margin-top: 10px; opacity: 0.5; }
+
+
+/* ================================================================ ARCHES
+
+   Inverse-arc fillets at the panel's top corners, so it reads as carved out of
+   the frame's top band rather than pasted on top of it. Same concave corner
+   and same radius as the four screen corners (corners/corners.css), and the
+   same technique: a HARD-STOPPED radial gradient, transparent inside the
+   radius and surface outside it. A border-radius cannot do this -- it rounds
+   a shape's own corner convexly, and what is wanted here is the negative.
+
+   Geometry, for the left arch. It occupies the square immediately left of the
+   panel's top-left corner. Its top edge continues the frame band, its right
+   edge continues the panel, and the quarter-disc at its BOTTOM-LEFT is cut
+   away to show the desktop. So the circle is centred on that bottom-left
+   corner: inside it transparent, outside it surface.
+
+   They inherit the slide for free by being children of the panel -- the
+   transform is on .stage above them, so they scale and slide with it exactly
+   as asked, with no separate animation to keep in step. */
+.panel::before,
+.panel::after {
+  content: '';
+  position: absolute;
+  /* Spans the BAND AS WELL as the radius, exactly like the screen corners --
+     they are 16x24 (radius + band), not 16x16. A box only radius-tall has
+     78% of its area eaten by the transparent quarter-disc, leaving a 2px
+     crescent that is invisible on screen. Measured that mistake before
+     fixing it: the pseudo-element was present, positioned and painting, and
+     still showed nothing. */
+  top: 0;
+  width: var(--arch-w, 16px);
+  height: calc(var(--frame-band, 8px) + var(--arch-w, 16px));
+  pointer-events: none;
+}
+
+.panel::before {
+  left: calc(-1 * var(--arch-w, 16px));
+  background: radial-gradient(
+    circle var(--arch-w, 16px) at bottom left,
+    transparent 0 var(--arch-w, 16px),
+    var(--surface) var(--arch-w, 16px)
+  );
+}
+
+.panel::after {
+  right: calc(-1 * var(--arch-w, 16px));
+  background: radial-gradient(
+    circle var(--arch-w, 16px) at bottom right,
+    transparent 0 var(--arch-w, 16px),
+    var(--surface) var(--arch-w, 16px)
+  );
+}
