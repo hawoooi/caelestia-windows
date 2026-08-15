@@ -75,16 +75,16 @@ import {
 // this number the wrong way entirely. Open the panel, hold the cursor on the
 // trigger, and measure then.
 //
-// Measured that way after the v2 sparkline pass: dashboard 481px (still the
-// tallest by far), tabs and prompt included. 500 leaves slack for a two-line
-// track title and for the Now Playing tile expanding out of its idle state.
+// Measured that way after the tab strip was removed: 450px. 460 leaves slack
+// for a two-line track title and for Now Playing expanding out of its idle
+// state. It was 500 while the strip was still there.
 //
 // Every pixel of window BELOW the panel is a transparent but click-dead strip
 // over the user's desktop, so this is kept close to the real height rather
 // than padded generously. An earlier 470 clipped the quick actions; 520 left
 // 99px of dead zone. If a pane grows, this number moves with it.
 export { PANEL_W };
-export const PANEL_H = 500;
+export const PANEL_H = 460;
 
 // The window's CLOSED height: just the hot-zone strip. Same 16px the separate
 // trigger widget used to occupy, so this costs no dead space that was not
@@ -106,6 +106,22 @@ export const WINDOW_W = PANEL_W + ARCH_W * 2;
 // Long enough to cross the seam between the trigger and the panel without
 // losing it; short enough that a deliberate exit feels immediate.
 export const CLOSE_DELAY_MS = 260;
+
+// Which panes exist. Anything not listed has its tab AND its pane removed from
+// the DOM at startup.
+//
+// Direct user request: "we can disable other tabs on the top bar except for
+// the main one." The other three largely restated what the Dashboard pane
+// already shows -- Media duplicates the Now Playing tile, Performance the
+// system metrics, Workspaces the bar's own workspace buttons.
+//
+// A constant rather than a deletion, deliberately. The markup, styles and
+// render functions for the other panes are untouched and still correct; only
+// their host elements go, which makes their render functions inert on their
+// own (every one starts by looking up an element and returning if it is
+// missing). Re-enabling any of them is this line and nothing else -- and it is
+// the obvious seam for the settings menu to drive later.
+export const ENABLED_TABS = ['dashboard'];
 
 // How long the pointer must rest in the strip before the panel opens. The top
 // edge is on the path to every tab and title bar, so opening on contact would
@@ -868,8 +884,40 @@ $('acts')?.addEventListener('click', (e) => {
 
 // --- tabs -----------------------------------------------------------------
 
-const tabs = [...document.querySelectorAll('.tab')];
+// Remove the disabled ones outright rather than hiding them: a hidden tab is
+// still focusable by keyboard and still measured by the layout.
+for (const el of document.querySelectorAll('.tab')) {
+  if (!ENABLED_TABS.includes(el.dataset.tab)) el.remove();
+}
+for (const el of document.querySelectorAll('.pane')) {
+  if (!ENABLED_TABS.includes(el.dataset.pane)) el.remove();
+}
+
+let tabs = [...document.querySelectorAll('.tab')];
 const panes = [...document.querySelectorAll('.pane')];
+
+// Whatever survived, make sure exactly one pane is showing -- otherwise
+// disabling the pane that happened to be marked active would leave the panel
+// blank. This must happen BEFORE the strip is removed below, because it reads
+// the surviving tab to know which pane that is.
+if (tabs.length && !panes.some((p) => p.hasAttribute('data-active'))) {
+  showPaneInitial(tabs[0].dataset.tab);
+}
+
+// Direct user request: "we dont need the dashboard tab if there is only one
+// tab." Right -- a tab strip with a single tab is not navigation, it is a
+// label, and the prompt line immediately below already says what this is. It
+// also costs ~40px of a panel whose height is dead space over the desktop.
+//
+// Removed only when there is nothing to navigate BETWEEN, so re-enabling any
+// pane in ENABLED_TABS brings the strip back with it automatically.
+if (tabs.length <= 1) {
+  const strip = document.querySelector('.tabs');
+  if (strip) strip.remove();
+  tabs = [];
+}
+
+function showPaneInitial(name) { showPane(name); }
 
 function showPane(name) {
   for (const t of tabs) t.setAttribute('aria-selected', String(t.dataset.tab === name));
