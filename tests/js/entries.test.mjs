@@ -62,7 +62,7 @@ test('workspaceState handles a null focusedWorkspace', () => {
 // pins the real komorebic.exe path so a future move of the binary is a loud
 // test failure rather than a silently-dead button.
 test('focusWorkspaceCommand builds a zero-indexed focus-workspace command against the real komorebic path', () => {
-  assert.strictEqual(KOMOREBIC_PATH, 'C:\\Users\\PC\\scoop\\shims\\komorebic.exe');
+  assert.strictEqual(KOMOREBIC_PATH, 'C:\\Users\\PC\\scoop\\apps\\komorebi\\current\\komorebic.exe');
   assert.deepStrictEqual(focusWorkspaceCommand(0), {
     program: KOMOREBIC_PATH,
     args: ['focus-workspace', '0'],
@@ -512,7 +512,7 @@ test('layoutGlyph returns a distinct glyph for each curated layout and a fallbac
 });
 
 test('changeLayoutCommand builds the exact komorebic invocation, pinned to the real binary path', () => {
-  assert.strictEqual(LAYOUT_KOMOREBIC_PATH, 'C:\\Users\\PC\\scoop\\shims\\komorebic.exe');
+  assert.strictEqual(LAYOUT_KOMOREBIC_PATH, 'C:\\Users\\PC\\scoop\\apps\\komorebi\\current\\komorebic.exe');
   for (const layout of LAYOUT_CYCLE) {
     assert.deepStrictEqual(changeLayoutCommand(layout), {
       program: LAYOUT_KOMOREBIC_PATH,

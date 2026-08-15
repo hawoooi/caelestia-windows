@@ -35,7 +35,7 @@
                                                                      "argsRegex":  "^$"
                                                                  },
                                                                  {
-                                                                     "program":  "C:\\Users\\PC\\scoop\\shims\\komorebic.exe",
+                                                                     "program":  "C:\\Users\\PC\\scoop\\apps\\komorebi\\current\\komorebic.exe",
                                                                      "argsRegex":  "^(focus-workspace \\d|change-layout (bsp|columns|rows|grid))$"
                                                                  },
                                                                  {
@@ -461,7 +461,7 @@
                         "privileges":  {
                                            "shellCommands":  [
                                                                  {
-                                                                     "program":  "C:\\Users\\PC\\scoop\\shims\\komorebic.exe",
+                                                                     "program":  "C:\\Users\\PC\\scoop\\apps\\komorebi\\current\\komorebic.exe",
                                                                      "argsRegex":  "^focus-workspace \\d$"
                                                                  },
                                                                  {

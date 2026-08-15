@@ -14,7 +14,20 @@
 // document that has no bar. Both entry modules now re-export from here, so
 // their existing importers (and tests) are unaffected.
 
-export const KOMOREBIC_PATH = 'C:\\Users\\PC\\scoop\\shims\\komorebic.exe';
+// The REAL binary, not the scoop shim at ~/scoop/shims/komorebic.exe.
+//
+// A scoop shim is a launcher process that starts the actual executable, so
+// going through it means two process creations per command instead of one.
+// Measured on this machine, averaged over five runs of the same
+// focus-workspace call: 104ms via the shim, 60ms direct. The bar pays that
+// on every workspace click, and the keybinds paid it on every press until
+// ~/.config/whkdrc was moved to the same path.
+//
+// Pinned rather than resolved from PATH because zpack.json's shellCommands
+// allowlist matches the program string literally -- this constant and that
+// allowlist are a matched pair, and changing one alone fails at runtime
+// with a privilege error.
+export const KOMOREBIC_PATH = 'C:\\Users\\PC\\scoop\\apps\\komorebi\\current\\komorebic.exe';
 
 // `focus-workspace <TARGET>` takes a zero-indexed *position* (verified against
 // `komorebic focus-workspace --help`), NOT the workspace *name* the buttons

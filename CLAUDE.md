@@ -26,6 +26,60 @@ building it — read it before changing anything here.
 | komorebi + whkd | `~/komorebi.json`, `~/.config/whkdrc` — the tiling WM driving the desktop (GlazeWM was replaced during this project's pre-flight; see `~/.config/yasb/CLAUDE.md`). Since the borders/yasb-retirement task, komorebi.json also carries `border: true`, `border_style: "Rounded"`, `border_width: 4`, `border_offset: 1`, `default_workspace_padding`/`default_container_padding` of **8/8**, a `global_work_area_offset` of `{left:-8, top:0, right:-8, bottom:0}`, and a themed `border_colours` object -- see "Window borders and gaps" and "The desktop frame" below. |
 | Pester | 6.0.1 and 3.4.0 are both installed; **all tests in this repo are Pester 5+ syntax** (`Should -Be`, not `Should Be`) — `Import-Module Pester -MinimumVersion 5.0.0` before running the suite, or 3.4.0 loads by default and every test errors on syntax it doesn't recognize |
 
+## Keybind latency, and two out-of-repo files that were changed for it
+
+Reported as "komorebi sometimes lag with the keybinds and doesn't work when i
+click the bar as well". Neither turned out to be a hard failure -- both paths
+worked when tested directly -- but **every komorebi action was paying a
+process-spawn tax twice over**, and whkd spawns its shell *synchronously*, so
+that cost is also a window during which further presses queue behind it. That
+is what made a quick run of workspace switches feel like it dropped one.
+
+Measured on this machine, per `komorebic focus-workspace` call:
+
+| path | cost |
+|---|---|
+| `powershell -c` + scoop shim (what whkd did) | **233 ms** |
+| `cmd /c` + scoop shim | 122 ms |
+| `cmd /c` + real binary | **104 ms** |
+| scoop shim alone | 104 ms |
+| real binary alone | **60 ms** |
+
+A scoop shim is a launcher process in front of the real executable, so going
+through it is two process creations instead of one. End-to-end after the fix
+(keypress -> komorebi reporting the new workspace): **median 137 ms, worst 164
+ms, 0 dropped over 8 presses**, and a burst of 8 back-to-back presses lands on
+the right workspace.
+
+**`~/.config/whkdrc` (not version controlled).** `.shell powershell` ->
+`.shell cmd`, and all 49 `komorebic` invocations now use the full path to
+`scoop\apps\komorebi\current\komorebic.exe` rather than resolving through the
+shim on PATH. The two script bindings changed from `Start-Process powershell
+-WindowStyle Hidden -ArgumentList ...` to cmd's `start "" /b powershell
+-NoProfile ...` (still detached, so a theme apply does not block whkd), and
+`alt + return` from `Start-Process cmd` to `start "" cmd`. Backup at
+`~/.config/whkdrc.bak-before-cmd-shell`. **whkd must be restarted to pick up
+whkdrc changes** -- it reads the file once at startup.
+
+**`~/komorebi.json` (not version controlled).** Added `{kind: Exe, id:
+zebar.exe}` to `ignore_rules`. `yasb.exe` was already there; yasb was retired
+in favour of the zebar bar and **the ignore rule was never migrated**, so
+komorebi had been treating the current bar as an ordinary window. Applied both
+at runtime (`komorebic ignore-rule exe zebar.exe`, which needs no restart) and
+persisted into the config, the same dual approach the border colours use.
+Backup at `~/komorebi.json.bak-before-zebar-ignore`. **Honest caveat: a focus
+test did not reproduce a failure from its absence** -- with the bar focused,
+komorebi still reported the real window as focused and `cycle-focus` still
+worked -- so this is a migration gap closed on correctness grounds, not a
+proven cause of the reported symptom.
+
+In-repo, `zebar/caelestia/komorebi-commands.js` moved to the same real-binary
+path, so the bar's workspace buttons and the dashboard's workspace pane stop
+paying the shim cost too. `KOMOREBIC_PATH` and the `shellCommands` allowlists
+in `zpack.json` are a **matched pair** -- the allowlist matches the program
+string literally, so changing one alone fails at runtime with a privilege
+error, not a fallback.
+
 ## Window borders and gaps
 
 komorebi has a full border CLI (`komorebic border enable|disable`, `border-style`, `border-width`,
