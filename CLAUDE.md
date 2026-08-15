@@ -26,6 +26,39 @@ building it — read it before changing anything here.
 | komorebi + whkd | `~/komorebi.json`, `~/.config/whkdrc` — the tiling WM driving the desktop (GlazeWM was replaced during this project's pre-flight; see `~/.config/yasb/CLAUDE.md`). Since the borders/yasb-retirement task, komorebi.json also carries `border: true`, `border_style: "Rounded"`, `border_width: 4`, `border_offset: 1`, `default_workspace_padding`/`default_container_padding` of **8/8**, a `global_work_area_offset` of `{left:-8, top:0, right:-8, bottom:0}`, and a themed `border_colours` object -- see "Window borders and gaps" and "The desktop frame" below. |
 | Pester | 6.0.1 and 3.4.0 are both installed; **all tests in this repo are Pester 5+ syntax** (`Should -Be`, not `Should Be`) — `Import-Module Pester -MinimumVersion 5.0.0` before running the suite, or 3.4.0 loads by default and every test errors on syntax it doesn't recognize |
 
+## The one time zebar has ever crashed, and the spawn discipline it bought
+
+**2026-08-15, 13:57.** `zebar.exe` 3.3.1.0 faulted with `0xc0000409` (a CRT
+fail-fast) in `ucrtbase.dll`. It is the **only** zebar fault in this machine's
+entire Application event log, and it happened **nine minutes** after the
+dashboard's background stats poll first went live -- a change that had just
+made the widget spawn two helper processes (`net-stats.exe`, `nvidia-smi.exe`)
+every five seconds, permanently.
+
+That is a correlation, not a proven cause, and it should not be written up as
+one. But "the only crash it has ever had arrived minutes after I made it spawn
+two processes every five seconds forever" is not a coincidence worth assuming.
+
+**What changed in response** (`zebar/caelestia/dashboard/dashboard.js`):
+
+- idle cadence 5s -> **15s**
+- the idle sample no longer touches the GPU at all -- **network only**
+
+Together: one spawn per 15s instead of two per 5s, a **six-fold cut**, and no
+visible cost. Verified live: GPU reads 48% within ~1.1s of the open gesture,
+because a GPU read is single-shot (~100ms) and the panel takes ~380ms to open
+(220ms dwell + slide), so a sample fired when the open message arrives has
+landed before anyone can see the tile. Only the NETWORK genuinely needs to stay
+warm -- a rate is the difference between two counter readings, so with no
+previous sample there is no rate to show at all.
+
+**The general rule this leaves behind:** anything polled while the panel is
+CLOSED must justify itself against a process spawn. If a reading is single-shot
+and fast, sample it on open instead. Note also that this pack already spawns
+`fullscreen-detect.exe` ~10x/second across the bar, four corners, three edges,
+the dock and the dashtrigger -- that is a genuine and unaddressed cost, and if
+zebar faults again with no dashboard poll running, that is where to look next.
+
 ## Keybind latency, and two out-of-repo files that were changed for it
 
 Reported as "komorebi sometimes lag with the keybinds and doesn't work when i

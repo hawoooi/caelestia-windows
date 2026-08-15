@@ -144,19 +144,43 @@ const gpuStats = createGpuStats(shell);
 const mediaArt = createMediaArt(shell);
 
 // Open: fast enough that a download visibly moves the number.
-// Closed: slow enough to be background noise, frequent enough that the rate
-// shown the instant the panel opens is at most this stale -- and it is a real
-// measurement over this interval, not a placeholder.
+//
+// Closed: as rare as it can be while still doing its one job. **This was 5s
+// and is now 15s, and the idle sample no longer touches the GPU at all** --
+// see sampleSystem. Together that is one spawn per 15s instead of two per 5s,
+// a six-fold cut.
+//
+// The reason is a crash, and the honest version of it is: zebar.exe faulted
+// once (0xc0000409, a CRT fail-fast in ucrtbase.dll) nine minutes after this
+// background poll first went live, and that is the ONLY zebar fault in this
+// machine's entire Application event log. That is a correlation, not a proven
+// cause -- but "the one time it ever crashed was minutes after I made it spawn
+// two processes every five seconds forever" is not a coincidence worth
+// assuming. The spawn rate came down accordingly, without giving up what the
+// warm poll is for.
 const SYSTEM_POLL_OPEN_MS = 1000;
-const SYSTEM_POLL_IDLE_MS = 5000;
+const SYSTEM_POLL_IDLE_MS = 15000;
 
 let systemTimer = null;
 let systemCadence = null;
 
 async function sampleSystem() {
-  // Both are independent and both fail soft to null, so they run together
-  // rather than one after the other.
-  const [net, gpu] = await Promise.all([netStats.sample(), gpuStats.sample()]);
+  // While closed, ONLY the network is sampled. That is not a compromise -- it
+  // is the only reading that actually needs to be kept warm.
+  //
+  // A rate is the difference between two counter readings, so without a
+  // previous sample there is no rate to show at all; that is the entire cause
+  // of the blank second this poll exists to remove. The GPU has no such
+  // problem: it is a single-shot read that returns in ~100ms, and the panel
+  // takes ~380ms to open (220ms dwell, then the slide), so a sample fired the
+  // moment the open message arrives has already landed by the time anyone can
+  // see the tile. Sampling it every 15s while nobody is looking bought
+  // nothing and cost a process spawn each time.
+  const full = isOpen;
+  const [net, gpu] = await Promise.all([
+    netStats.sample(),
+    full ? gpuStats.sample() : Promise.resolve(null),
+  ]);
   if (net) latestNet = net;
   if (gpu) latestGpu = gpu;
   recordHistory();
