@@ -69,8 +69,11 @@ html, body {
    only -- never a window resize, and never a window move. Moving or resizing
    a WebView2 window invalidates the hover state under a stationary cursor,
    which is what made the dock oscillate open/closed; see dashboard.js. */
+/* Height comes from --panel-h (set by dashboard.js), NOT from the window.
+   The window is only 16px tall while closed, so a percentage transform would
+   move the panel 16px and leave it on screen. */
 .stage {
-  width: 100%; height: 100%;
+  width: 100%; height: var(--panel-h, 500px);
   display: flex; justify-content: center; align-items: flex-start;
   transform: translateY(-100%);
   transition: transform var(--slide-ms) var(--ease);

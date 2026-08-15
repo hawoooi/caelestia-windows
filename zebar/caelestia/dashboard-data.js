@@ -135,25 +135,25 @@ export function promptFields(out, { hostname = null } = {}) {
  * BELIEVES its state to be and what the window actually is.
  *
  * `isOpen` is a belief, and beliefs desync from reality. The specific way it
- * happened here: `open()` sets isOpen = true and then awaits two window
- * geometry calls; if either rejects, the function dies with the flag left
- * claiming the panel is up. Every later hover then returned early and the top
- * hover was dead for the rest of the session -- while the dock, which never
- * resizes its window and so has no call that can fail, kept working. That
- * asymmetry is exactly how it was reported: "sometime the hover break
- * specifically the top bar the taskbar is still normal".
+ * happened: `open()` sets isOpen = true and then awaits a window resize; if
+ * that rejects, the function dies with the flag still claiming the panel is
+ * up. Every later hover then returned early and the top hover was dead for the
+ * rest of the session -- while the dock, which never resizes its window, kept
+ * working. Exactly as reported.
  *
  * So the flag is checked against the one thing that cannot lie: the window's
- * own width. Parked is 1px; open is the panel's width. If the flag says open
- * and the window says parked, the flag is wrong.
+ * own HEIGHT. The panel is one window that grows downward -- the strip when
+ * closed, the full panel when open -- so height is what separates the two
+ * states. (It was width, when the panel was a second window that parked at
+ * 1x1. Width is now identical in both states and tells you nothing.)
  *
- * @param {{isOpen: boolean, fullscreen: boolean, innerWidth: number, parkedWidth: number}} state
+ * @param {{isOpen: boolean, fullscreen: boolean, innerHeight: number, stripHeight: number}} state
  * @returns {boolean} true if open() should proceed.
  */
-export function shouldOpen({ isOpen, fullscreen, innerWidth, parkedWidth }) {
+export function shouldOpen({ isOpen, fullscreen, innerHeight, stripHeight }) {
   if (fullscreen) return false;
   if (!isOpen) return true;
   // Believed open. Honour that only if the window agrees.
-  if (!Number.isFinite(innerWidth)) return false;
-  return innerWidth <= parkedWidth;
+  if (!Number.isFinite(innerHeight)) return false;
+  return innerHeight <= stripHeight;
 }

@@ -37,8 +37,9 @@ async function init() {
     origin = await win.outerPosition();
   } catch (e) {
     // Fail closed: if the position cannot be read, this strip simply does not
-    // open the dashboard. The dashtrigger widget covers the same pixels, so
-    // the gesture degrades to relying on that one alone rather than breaking.
+    // open the dashboard. The dashboard window covers the same pixels with
+    // its own hot zone, so the gesture degrades to that alone rather than
+    // breaking.
     console.warn('edges: could not read position, not arming the hot zone', e);
     return;
   }

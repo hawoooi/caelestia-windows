@@ -52,10 +52,11 @@ export const STATUS_ACK_KEY = 'caelestia.statusMenu.ack';
 // the requested panel. See panels/panels.js.
 export const PANELS_CMD_KEY = 'caelestia.panels.cmd';
 export const PANELS_ACK_KEY = 'caelestia.panels.ack';
-// The top hover dashboard. Unlike the three pairs above, the command side is
-// driven by HOVER rather than a click, from a widget that exists only to own
-// a hot zone (dashtrigger/) -- see dashboard/dashboard.js for why the panel
-// cannot own its own hot zone.
+// The top hover dashboard. Unlike the three pairs above this is ONE-WAY: the
+// dashboard is a single window that owns its own hot zone and its own closing,
+// and the only thing still posting here is the frame's top band, which can win
+// hit-testing over that hot zone and so posts an open on its behalf. See
+// dashboard/dashboard.js.
 export const DASH_CMD_KEY = 'caelestia.dashboard.cmd';
 export const DASH_ACK_KEY = 'caelestia.dashboard.ack';
 

@@ -1,26 +1,14 @@
-// The "open the dashboard" gesture, shared by the two windows that can detect
-// it.
+// The "open the dashboard" gesture, as used by the frame's top band.
 //
-// **Why two windows detect the same gesture.** The top 16 pixels of this
-// desktop are covered by two different `top_most` Zebar windows: the frame's
-// top band (edges/top, y=0..8) and the dashboard's hot zone (dashtrigger,
-// y=0..16). Windows gives no ordering guarantee BETWEEN top_most windows, and
-// this pack has watched it flip between sessions -- a WindowFromPoint scan at
-// x=1280 resolved y=0..7 to the band on one run and to the trigger on the
-// next. Whichever wins, the other receives nothing.
+// The dashboard is ONE window now and detects its own hover directly (see
+// dashboard/dashboard.js). This module survives for the one case that window
+// cannot cover on its own: the frame's top band (edges/top) sits at y=0..8,
+// is `top_most`, and can win hit-testing over the dashboard strip beneath it
+// -- Windows gives no ordering guarantee between two top_most windows. So the
+// band listens for the same gesture and posts an open.
 //
-// That is one of the two reasons the gesture was reported as inconsistent
-// ("hovering to open isnt consistent and sometimes doesn't work"): on a run
-// where the band won, only y=8..15 was live, and the natural gesture -- throw
-// the cursor at the top edge of the screen -- lands on y=0. The other reason
-// was width; see the dashtrigger preset in zpack.json.
-//
-// Rather than fight the z-order, BOTH windows listen. Neither needs to know
-// which one the pointer actually reached.
-//
-// Openers only ever post `open: true`. Closing belongs entirely to the panel,
-// which is the only window that can see where the pointer is once it is up --
-// see dashboard.js.
+// It only ever posts `open`. Closing belongs entirely to the dashboard, which
+// is the only window that can see where the pointer is once the panel is up.
 
 // How long the pointer must rest in the zone before the panel opens.
 //
@@ -34,7 +22,7 @@ export const OPEN_DELAY_MS = 220;
 
 // The panel's width, and therefore the hot zone's width. They MUST match, and
 // this constant is the single source for both (dashboard.js imports it from
-// here; the dashtrigger preset in zpack.json mirrors it).
+// here; the dashboard preset in zpack.json mirrors it).
 //
 // Making the zone WIDER than the panel was tried and is broken, in a way worth
 // recording because it looks like an improvement. The zone was widened to the
@@ -42,10 +30,6 @@ export const OPEN_DELAY_MS = 220;
 // opened the panel -- centred, 700px away from the pointer -- and the panel
 // immediately and correctly closed itself, because the pointer was nowhere
 // near it. The log said it plainly: `panel leave x=-410`.
-//
-// Once open, the panel is the only window that can track the pointer (it
-// occludes the hot zone). So "pointer in the hot zone" has to imply "pointer
-// over the panel", which is exactly what equal widths guarantee.
 export const PANEL_W = 1140;
 
 /**

@@ -1,22 +1,40 @@
 // The top hover dashboard: four panes (Dashboard, Media, Performance,
 // Workspaces) hanging from the top edge of the screen.
 //
-// **This widget does not own the hover that opens it.** dashtrigger/ does,
-// and posts over widget-channel.js. The reason is the dock's hardest-won
-// finding (dock/dock.js, and three failed fixes before the cause was found):
-// ANY geometry change on a WebView2 window -- a resize OR a move -- clears
-// the hover state under a stationary cursor, so a window that resizes itself
-// to open cannot also be the thing that detects "the pointer is still here".
-// It oscillates. The panel is far too large to leave permanently on screen
-// the way the dock's 56px strip can be (a Zebar window swallows clicks across
-// its whole footprint even when fully transparent), so the two jobs are split
-// across two windows: a small static one that hovers reliably, and this one,
-// which only has to keep itself open AFTER its geometry has settled.
+// **ONE WINDOW, which owns both the hot zone and the panel.**
 //
-// Closing is a two-source decision. The panel stays open while the pointer is
-// over EITHER the trigger or the panel, and closes on a short delay once it
-// is over neither -- so the gap the pointer crosses between them does not
-// slam it shut.
+// Closed, this window is a 16px strip across the top centre. Hovering it
+// grows it downward to the full panel; leaving shrinks it back. The width
+// and the top-left corner never change -- only the height.
+//
+// That is the dock's design (dock/dock.js). It replaced a two-window
+// arrangement -- a separate `dashtrigger` widget owning the hot zone and
+// messaging this one over widget-channel.js -- which failed in a way worth
+// recording, because it looked reasonable and was not:
+//
+//   Both windows were `top_most` and both covered the same 16px strip, and
+//   Windows gives NO ordering guarantee between two top_most windows. When
+//   the trigger won hit-testing, this window received no `mouseenter` at
+//   all -- so nothing held the panel open, and any stray event closed it.
+//   The event log showed it plainly: opens with no `panel enter` following.
+//   Reported as "the top bar hover still sometimes doesn't work", with the
+//   dock -- one window since the day it was written -- never affected.
+//
+// One window cannot lose a handoff it does not make. The pointer that
+// triggers the open is already inside the element that keeps it open.
+//
+// **Why a resize is safe here when it broke the dock.** The dock's original
+// oscillation came from a resize that changed the window's geometry RELATIVE
+// TO THE POINTER, so the cursor fell outside and hover collapsed. This window
+// grows downward from a fixed top-left corner at a fixed width, so a pointer
+// resting in the top 16px is inside it in BOTH states -- there is nothing for
+// the resize to invalidate. The close path additionally verifies `:hover`
+// before acting on any `mouseleave`, because this window HAS been observed
+// reporting pointer positions outside its own bounds.
+//
+// The frame's top band (edges/edges.js) still posts an open over the channel,
+// because it is `top_most` too and can win hit-testing over the strip's upper
+// 8px. It only ever opens; this window owns closing.
 
 import * as zebar from '../bar/vendor/zebar.js';
 import { createChannel, DASH_CMD_KEY, DASH_ACK_KEY } from '../widget-channel.js';
@@ -67,12 +85,22 @@ import {
 // 99px of dead zone. If a pane grows, this number moves with it.
 export { PANEL_W };
 export const PANEL_H = 500;
-export const PARKED = 1;
+
+// The window's CLOSED height: just the hot-zone strip. Same 16px the separate
+// trigger widget used to occupy, so this costs no dead space that was not
+// already spent -- 8px under the frame's top band, 8px in the wallpaper gap,
+// and komorebi's windows start at y=21.
+export const STRIP_H = 16;
 
 // How long the pointer may be over neither surface before the panel closes.
 // Long enough to cross the seam between the trigger and the panel without
 // losing it; short enough that a deliberate exit feels immediate.
 export const CLOSE_DELAY_MS = 260;
+
+// How long the pointer must rest in the strip before the panel opens. The top
+// edge is on the path to every tab and title bar, so opening on contact would
+// be an ambush.
+export const OPEN_DELAY_MS = 220;
 
 // --- providers ------------------------------------------------------------
 
@@ -93,7 +121,7 @@ const providers = zebar.createProviderGroup({
 
 const $ = (id) => document.getElementById(id);
 
-// See dashtrigger/trigger.js for why this log exists rather than being
+// Why this log exists rather than being
 // debug leftovers: hover faults here are timing-dependent and invisible, and
 // the dock's identical log is the only thing that ever diagnosed one.
 const EVENT_LOG_MAX = 60;
@@ -135,7 +163,7 @@ let isOpen = false;
 // nothing and the whole desktop paints blank. That risk is real and this pack
 // has lost two sessions to it. But it is not avoided by this timer: the same
 // fullscreen-detect.exe is already polled once a second by the bar, all four
-// corners, all three edges, the dock and the dashtrigger. Against that, 0.4
+// corners, all three edges and the dock. Against that, 0.4
 // spawns a second while idle is not a new class of cost, and the mitigations
 // that actually matter are the in-flight guard in each helper and the reap in
 // Restart-ZebarWidgets, both of which are already in place.
@@ -863,11 +891,27 @@ async function init() {
   }
   const monitor = { x: origin.x, y: origin.y, width: window.screen.width };
 
-  async function park() {
-    await win.setSize({ type: 'Physical', width: PARKED, height: PARKED });
-    await win.setPosition({ type: 'Physical', x: monitor.x, y: monitor.y });
+  // The window is never MOVED and never changes width. Closed it is the strip;
+  // open it is the panel. Only the height changes, downward, from a fixed
+  // top-left corner.
+  //
+  // That matters more than it looks. The dock's original oscillation came from
+  // a resize that changed where the window was relative to the pointer, so the
+  // cursor fell outside and hover collapsed. Here a pointer resting in the top
+  // 16px is inside the window in BOTH states, so growing the panel cannot move
+  // it out -- there is nothing for the resize to invalidate.
+  async function setWindowHeight(height) {
+    await win.setSize({ type: 'Physical', width: PANEL_W, height });
   }
-  await park();
+
+  // Place it once, at the panel's final x, and never touch position again.
+  const left = monitor.x + Math.round((monitor.width - PANEL_W) / 2);
+  try {
+    await win.setPosition({ type: 'Physical', x: left, y: monitor.y });
+    await setWindowHeight(STRIP_H);
+  } catch (e) {
+    console.error('dashboard: could not place the window', e);
+  }
 
   // Measuring before the vendored Font Awesome webfont has settled would size
   // the panel against fallback glyph metrics.
@@ -875,10 +919,18 @@ async function init() {
     try { await document.fonts.ready; } catch (e) { /* proceed anyway */ }
   }
 
+  // The panel is a fixed height regardless of the window, so the closed
+  // transform always hides it completely -- a percentage transform against a
+  // 16px window would only move it 16px.
+  document.documentElement.style.setProperty('--panel-h', `${PANEL_H}px`);
+
+  // Receive-only now. The frame's top band (edges/edges.js) still posts an
+  // open, because it is `top_most` and can win hit-testing over this window's
+  // strip -- Windows gives no ordering guarantee between two top_most windows.
+  // Nothing is sent back; this window owns closing entirely.
   const channel = createChannel(localStorage, window, { sendKey: DASH_ACK_KEY, receiveKey: DASH_CMD_KEY });
 
-  let pointerOverTrigger = false;
-  let pointerOverPanel = false;
+  let pointerOver = false;
   let closeTimer = null;
   let fullscreen = false;
 
@@ -889,70 +941,30 @@ async function init() {
   async function open() {
     cancelClose();
 
-    // NOT a bare `if (isOpen) return`. That was a latch, and it killed this
-    // panel's hover for whole sessions at a time.
+    // NOT a bare `if (isOpen) return`. That was a latch that killed this
+    // panel's hover for whole sessions: isOpen is set true and THEN a window
+    // call is awaited, so a rejection left the flag claiming the panel was up
+    // and every later hover returned here and did nothing.
     //
-    // isOpen is set true and THEN two window geometry calls are awaited below.
-    // If either rejects -- a transient Tauri IPC failure, which is rare but
-    // not impossible -- this function dies with the flag still claiming the
-    // panel is up, and it is called from the channel subscriber with no catch.
-    // Every later hover then returned here immediately and did nothing, while
-    // the trigger kept firing perfectly. Reported exactly that way: the top
-    // hover breaks, the dock keeps working -- and the dock keeps working
-    // because it never resizes its window, so it has no call that can fail.
-    //
-    // shouldOpen checks the flag against the window's own width, which cannot
-    // lie: parked is 1px. See dashboard-data.js.
-    if (!shouldOpen({ isOpen, fullscreen, innerWidth: window.innerWidth, parkedWidth: PARKED })) return;
+    // shouldOpen checks the flag against the window's own HEIGHT, which cannot
+    // lie: closed is the strip, open is the panel. See dashboard-data.js.
+    if (!shouldOpen({ isOpen, fullscreen, innerHeight: window.innerHeight, stripHeight: STRIP_H })) return;
     isOpen = true;
 
     try {
-      const width = Math.min(PANEL_W, monitor.width);
-      // Centred on this monitor, hanging from its top edge.
-      await win.setSize({ type: 'Physical', width, height: PANEL_H });
-      await win.setPosition({
-        type: 'Physical',
-        x: monitor.x + Math.round((monitor.width - width) / 2),
-        y: monitor.y,
-      });
+      await setWindowHeight(PANEL_H);
+      setSystemPoll(SYSTEM_POLL_OPEN_MS);
 
-    // The trigger's hover state is DEAD from this moment on, so stop
-    // believing it.
-    //
-    // The open panel covers the trigger completely -- the trigger is
-    // 1000..1560 x 0..16, the panel 710..1850 x 0..520 -- so the pointer that
-    // was over the trigger is now over the panel, and the trigger receives a
-    // `mouseleave` it cannot distinguish from a real one. (It correctly
-    // suppresses that leave via isRealDeparture, because the pointer is still
-    // inside its bounds; suppressing it is what makes the OPEN survive.) The
-    // consequence is that the trigger can never report a departure while the
-    // panel is up: it is occluded, so no further pointer events reach it.
-    //
-    // Left believed, `pointerOverTrigger` stays true forever and the panel
-    // NEVER CLOSES -- observed live, and the reason this line exists. From
-    // here the panel's own hover is the single authority, which is sound
-    // precisely because it covers every pixel the trigger did.
-    pointerOverTrigger = false;
-
-    // The slide starts only after the geometry has settled. Starting it in
-    // the same frame as the resize makes the first frames of the transition
-    // land while the window is still the wrong size, which reads as a jump.
-    setSystemPoll(SYSTEM_POLL_OPEN_MS);
-
-    // Two frames, not one. The window was resized on the line above, and a
-    // single rAF can land before the compositor has taken the new size --
-    // which starts the slide from the wrong geometry and reads as a snap
-    // rather than a slide. The second frame guarantees the browser has laid
-    // out at the final size with the closed transform still applied, so the
-    // transition has something real to animate FROM.
+      // Two frames, not one. A single rAF can land before the compositor has
+      // taken the new height, which starts the slide from the wrong geometry
+      // and reads as a snap rather than a slide.
       requestAnimationFrame(() => requestAnimationFrame(() => {
         document.body.classList.add('is-open');
       }));
-      channel.post({ open: true });
+      logEvent('opened');
     } catch (e) {
-      // The panel is not up, so the flag must not claim it is -- that is the
-      // latch described above. Releasing it means the next hover simply tries
-      // again, which is the correct behaviour for a transient failure.
+      // Release the flag: a transient failure must cost one missed hover, not
+      // every future one.
       isOpen = false;
       logEvent('open FAILED', e && e.message ? e.message : String(e));
       console.error('dashboard: open failed, released the open flag', e);
@@ -964,53 +976,38 @@ async function init() {
     if (!isOpen) return;
     isOpen = false;
     disarm();
-    // Back down to the idle cadence rather than stopping: the network
-    // baseline has to survive the panel being closed, or the next open is
-    // blank again for a second. See the note on the poll itself.
     setSystemPoll(SYSTEM_POLL_IDLE_MS);
     document.body.classList.remove('is-open');
 
-    // Park only after the slide has finished, or the window vanishes from
-    // under the animation and the panel appears to teleport away.
+    // Shrink only after the slide has finished, or the panel vanishes from
+    // under its own animation.
     await new Promise((resolve) => setTimeout(resolve, 200));
-    // Re-check: the pointer may have come back during the slide out.
     if (isOpen) return;
     showPane('dashboard');
     try {
-      await park();
+      await setWindowHeight(STRIP_H);
     } catch (e) {
-      // isOpen is already false here, so the next hover will re-open and
-      // re-size regardless. Worth logging, not worth latching on.
-      logEvent('park FAILED', e && e.message ? e.message : String(e));
-      console.error('dashboard: park failed', e);
+      logEvent('shrink FAILED', e && e.message ? e.message : String(e));
+      console.error('dashboard: shrink failed', e);
     }
-    channel.post({ open: false });
+    logEvent('closed');
   }
 
   function reconsider() {
-    logEvent('reconsider', `trigger=${pointerOverTrigger} panel=${pointerOverPanel} open=${isOpen}`);
-    if (pointerOverTrigger || pointerOverPanel) { cancelClose(); return; }
+    logEvent('reconsider', `over=${pointerOver} open=${isOpen}`);
+    if (pointerOver) { cancelClose(); return; }
     cancelClose();
     closeTimer = setTimeout(() => {
       closeTimer = null;
 
       // VERIFY BEFORE CLOSING. `mouseleave` cannot be taken at face value on
-      // this window, and the event log is what proved it: with the cursor held
-      // perfectly still at client (570, 12), the panel received
-      //
-      //   panel leave x=486 y=524 rel=null inner=1140x520
-      //
-      // -- a fabricated position four pixels past its own bottom edge, for a
-      // pointer that had not moved. It arrives roughly a second after opening,
-      // every time, and it closed the panel out from under the user.
-      //
-      // So the leave is treated as a HINT to re-check rather than as fact, and
-      // the engine's own hover state is the arbiter. This is a single check at
-      // the moment of decision, NOT a poll: polling :hover was already tried
-      // against the dock's oscillation and did not help there, and a per-tick
-      // check would burn CPU for the whole time the panel is open.
+      // this window -- with the cursor held perfectly still it has reported
+      // positions outside the window's own bounds (`x=486 y=524` in a
+      // 1140x520 window). So the leave is a hint to re-check, and the engine's
+      // own hover state is the arbiter. One check at the decision point, not a
+      // poll.
       if (document.body.matches(':hover')) {
-        pointerOverPanel = true;
+        pointerOver = true;
         logEvent('close cancelled', 'still hovered');
         return;
       }
@@ -1019,48 +1016,67 @@ async function init() {
     }, CLOSE_DELAY_MS);
   }
 
+  // THE HOVER, and the whole point of the single-window design.
+  //
+  // There is no handoff. The strip and the panel are the same window, so the
+  // pointer that triggers the open is already inside the element that keeps it
+  // open -- no second window has to agree about where the pointer is, and no
+  // z-order race can leave both believing it left.
+  //
+  // The two-window version failed exactly there: the trigger window won
+  // hit-testing in the 16px strip, so the panel received no `mouseenter` at
+  // all, nothing held it open, and any stray event closed it. Reported as
+  // "the top bar hover still sometimes doesn't work", with the dock -- which
+  // has always been one window -- unaffected.
+  let dwell = null;
+  document.body.addEventListener('mouseenter', () => {
+    logEvent('enter', `h=${window.innerHeight}`);
+    cancelClose();
+    pointerOver = true;
+    if (isOpen || fullscreen) return;
+    if (dwell !== null) clearTimeout(dwell);
+    // A dwell so that merely crossing the top edge does not fling the panel
+    // open; the top of the screen is on the path to every tab and title bar.
+    dwell = setTimeout(() => {
+      dwell = null;
+      if (!pointerOver || fullscreen) return;
+      open().catch((e) => console.error('dashboard: open rejected', e));
+    }, OPEN_DELAY_MS);
+  });
+
+  document.body.addEventListener('mouseleave', (e) => {
+    logEvent('leave', `y=${e.clientY} h=${window.innerHeight}`);
+    if (dwell !== null) { clearTimeout(dwell); dwell = null; }
+    pointerOver = false;
+    reconsider();
+  });
+
+  // The frame's top band can win hit-testing over this window's strip, so it
+  // opens the panel too. It never closes it -- once open, this window covers
+  // everything the band does and its own hover is the authority.
   channel.subscribe((msg) => {
     if (!msg || msg.source !== 'trigger') return;
 
-    // Fullscreen arrives over the channel rather than from a second poller.
-    // The trigger already runs fullscreen-detect.exe once a second; a second
-    // copy in this widget would double the helper spawns for one shared
-    // answer, and an orphaned helper inheriting zebar's listening socket is
-    // the single worst failure mode this pack has (it paints NOTHING, under a
-    // PID that no longer exists, and has been misdiagnosed as a WebView2
-    // fault twice). One poller, one answer, broadcast.
-    //
-    // This closes REGARDLESS of pointer state -- unlike an ordinary
-    // departure, which waits to see whether the pointer landed on the panel.
     if (msg.fullscreen) {
       fullscreen = true;
       document.body.classList.add('fullscreen-hidden');
-      pointerOverPanel = false;
-      pointerOverTrigger = false;
+      pointerOver = false;
       close();
       return;
     }
     fullscreen = false;
     document.body.classList.remove('fullscreen-hidden');
 
-    logEvent('msg from trigger', `open=${msg.open}`);
-    pointerOverTrigger = Boolean(msg.open);
-    if (msg.open) open().catch((e) => console.error('dashboard: open rejected', e));
-    else reconsider();
-  });
-
-  // The panel's own hover. Only trustworthy because it is attached to a
-  // window whose geometry has already settled by the time the pointer can
-  // reach it -- see the header comment.
-  document.body.addEventListener('mouseenter', () => {
-    logEvent('panel enter');
-    pointerOverPanel = true;
-    cancelClose();
-  });
-  document.body.addEventListener('mouseleave', (e) => {
-    logEvent('panel leave', `x=${e.clientX} y=${e.clientY} rel=${e.relatedTarget ? e.relatedTarget.nodeName : 'null'} inner=${window.innerWidth}x${window.innerHeight}`);
-    pointerOverPanel = false;
-    reconsider();
+    if (msg.open) {
+      logEvent('open from band');
+      open().catch((e) => console.error('dashboard: open rejected', e));
+    } else {
+      // The band lost the pointer. If it went into this window, our own
+      // mouseenter has already set pointerOver and reconsider will keep it
+      // open; if it did not, this is what closes a panel the user opened from
+      // the band and then walked away from without ever entering.
+      reconsider();
+    }
   });
 
   // Render on every provider emission. Cheap enough at this size, and it

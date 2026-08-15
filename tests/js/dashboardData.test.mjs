@@ -169,28 +169,28 @@ test('collectWindows: an empty or absent workspace yields an empty array, never 
 // --- open-state recovery --------------------------------------------------
 
 test('shouldOpen: a closed panel opens', () => {
-  assert.equal(shouldOpen({ isOpen: false, fullscreen: false, innerWidth: 1, parkedWidth: 1 }), true);
+  assert.equal(shouldOpen({ isOpen: false, fullscreen: false, innerHeight: 16, stripHeight: 16 }), true);
 });
 
 test('shouldOpen: a genuinely open panel is not reopened', () => {
-  assert.equal(shouldOpen({ isOpen: true, fullscreen: false, innerWidth: 1140, parkedWidth: 1 }), false);
+  assert.equal(shouldOpen({ isOpen: true, fullscreen: false, innerHeight: 500, stripHeight: 16 }), false);
 });
 
-test('shouldOpen: a panel that BELIEVES it is open but is still parked reopens', () => {
-  // The latch this exists for: open() sets isOpen = true, then awaits two
-  // window geometry calls. If one rejects, the flag is left claiming the panel
-  // is up while the window is still 1x1 -- and every later hover returned
-  // early, killing the top hover for the rest of the session.
-  assert.equal(shouldOpen({ isOpen: true, fullscreen: false, innerWidth: 1, parkedWidth: 1 }), true);
+test('shouldOpen: a panel that BELIEVES it is open but is still the strip reopens', () => {
+  // The latch this exists for: open() sets isOpen = true, then awaits a window
+  // resize. If that rejects, the flag is left claiming the panel is up while
+  // the window is still 16px tall -- and every later hover returned early,
+  // killing the top hover for the rest of the session.
+  assert.equal(shouldOpen({ isOpen: true, fullscreen: false, innerHeight: 16, stripHeight: 16 }), true);
 });
 
 test('shouldOpen: fullscreen refuses regardless of state', () => {
-  assert.equal(shouldOpen({ isOpen: false, fullscreen: true, innerWidth: 1, parkedWidth: 1 }), false);
-  assert.equal(shouldOpen({ isOpen: true, fullscreen: true, innerWidth: 1, parkedWidth: 1 }), false);
+  assert.equal(shouldOpen({ isOpen: false, fullscreen: true, innerHeight: 16, stripHeight: 16 }), false);
+  assert.equal(shouldOpen({ isOpen: true, fullscreen: true, innerHeight: 16, stripHeight: 16 }), false);
 });
 
-test('shouldOpen: an unreadable width does not retrigger an open panel', () => {
+test('shouldOpen: an unreadable height does not retrigger an open panel', () => {
   // Fail toward doing nothing: a spurious reopen would resize the window out
-  // from under a pointer that is already on the panel.
-  assert.equal(shouldOpen({ isOpen: true, fullscreen: false, innerWidth: NaN, parkedWidth: 1 }), false);
+  // from under a pointer already resting on the panel.
+  assert.equal(shouldOpen({ isOpen: true, fullscreen: false, innerHeight: NaN, stripHeight: 16 }), false);
 });

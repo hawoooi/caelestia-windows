@@ -90,9 +90,10 @@ Describe "The zebar bar's zero-color-literal invariant (I5)" {
         # color-mix() over a theme var; this test is what stops the mockup's
         # literals being carried across again on the next design pass.
         $script:dashboardCss = "$PSScriptRoot\..\zebar\caelestia\dashboard\dashboard.css"
-        # The hot-zone widget paints nothing at all, which is exactly why a
-        # stray debug colour could sit in it unnoticed.
-        $script:dashTriggerCss = "$PSScriptRoot\..\zebar\caelestia\dashtrigger\trigger.css"
+        # (dashtrigger/trigger.css was named here too, until the dashboard
+        # became a single window that owns its own hot zone and that widget was
+        # deleted. This suite caught the deletion, which is the point of naming
+        # files explicitly rather than globbing a directory.)
     }
 
     It "style.css contains zero colour literals" {
@@ -121,10 +122,6 @@ Describe "The zebar bar's zero-color-literal invariant (I5)" {
 
     It "dashboard.css contains zero colour literals" {
         @(Get-ColorLiterals -Path $script:dashboardCss).Count | Should -Be 0
-    }
-
-    It "trigger.css contains zero colour literals" {
-        @(Get-ColorLiterals -Path $script:dashTriggerCss).Count | Should -Be 0
     }
 
     It "fontawesome.css contains zero colour literals" {
