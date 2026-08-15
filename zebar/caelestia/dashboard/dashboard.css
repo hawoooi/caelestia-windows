@@ -91,9 +91,19 @@ body.is-open .stage { transform: translateY(0); }
   border-bottom-left-radius: var(--r-panel);
   border-bottom-right-radius: var(--r-panel);
   padding: 0 var(--gap) var(--gap);
-  /* No literal here either: a shadow tinted with the surface itself, which is
-     near-black in every dark scheme this palette produces. */
-  box-shadow: 0 20px 60px color-mix(in srgb, var(--surface) 72%, transparent);
+  /* NO box-shadow. There was one -- 0 20px 60px, carried over from the mockup,
+     where the panel sat on a staged page and needed lifting off it.
+
+     It had never once been visible here: the window used to be exactly the
+     panel width, so the shadow was clipped away entirely. Widening the window
+     by an arch on each side exposed a 16px slice of a 60px blur, and a
+     hard-edged slice of a shadow does not read as a shadow -- it reads as a
+     translucent border down both sides, which is how it was reported.
+
+     Removed rather than tuned. Nothing else in this pack casts a shadow: the
+     bar, the dock and the frame bands are all flat var(--surface), and the
+     panel separates from the wallpaper by being that same surface with the
+     arches tying it into the frame. */
 }
 
 /* ----------------------------------------------------------------- the tabs */
