@@ -527,7 +527,22 @@ body.fullscreen-hidden .stage { transform: translateY(-100%); }
 
 .metric__spark { position: relative; height: 26px; }
 .metric__spark svg { width: 100%; height: 100%; display: block; overflow: visible; }
-.spark__line { fill: none; stroke: var(--spark); stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; }
+/* vector-effect is load-bearing, not decoration.
+   The sparkline is drawn in a 100x26 viewBox and stretched to its column with
+   preserveAspectRatio="none" -- about 4.4x horizontally, 1x vertically. Stroke
+   width is measured PERPENDICULAR to the line, so under that non-uniform scale
+   a flat segment rendered at 1.5px and a steep one at ~6.6px: spikes came out
+   fat and plateaus hairline, in the same line. Reported as "why are some lines
+   thicker".
+   non-scaling-stroke pins the width in device pixels regardless of the
+   transform. The alternative -- computing the path in real pixel coordinates --
+   would mean measuring the element, and this panel must never measure its own
+   layout: the window is a 16px strip until it opens. */
+.spark__line {
+  fill: none; stroke: var(--spark);
+  stroke-width: 1.5; vector-effect: non-scaling-stroke;
+  stroke-linejoin: round; stroke-linecap: round;
+}
 /* Unfilled by default: filling all four made four solid blocks competing for
    attention. The fill is part of the accent below. */
 .spark__area { fill: none; stroke: none; }
