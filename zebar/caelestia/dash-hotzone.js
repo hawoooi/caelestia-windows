@@ -64,7 +64,10 @@ export function createHotZone({ element, channel, suppressed, log }) {
       if (suppressed()) return;
       note('post open=true');
       try {
-        channel.post({ open: true, fullscreen: false, source: 'trigger' });
+        // No fullscreen field: this sender does not measure it, and the
+        // dashboard polls it directly. A message carrying a gate value its
+        // sender guessed at is how that gate got lost once already.
+        channel.post({ open: true, source: 'trigger' });
       } catch (e) {
         console.error('dashboard hot zone: could not post', e);
       }

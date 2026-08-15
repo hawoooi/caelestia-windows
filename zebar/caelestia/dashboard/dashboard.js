@@ -38,9 +38,18 @@
 
 import * as zebar from '../bar/vendor/zebar.js';
 import { createChannel, DASH_CMD_KEY, DASH_ACK_KEY } from '../widget-channel.js';
-// Deliberately NOT importing fullscreen.js: this widget does not poll for
-// fullscreen. The trigger polls once and broadcasts the answer -- see the
-// channel subscriber in init().
+// This widget polls fullscreen itself.
+//
+// It did not, once: a separate dashtrigger widget polled and broadcast the
+// answer over the channel. That widget was deleted when the dashboard became a
+// single window, and nothing replaced its poll -- so the panel had NO fullscreen
+// gate at all, and the only messages it still received hardcoded
+// `fullscreen: false`, which actively cleared the flag on every open. Reported
+// as "the taskbar hover still triggers in fullscreen so does the top bar".
+//
+// A window that owns its own hover owns its own gate. No net cost: the poll
+// deleted with dashtrigger is the poll added back here.
+import { startFullscreenWatch } from '../fullscreen.js';
 import { focusWorkspaceCommand } from '../komorebi-commands.js';
 import { createNetStats, formatRate } from '../net-stats.js';
 import { createGpuStats } from '../gpu-stats.js';
@@ -1113,21 +1122,29 @@ async function init() {
     reconsider();
   });
 
+  // Direct user requirement, stated for every hover surface at once: "the
+  // bottom custom taskbar hover shouldn't activate when i am in fullscreen.
+  // this goes with any other hover-activation widgets."
+  startFullscreenWatch(shell, (isFullscreen) => {
+    fullscreen = isFullscreen;
+    document.body.classList.toggle('fullscreen-hidden', isFullscreen);
+    if (!isFullscreen) return;
+    // Close whatever is up, regardless of where the pointer is: unlike an
+    // ordinary departure, this is not a question about the pointer.
+    logEvent('fullscreen', 'closing');
+    pointerOver = false;
+    close();
+  }, 1000);
+
   // The frame's top band can win hit-testing over this window's strip, so it
   // opens the panel too. It never closes it -- once open, this window covers
   // everything the band does and its own hover is the authority.
+  // Fullscreen is polled below, NOT taken from this channel. The band posts
+  // only "open", and a message must never be able to clear a gate its sender
+  // does not measure -- that is precisely how the gate went missing.
   channel.subscribe((msg) => {
     if (!msg || msg.source !== 'trigger') return;
-
-    if (msg.fullscreen) {
-      fullscreen = true;
-      document.body.classList.add('fullscreen-hidden');
-      pointerOver = false;
-      close();
-      return;
-    }
-    fullscreen = false;
-    document.body.classList.remove('fullscreen-hidden');
+    if (fullscreen) return;
 
     if (msg.open) {
       logEvent('open from band');

@@ -123,11 +123,24 @@ class FullscreenDetect
             mi.cbSize = (uint)Marshal.SizeOf(typeof(MONITORINFO));
             if (!GetMonitorInfo(hMon, ref mi)) return;
 
+            // COVERS the monitor, not exactly equals it.
+            //
+            // Exact equality was the original test and it is too strict. A
+            // borderless-fullscreen window is routinely a pixel or two larger
+            // than the monitor, or is positioned at -1,-1 to hide its frame,
+            // and every one of those returned "not fullscreen" -- the hover
+            // widgets then opened over the game, which is what was reported.
+            //
+            // Containment is the honest test: a window that covers every pixel
+            // of the monitor is fullscreen on it whether or not it stops there.
+            // Nothing komorebi manages can match it -- tiled windows are inset
+            // by the workspace padding -- and the classes and processes that
+            // are permanently monitor-sized are already excluded above.
             bool coversMonitor =
-                winRect.Left == mi.rcMonitor.Left &&
-                winRect.Top == mi.rcMonitor.Top &&
-                winRect.Right == mi.rcMonitor.Right &&
-                winRect.Bottom == mi.rcMonitor.Bottom;
+                winRect.Left <= mi.rcMonitor.Left &&
+                winRect.Top <= mi.rcMonitor.Top &&
+                winRect.Right >= mi.rcMonitor.Right &&
+                winRect.Bottom >= mi.rcMonitor.Bottom;
 
             if (!coversMonitor) return;
 
