@@ -44,11 +44,22 @@ test('the leftmost icon does not push the card off the left edge', () => {
   assert.equal(p.x, 0);
 });
 
-test('leftLimit keeps the card off the left bar, not just on-screen', () => {
-  // The bar is 52px wide and the dock starts at its right edge. Without this
-  // the card clamped to x=0 and painted over the bar.
+test('leftLimit keeps the card off the left bar, with the same gap as the bottom', () => {
+  // The bar is 52px wide and the dock starts at its right edge. Without a
+  // leftLimit the card clamped to x=0 and painted over the bar; clamping to
+  // the dock's edge exactly left it touching the bar. It is inset by the same
+  // `gap` it keeps above the dock, so the two sides match.
   const p = place(79, { leftLimit: 52 });
-  assert.equal(p.x, 52);
+  assert.equal(p.x, 52 + PREVIEW_GAP_PX);
+});
+
+test('the left inset and the bottom gap are the SAME number', () => {
+  // The whole point of reusing `gap` -- if these ever diverge the card looks
+  // askew rather than obviously wrong, which is the hard kind of bug to see.
+  const p = place(79, { leftLimit: 52 });
+  const leftInset = p.x - 52;
+  const bottomGap = DOCK_TOP - (p.y + CARD.cardHeight);
+  assert.equal(leftInset, bottomGap);
 });
 
 test('leftLimit only ever pushes right, never past the anchor-centred spot', () => {

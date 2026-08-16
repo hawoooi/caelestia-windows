@@ -82,6 +82,23 @@ export const TRIGGER_H = 40;
 // frame band and the wallpaper gap, neither of which is clickable.
 export const DOCK_W = 380;
 
+// The fillet joining the bar's right edge to the dock's top edge, and the
+// amount the WINDOW is taller than the dock row in order to hold it -- the
+// arch paints ABOVE the row, and a Zebar widget cannot paint outside its own
+// window.
+//
+// The honest cost: the permanent transparent footprint grows by DOCK_W x
+// ARCH_W, and only the leftmost ARCH_W of that strip is ever used. A
+// transparent Zebar window swallows clicks across its whole footprint, so that
+// is 380x16 of newly dead pixels directly above the dock.
+//
+// Paid deliberately, over the alternative of a fifth `corners` preset plus a
+// cross-widget channel telling it when the dock is open: that would cost 16x16
+// of dead space instead of 380x16, but it adds a window, a message pair, and a
+// way for the two to disagree about whether the dock is showing. Keep in step
+// with dock.css's --arch-w.
+export const ARCH_W = 16;
+
 // Grace period before the dock slides away, so crossing the gap between two
 // icons does not make it flicker. Short, per "takes toooo long".
 export const CLOSE_DELAY_MS = 120;
@@ -130,8 +147,10 @@ function debugLog(what) {
 const dock = document.getElementById('dock');
 const trigger = document.getElementById('trigger');
 
-// One source of truth for the trigger height: JS owns it, CSS reads it.
+// One source of truth for the trigger height and the arch size: JS owns both,
+// CSS reads them.
 document.documentElement.style.setProperty('--trigger-h', `${TRIGGER_H}px`);
+document.documentElement.style.setProperty('--arch-w', `${ARCH_W}px`);
 
 const providers = zebar.createProviderGroup({ komorebi: { type: 'komorebi' } });
 const shell = zebar.shellExec ? zebar : null;
@@ -355,15 +374,18 @@ async function init() {
   // never-moving hot-zone window driving a separate dock window), which is the
   // refinement to make if this ever proves annoying.
   async function placeWindow() {
+    // DOCK_H + ARCH_W tall: the dock row is pinned to the BOTTOM of the window
+    // (dock.css) and the extra strip on top is where the corner fillet paints.
+    const height = px(DOCK_H + ARCH_W);
     await win.setSize({
       type: 'Physical',
       width: px(DOCK_W),
-      height: px(DOCK_H),
+      height,
     });
     await win.setPosition({
       type: 'Physical',
       x: monitor.x + px(BAR_W),
-      y: monitor.y + monitor.height - px(DOCK_H),
+      y: monitor.y + monitor.height - height,
     });
   }
 

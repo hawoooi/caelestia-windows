@@ -47,10 +47,17 @@ export const PARKED_SIZE = 1;
 // not do while you are typing into it.
 export const PANEL_W = 820;
 
-// How far the panel's bottom edge sits above the screen bottom. Clears the
-// desktop frame's own 8px band with the same 8px gap the rest of the frame
-// uses, so it reads as part of the same system.
-export const BOTTOM_GAP = 16;
+// The launcher rests on the DOCK's top edge rather than on the screen's --
+// direct user feedback, "it needs to be on top of the taskbar already as it
+// slides out". Flush with the screen edge, it emerged from behind the dock;
+// resting on the dock means the whole panel is above the taskbar for the
+// entire slide, and it is the dock's edge it slides out of.
+//
+// This is dock.js's DOCK_H, duplicated rather than imported: dock.js touches
+// `document` at module scope and drives its own widget, so importing it here
+// would run the entire dock inside the launcher's window. Keep the two in
+// step; there is nothing else to derive it from.
+export const DOCK_H = 56;
 
 // Matches launcher.css's --dur. The window must not shrink back until the
 // slide-out has actually played, or the panel vanishes on its first frame
@@ -262,14 +269,16 @@ async function init() {
     const height = Math.ceil(panel.getBoundingClientRect().height);
     if (height < 20) return;    // a collapsed measurement is never worth applying
     // The window is exactly the panel's size: it is the viewport the panel
-    // slides into, so any extra slack would show as a gap under the panel.
+    // slides into, so any slack would show as a gap around the panel.
     const winH = px(height);
     const winW = px(PANEL_W);
     await win.setSize({ type: 'Physical', width: winW, height: winH });
     await win.setPosition({
       type: 'Physical',
       x: monitor.x + Math.round((monitor.width - winW) / 2),
-      y: monitor.y + monitor.height - px(BOTTOM_GAP) - winH,
+      // Bottom edge on the DOCK's top edge, so the panel is clear of the
+      // taskbar for the whole slide instead of emerging from behind it.
+      y: monitor.y + monitor.height - px(DOCK_H) - winH,
     });
   }
 

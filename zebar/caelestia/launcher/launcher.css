@@ -10,6 +10,7 @@
   --icon: 26px;
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
   --dur: 190ms;   /* keep in step with launcher.js's SLIDE_MS */
+
 }
 
 html, body {
@@ -34,7 +35,21 @@ html, body {
    lost three separate rounds of bugs to. */
 .launcher {
   position: absolute;
-  top: 0;
+  /* Anchored to the bottom of its WINDOW, and the window rests on the dock's
+     top edge -- direct user feedback, "it needs to be on top of the taskbar
+     already as it slides out".
+
+     It went flush with the screen edge first, on the theory that a panel
+     cannot look like it is emerging from an edge it is not touching. That was
+     the wrong edge: it emerged from BEHIND the dock. Sitting on the dock's top
+     edge means the whole panel is above the taskbar for the entire slide, and
+     it is the dock's edge it slides out of.
+
+     All four corners are rounded again as a consequence. Square bottom corners
+     only made sense while the panel met the screen edge; resting on the dock
+     it is a free-floating surface, and the bottom arches went with them --
+     there is no frame band here to fillet into. */
+  bottom: 0;
   left: 0;
   right: 0;
   box-sizing: border-box;

@@ -12,6 +12,10 @@
          as TRIGGER_H. Separate from #dock so the dock's SIZE and its
          ACTIVATION RANGE are independent -- see dock.js. -->
     <div id="trigger" class="dock-trigger"></div>
+    <!-- The fillet where the bar's right edge meets the dock's top edge. A
+         SIBLING of #dock, not a child: children inherit the slide transform,
+         and a concave arc must never sweep. See dock.css. -->
+    <div id="arch" class="dock-arch"></div>
     <div id="dock" class="dock"></div>
     <script type="module" src="./dock.js"></script>
   </body>

@@ -125,11 +125,16 @@ export function previewPlacement({
   const height = cardHeight + rise;
 
   const unclampedX = Math.round(anchorX - width / 2);
-  // The left bound is the DOCK's left edge, not the screen's. Clamping to the
-  // screen put the card over the top of the left bar, which reads as one
-  // surface sliding under another rather than as a card belonging to the dock.
+  // The left bound is the DOCK's left edge, not the screen's, PLUS the same
+  // gap the card already keeps above the dock. Clamping to the screen put the
+  // card over the top of the left bar; clamping to the dock's edge exactly
+  // left it touching the bar with no breathing room -- direct user feedback,
+  // "align the preview so that it has padding on left and bottom away from
+  // taskbar and left bar". One `gap` for both sides, so the card is inset
+  // identically from the two surfaces it sits against.
+  //
   // Falls back to the monitor edge if no limit is supplied.
-  const minX = Number.isFinite(leftLimit) ? Math.max(monitor.x, leftLimit) : monitor.x;
+  const minX = Number.isFinite(leftLimit) ? Math.max(monitor.x, leftLimit + gap) : monitor.x;
   // Math.max last, so a card wider than the space is pinned to the LEFT edge
   // rather than the right -- the icon and title live on that side.
   const maxX = monitor.x + monitor.width - width;

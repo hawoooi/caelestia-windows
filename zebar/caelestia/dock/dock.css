@@ -148,3 +148,55 @@ body.fullscreen-hidden .dock-trigger { pointer-events: none; }
   bottom: 0;
   height: var(--trigger-h, 40px);
 }
+
+/* ============================================================== THE ARCH
+
+   Direct user feedback: "i think the taskbar needs an arch too, we don't want
+   hard 90 degree corners".
+
+   Where the bar's right edge meets the dock's top edge there was a hard
+   right angle: the wallpaper gap column simply stopped dead at the dock. This
+   is the inverse fillet that joins them, the same concave corner and the same
+   technique as the four screen corners and the dashboard's arches -- a
+   HARD-STOPPED radial gradient, transparent inside the radius and surface
+   outside it. border-radius cannot express it: it rounds a corner convexly,
+   and this is the negative.
+
+   Geometry. The square sits immediately ABOVE the dock's top-left corner. Its
+   LEFT edge continues the bar, its BOTTOM edge continues the dock's top, and
+   the quarter-disc centred on its TOP-RIGHT is cut away to show the wallpaper.
+   The window is --arch-w taller than the dock row to make room for it (see
+   dock.js's placeWindow).
+
+   IT DOES NOT SLIDE, for two separate reasons. It is a sibling of .dock rather
+   than a child, so it never inherits the slide transform -- and it is REVEALED
+   ONLY ONCE THE SLIDE HAS LANDED. That second part is not decoration: the dock
+   rises from below, so until the row reaches its final position there is a gap
+   between the dock's top edge and where the arch sits, and an arch shown early
+   hangs in mid-air over that gap. Hence the delay on the way in and none on
+   the way out. */
+.dock-arch {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: var(--arch-w, 16px);
+  height: var(--arch-w, 16px);
+  pointer-events: none;
+  background: radial-gradient(
+    circle var(--arch-w, 16px) at top right,
+    transparent 0 var(--arch-w, 16px),
+    var(--surface) var(--arch-w, 16px)
+  );
+  opacity: 0;
+  /* Instant, never a fade: a fading arc reads as a smudge at this size. The
+     only thing being timed is WHEN it appears. */
+  transition: opacity 0ms linear;
+}
+
+/* Appears exactly as the dock lands, and vanishes the instant it leaves. */
+body.open .dock-arch {
+  opacity: 1;
+  transition-delay: var(--dur);
+}
+
+body.fullscreen-hidden .dock-arch { display: none; }
