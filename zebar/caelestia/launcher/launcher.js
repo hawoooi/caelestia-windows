@@ -273,20 +273,46 @@ async function init() {
     });
   }
 
+  // Two frames, not one. The first lets the browser lay out and PAINT the
+  // just-resized window with the panel still translated below it; the second
+  // guarantees that paint has been committed before the class flips. A single
+  // rAF gets coalesced with the style change often enough to matter, and the
+  // transition is then skipped entirely. This is the same double-rAF the
+  // dashboard uses for its slide, and for the same reason.
+  const twoFrames = () =>
+    new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
   async function show() {
     if (open) return;
     open = true;
     openedAt = Date.now();
     inputEl.value = '';
     selected = 0;
-    document.body.classList.add('open');
+
+    // ORDER IS THE WHOLE TRICK, and getting it wrong is why this popped
+    // instead of sliding: the window has to be at its FINAL size and position
+    // before `.open` is added. The class starts a CSS transition immediately,
+    // so adding it while the window is still parked at 1x1 plays the entire
+    // slide inside a one-pixel window -- by the time the window is resized the
+    // animation has already finished, and all that is left to see is the panel
+    // appearing fully formed.
+    //
+    // Measuring at 1x1 is safe here even though the panel is width:100%: every
+    // row has a fixed height and its text is `white-space: nowrap`, so the
+    // panel's height is a function of the row COUNT, never of the width it is
+    // measured at. That is not luck -- it is why the rows are fixed-height.
     render();
     try { await fit(); } catch (e) { console.warn('launcher: could not size the panel', e); }
+    await twoFrames();
+    if (!open) return;                    // dismissed during the resize
+    document.body.classList.add('open');
+
     inputEl.focus();
     inputEl.select();
     // Refresh the list AFTER the panel is up: the first open of a session pays
     // 70ms for it, and doing that before painting would show an empty panel
-    // for exactly as long.
+    // for exactly as long. init() warms it at startup so this is normally a
+    // no-op and the panel does not visibly grow after opening.
     await loadApps(false);
     if (open) { render(); await fit().catch(() => {}); }
   }
