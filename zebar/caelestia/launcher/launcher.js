@@ -47,17 +47,22 @@ export const PARKED_SIZE = 1;
 // not do while you are typing into it.
 export const PANEL_W = 820;
 
-// The launcher rests on the DOCK's top edge rather than on the screen's --
-// direct user feedback, "it needs to be on top of the taskbar already as it
-// slides out". Flush with the screen edge, it emerged from behind the dock;
-// resting on the dock means the whole panel is above the taskbar for the
-// entire slide, and it is the dock's edge it slides out of.
+// The fillets either side of the panel's bottom corners, and the amount the
+// WINDOW is wider than the panel on each side to hold them.
 //
-// This is dock.js's DOCK_H, duplicated rather than imported: dock.js touches
-// `document` at module scope and drives its own widget, so importing it here
-// would run the entire dock inside the launcher's window. Keep the two in
-// step; there is nothing else to derive it from.
-export const DOCK_H = 56;
+// The panel sits FLUSH with the bottom of the screen -- direct user feedback,
+// "I want the start menu to slide out connected to the bottom of the screen
+// but why is it floating?".
+//
+// It was briefly raised to rest on the dock's top edge instead, which is what
+// "floating" refers to: 56px of wallpaper under a panel that is supposed to be
+// attached to the screen edge. Connected to the edge is the whole point -- it
+// is what makes the slide read as the panel coming OUT of the edge rather than
+// merely appearing near it, and it is what gives the arches a frame band to
+// fillet into.
+//
+// Keep in step with launcher.css's --arch-w.
+export const ARCH_W = 16;
 
 // Matches launcher.css's --dur. The window must not shrink back until the
 // slide-out has actually played, or the panel vanishes on its first frame
@@ -249,6 +254,11 @@ async function init() {
     width: window.screen.width,
     height: window.screen.height,
   };
+  // One source of truth for the panel width: JS owns it, CSS reads it and
+  // centres the panel inside the wider window.
+  document.documentElement.style.setProperty('--panel-w', `${PANEL_W}px`);
+  document.documentElement.style.setProperty('--arch-w', `${ARCH_W}px`);
+
   const scale = window.devicePixelRatio || 1;
   const px = (n) => Math.round(n * scale);
 
@@ -268,17 +278,19 @@ async function init() {
   async function fit() {
     const height = Math.ceil(panel.getBoundingClientRect().height);
     if (height < 20) return;    // a collapsed measurement is never worth applying
-    // The window is exactly the panel's size: it is the viewport the panel
-    // slides into, so any slack would show as a gap around the panel.
+    // The window is the panel's height exactly -- it is the viewport the panel
+    // slides into, so vertical slack would show as a gap under the panel -- and
+    // an arch WIDER on each side, which is where the corner fillets paint.
     const winH = px(height);
-    const winW = px(PANEL_W);
+    const winW = px(PANEL_W + ARCH_W * 2);
     await win.setSize({ type: 'Physical', width: winW, height: winH });
     await win.setPosition({
       type: 'Physical',
       x: monitor.x + Math.round((monitor.width - winW) / 2),
-      // Bottom edge on the DOCK's top edge, so the panel is clear of the
-      // taskbar for the whole slide instead of emerging from behind it.
-      y: monitor.y + monitor.height - px(DOCK_H) - winH,
+      // FLUSH with the bottom of the screen, overlapping the frame's own band,
+      // the way the dashboard sits flush against the top. Nothing between the
+      // panel and the edge it slides out of.
+      y: monitor.y + monitor.height - winH,
     });
   }
 

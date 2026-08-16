@@ -11,6 +11,13 @@
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
   --dur: 190ms;   /* keep in step with launcher.js's SLIDE_MS */
 
+  /* Set from launcher.js. The window is an arch wider than the panel on each
+     side; those margins are where the corner fillets paint. --frame-band is
+     the desktop frame's own bottom band, which the arch spans as well as the
+     radius (see ARCHES at the bottom of this file). */
+  --panel-w: 820px;
+  --arch-w: 16px;
+  --frame-band: 8px;
 }
 
 html, body {
@@ -35,28 +42,30 @@ html, body {
    lost three separate rounds of bugs to. */
 .launcher {
   position: absolute;
-  /* Anchored to the bottom of its WINDOW, and the window rests on the dock's
-     top edge -- direct user feedback, "it needs to be on top of the taskbar
-     already as it slides out".
+  /* FLUSH with the bottom of the screen -- direct user feedback, "I want the
+     start menu to slide out connected to the bottom of the screen but why is
+     it floating?".
 
-     It went flush with the screen edge first, on the theory that a panel
-     cannot look like it is emerging from an edge it is not touching. That was
-     the wrong edge: it emerged from BEHIND the dock. Sitting on the dock's top
-     edge means the whole panel is above the taskbar for the entire slide, and
-     it is the dock's edge it slides out of.
+     It was briefly raised 56px to rest on the dock's top edge, which is the
+     "floating" being asked about. Connected to the edge is the point: it is
+     what makes the slide read as the panel coming OUT of the edge rather than
+     appearing near it.
 
-     All four corners are rounded again as a consequence. Square bottom corners
-     only made sense while the panel met the screen edge; resting on the dock
-     it is a free-floating surface, and the bottom arches went with them --
-     there is no frame band here to fillet into. */
+     Mirror image of the dashboard, which hangs from the top edge with only its
+     BOTTOM corners rounded. Here only the TOP corners are rounded; the bottom
+     is square because it meets the screen edge, and the fillets at those
+     bottom corners tie it into the frame's band. */
   bottom: 0;
   left: 0;
   right: 0;
+  width: var(--panel-w);
+  margin: 0 auto;          /* centred inside a window an arch wider each side */
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
   background: var(--surface);
-  border-radius: var(--radius);
+  border-top-left-radius: var(--radius);
+  border-top-right-radius: var(--radius);
   color: var(--on-surface);
   overflow: hidden;
 
@@ -201,3 +210,70 @@ body.no-matches .launcher__empty { display: block; }
   background: var(--surface-container);
   color: var(--on-surface);
 }
+
+/* ================================================================== ARCHES
+
+   Inverse-arc fillets at the panel's BOTTOM corners, so the launcher reads as
+   carved out of the frame's bottom band rather than pasted on top of it. Same
+   concave corner, same radius and same technique as the four screen corners,
+   the dashboard's arches and the dock's: a HARD-STOPPED radial gradient,
+   transparent inside the radius and surface outside it. border-radius cannot
+   express this -- it rounds a corner convexly, and this is the negative.
+
+   Geometry, for the left arch. It occupies the square immediately left of the
+   panel's bottom-left corner. Its BOTTOM edge continues the frame band, its
+   RIGHT edge continues the panel, and the quarter-disc at its TOP-LEFT is cut
+   away to show the desktop. So the circle is centred on that top-left corner:
+   inside it transparent, outside it surface. (The dashboard's are the same
+   shape flipped vertically, since it hangs from the top instead.)
+
+   Spanning band + radius (16x24, not 16x16) matters: a box only radius-tall
+   has 78% of its area eaten by the transparent quarter-disc, leaving a 2px
+   crescent that is invisible on screen. Measured that mistake once already on
+   the dashboard -- the element was present, positioned and painting, and still
+   showed nothing.
+
+   They are on BODY and they do NOT slide. An arch is a JUNCTION, not a moving
+   part, and a hard-stopped radial gradient cannot be translated without the
+   arc visibly sweeping. body is also the nearest ancestor with no transform:
+   a transformed ancestor becomes the containing block for position:fixed
+   descendants, so hanging these off the panel -- or off any transformed
+   element -- would carry them along and the fix would look applied while
+   changing nothing.
+
+   Unlike the dock's arch there is no reveal delay here. The panel is anchored
+   to the window's bottom edge and slides UP into it, so it covers that edge
+   from the first frame of the slide: the fillets always have something to join
+   to. The dock rises from below and needs the delay; this does not. */
+body::before,
+body::after {
+  content: '';
+  position: fixed;
+  bottom: 0;
+  width: var(--arch-w);
+  height: calc(var(--frame-band) + var(--arch-w));
+  pointer-events: none;
+  /* Nothing to fillet while the panel is parked off-screen below. */
+  opacity: 0;
+}
+
+body::before {
+  left: 0;
+  background: radial-gradient(
+    circle var(--arch-w) at top left,
+    transparent 0 var(--arch-w),
+    var(--surface) var(--arch-w)
+  );
+}
+
+body::after {
+  right: 0;
+  background: radial-gradient(
+    circle var(--arch-w) at top right,
+    transparent 0 var(--arch-w),
+    var(--surface) var(--arch-w)
+  );
+}
+
+body.open::before,
+body.open::after { opacity: 1; }
