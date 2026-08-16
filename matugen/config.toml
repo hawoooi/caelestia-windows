@@ -17,6 +17,15 @@ output_path = 'C:\Users\PC\Documents\git\setup\state\staging\palette.lua'
 input_path = 'C:\Users\PC\Documents\git\setup\matugen\templates\starship.toml'
 output_path = 'C:\Users\PC\Documents\git\setup\state\staging\starship.toml'
 
+# A cava colour theme, NOT a cava config -- cava's `[color] theme = '<name>'`
+# key loads a small colour-only file from ~/.config/cava/themes/<name>, which
+# is how this pipeline stays out of the 13 KB config where sensitivity, bar
+# count, output mode and shader choice live. That file is hand-owned; only
+# `theme = 'wallpaper'` in it points here.
+[templates.cava]
+input_path = 'C:\Users\PC\Documents\git\setup\matugen\templates\cava.theme'
+output_path = 'C:\Users\PC\Documents\git\setup\state\staging\cava.theme'
+
 [templates.zebar]
 input_path = 'C:\Users\PC\Documents\git\setup\matugen\templates\zebar.theme.css'
 output_path = 'C:\Users\PC\Documents\git\setup\state\staging\theme.css'

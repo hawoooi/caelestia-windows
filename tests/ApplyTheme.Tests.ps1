@@ -44,9 +44,9 @@ Describe "Apply-Theme" {
         (Get-Item $yasbCss).LastWriteTimeUtc | Should -Be $before
     }
 
-    It "-DryRun renders the three remaining target staging files, plus the non-target komorebi-colours.json" {
+    It "-DryRun renders every target staging file, plus the non-target komorebi-colours.json" {
         Apply-Theme -Image $script:probe -DryRun
-        foreach ($f in 'palette.lua', 'starship.toml', 'theme.css', 'komorebi-colours.json') {
+        foreach ($f in 'palette.lua', 'starship.toml', 'cava.theme', 'theme.css', 'komorebi-colours.json') {
             Test-Path "$PSScriptRoot\..\state\staging\$f" | Should -BeTrue
         }
     }
@@ -71,14 +71,15 @@ Describe "Apply-Theme targets (yasb/tacky retirement)" {
         $script:Targets.Name | Should -Not -Contain 'tacky'
     }
 
-    It "still includes wezterm, starship and zebar" {
+    It "still includes wezterm, starship and zebar, plus cava" {
         $script:Targets.Name | Should -Contain 'wezterm'
         $script:Targets.Name | Should -Contain 'starship'
         $script:Targets.Name | Should -Contain 'zebar'
+        $script:Targets.Name | Should -Contain 'cava'
     }
 
-    It "has exactly three targets" {
-        $script:Targets.Count | Should -Be 3
+    It "has exactly four targets" {
+        $script:Targets.Count | Should -Be 4
     }
 }
 
@@ -119,10 +120,13 @@ Describe "Update-LastGood atomic rotation" {
         $script:rotLastGoodPrev = Join-Path $script:rotRoot 'last-good-prev'
         $script:rotLastGoodNew  = Join-Path $script:rotRoot 'last-good-new'
         New-Item -ItemType Directory -Force -Path $script:rotStaging | Out-Null
-        # Post yasb/tacky retirement, $script:Targets (and therefore every
-        # file Update-LastGood actually rotates) is palette.lua/
-        # starship.toml/theme.css -- three files, not the original five.
-        foreach ($f in 'palette.lua', 'starship.toml', 'theme.css') {
+        # DERIVED from $script:Targets rather than hardcoded. Update-LastGood
+        # rotates exactly the staged files the target list names, so a
+        # literal list here goes stale the moment a target is added or
+        # retired -- which it did: these five tests all broke on the day cava
+        # became a fourth target, for no reason connected to what they test.
+        $script:rotFiles = $script:Targets.Staged
+        foreach ($f in $script:rotFiles) {
             [System.IO.File]::WriteAllText((Join-Path $script:rotStaging $f), "NEW-$f", (New-Object System.Text.UTF8Encoding($false)))
         }
     }
@@ -139,15 +143,15 @@ Describe "Update-LastGood atomic rotation" {
         Test-Path $script:rotLastGoodNew | Should -BeFalse
     }
 
-    It "rotates an existing last-good into last-good-prev and promotes the new generation, for all three files" {
+    It "rotates an existing last-good into last-good-prev and promotes the new generation, for every target file" {
         New-Item -ItemType Directory -Force -Path $script:rotLastGood | Out-Null
-        foreach ($f in 'palette.lua', 'starship.toml', 'theme.css') {
+        foreach ($f in $script:rotFiles) {
             [System.IO.File]::WriteAllText((Join-Path $script:rotLastGood $f), "OLD-$f", (New-Object System.Text.UTF8Encoding($false)))
         }
 
         Update-LastGood -StagingDir $script:rotStaging -LastGoodDir $script:rotLastGood -LastGoodPrevDir $script:rotLastGoodPrev -LastGoodNewDir $script:rotLastGoodNew
 
-        foreach ($f in 'palette.lua', 'starship.toml', 'theme.css') {
+        foreach ($f in $script:rotFiles) {
             (Get-Content (Join-Path $script:rotLastGood $f) -Raw).Trim() | Should -Be "NEW-$f"
             (Get-Content (Join-Path $script:rotLastGoodPrev $f) -Raw).Trim() | Should -Be "OLD-$f"
         }
@@ -156,7 +160,7 @@ Describe "Update-LastGood atomic rotation" {
 
     It "a second rotation replaces last-good-prev rather than accumulating a third generation" {
         New-Item -ItemType Directory -Force -Path $script:rotLastGood | Out-Null
-        foreach ($f in 'palette.lua', 'starship.toml', 'theme.css') {
+        foreach ($f in $script:rotFiles) {
             [System.IO.File]::WriteAllText((Join-Path $script:rotLastGood $f), 'GEN1', (New-Object System.Text.UTF8Encoding($false)))
         }
 
@@ -164,7 +168,7 @@ Describe "Update-LastGood atomic rotation" {
         Update-LastGood -StagingDir $script:rotStaging -LastGoodDir $script:rotLastGood -LastGoodPrevDir $script:rotLastGoodPrev -LastGoodNewDir $script:rotLastGoodNew
 
         # stage a third generation and rotate again
-        foreach ($f in 'palette.lua', 'starship.toml', 'theme.css') {
+        foreach ($f in $script:rotFiles) {
             [System.IO.File]::WriteAllText((Join-Path $script:rotStaging $f), "GEN3-$f", (New-Object System.Text.UTF8Encoding($false)))
         }
         Update-LastGood -StagingDir $script:rotStaging -LastGoodDir $script:rotLastGood -LastGoodPrevDir $script:rotLastGoodPrev -LastGoodNewDir $script:rotLastGoodNew
@@ -188,7 +192,7 @@ Describe "Update-LastGood atomic rotation" {
         # existed to replace it, silently discarding the one surviving
         # fallback on the next successful apply. Found by external review.
         New-Item -ItemType Directory -Force -Path $script:rotLastGoodPrev | Out-Null
-        foreach ($f in 'palette.lua', 'starship.toml', 'theme.css') {
+        foreach ($f in $script:rotFiles) {
             [System.IO.File]::WriteAllText((Join-Path $script:rotLastGoodPrev $f), "SURVIVOR-$f", (New-Object System.Text.UTF8Encoding($false)))
         }
         Test-Path $script:rotLastGood | Should -BeFalse  # simulating the interrupted state
@@ -198,7 +202,7 @@ Describe "Update-LastGood atomic rotation" {
         ($warnings -join ' ') | Should -Match 'last-good-prev'
 
         # last-good-prev must survive, untouched, with its original content.
-        foreach ($f in 'palette.lua', 'starship.toml', 'theme.css') {
+        foreach ($f in $script:rotFiles) {
             (Get-Content (Join-Path $script:rotLastGoodPrev $f) -Raw).Trim() | Should -Be "SURVIVOR-$f"
         }
         # This run's staged content is still promoted to last-good normally.
@@ -455,6 +459,93 @@ Describe "Test-StagedFile zebar branch" {
         $p = "$env:TEMP\zt-decl.css"
         Set-Content $p ":root {`n  color: red;`n}" -Encoding ascii
         Test-StagedFile -Name 'zebar' -Path $p | Should -BeFalse
+    }
+}
+
+Describe "Test-StagedFile cava branch" {
+    BeforeAll {
+        # The shape the real template renders to: a [color] section, the
+        # gradient switch, and contiguous quoted-hex stops.
+        $script:CavaGood = "[color]`nforeground = '#80d4d9'`ngradient = 1`ngradient_color_1 = '#80d4d9'`ngradient_color_2 = '#b5c7e9'`ngradient_color_3 = '#ffb4ab'"
+    }
+    It "accepts a well-formed theme" {
+        $p = "$env:TEMP\cv-good.theme"
+        Set-Content $p $script:CavaGood -Encoding ascii
+        Test-StagedFile -Name 'cava' -Path $p | Should -BeTrue
+    }
+    It "accepts a ';' comment line that contains an '='" {
+        $p = "$env:TEMP\cv-semi.theme"
+        Set-Content $p "; with gradient = 1 the stops below win`n$script:CavaGood" -Encoding ascii
+        Test-StagedFile -Name 'cava' -Path $p | Should -BeTrue
+    }
+    It "rejects an unrendered expression" {
+        $p = "$env:TEMP\cv-unrendered.theme"
+        Set-Content $p "[color]`ngradient = 1`ngradient_color_1 = '{{colors.primary.default.hex}}'`ngradient_color_2 = '#b5c7e9'" -Encoding ascii
+        Test-StagedFile -Name 'cava' -Path $p | Should -BeFalse
+    }
+    It "rejects a '#' comment line -- cava's Windows INI reader only honours ';'" {
+        $p = "$env:TEMP\cv-hash.theme"
+        Set-Content $p "# gradient = 0`n$script:CavaGood" -Encoding ascii
+        Test-StagedFile -Name 'cava' -Path $p | Should -BeFalse
+    }
+    It "rejects a missing [color] section" {
+        $p = "$env:TEMP\cv-nosection.theme"
+        Set-Content $p "gradient = 1`ngradient_color_1 = '#80d4d9'`ngradient_color_2 = '#ffb4ab'" -Encoding ascii
+        Test-StagedFile -Name 'cava' -Path $p | Should -BeFalse
+    }
+    It "rejects a theme with the gradient switched off" {
+        $p = "$env:TEMP\cv-nograd.theme"
+        Set-Content $p "[color]`ngradient = 0`ngradient_color_1 = '#80d4d9'`ngradient_color_2 = '#ffb4ab'" -Encoding ascii
+        Test-StagedFile -Name 'cava' -Path $p | Should -BeFalse
+    }
+    It "rejects a single stop -- cava divides by (gradient_count - 1)" {
+        $p = "$env:TEMP\cv-onestop.theme"
+        Set-Content $p "[color]`ngradient = 1`ngradient_color_1 = '#80d4d9'" -Encoding ascii
+        Test-StagedFile -Name 'cava' -Path $p | Should -BeFalse
+    }
+    It "rejects more than the 8 stops cava can read" {
+        $p = "$env:TEMP\cv-ninestops.theme"
+        $lines = @("[color]", "gradient = 1")
+        1..9 | ForEach-Object { $lines += "gradient_color_$_ = '#80d4d9'" }
+        Set-Content $p ($lines -join "`n") -Encoding ascii
+        Test-StagedFile -Name 'cava' -Path $p | Should -BeFalse
+    }
+    It "rejects non-contiguous stop numbering, which cava would silently truncate at the gap" {
+        $p = "$env:TEMP\cv-gap.theme"
+        Set-Content $p "[color]`ngradient = 1`ngradient_color_1 = '#80d4d9'`ngradient_color_3 = '#ffb4ab'" -Encoding ascii
+        Test-StagedFile -Name 'cava' -Path $p | Should -BeFalse
+    }
+    It "rejects a value that is not a colour" {
+        # The exact shape cava itself rejects at startup: 'default' is not a
+        # colour, it is an instruction to emit no colour escape at all.
+        $p = "$env:TEMP\cv-default.theme"
+        Set-Content $p "[color]`nforeground = default`ngradient = 1`ngradient_color_1 = '#80d4d9'`ngradient_color_2 = '#ffb4ab'" -Encoding ascii
+        Test-StagedFile -Name 'cava' -Path $p | Should -BeFalse
+    }
+    It "rejects an unquoted hex value" {
+        $p = "$env:TEMP\cv-unquoted.theme"
+        Set-Content $p "[color]`ngradient = 1`ngradient_color_1 = #80d4d9`ngradient_color_2 = '#ffb4ab'" -Encoding ascii
+        Test-StagedFile -Name 'cava' -Path $p | Should -BeFalse
+    }
+}
+
+Describe "cava is a wired theme target" {
+    It "appears in `$script:Targets pointing at cava's themes directory" {
+        $cava = $script:Targets | Where-Object { $_.Name -eq 'cava' }
+        $cava | Should -Not -BeNullOrEmpty
+        $cava.Staged | Should -Be 'cava.theme'
+        # No extension, deliberately: cava builds themes/<name> verbatim.
+        $cava.Live | Should -Be "$env:USERPROFILE\.config\cava\themes\wallpaper"
+    }
+    It "has a matugen template carrying no colour literals of its own" {
+        $t = [System.IO.File]::ReadAllText((Join-Path $script:Root 'matugen\templates\cava.theme'))
+        [regex]::Matches($t, '#[0-9a-fA-F]{6}\b').Count | Should -Be 0
+        $t | Should -Match 'gradient = 1'
+    }
+    It "is rendered by matugen into state/staging" {
+        $toml = [System.IO.File]::ReadAllText((Join-Path $script:Root 'matugen\config.toml'))
+        $toml | Should -Match '\[templates\.cava\]'
+        $toml | Should -Match 'staging\\cava\.theme'
     }
 }
 

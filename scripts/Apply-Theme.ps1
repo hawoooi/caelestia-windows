@@ -44,6 +44,14 @@ $script:ZebarExe    = "C:\Program Files\glzr.io\Zebar\zebar.exe"
 $script:Targets = @(
     @{ Name='wezterm';  Staged='palette.lua';      Live="$env:USERPROFILE\.config\palette.lua" }
     @{ Name='starship'; Staged='starship.toml';    Live="$env:USERPROFILE\.config\starship.toml" }
+    # cava's THEME file, not its config. cava's `[color] theme = '<name>'`
+    # key loads ~/.config/cava/themes/<name>, so the 13 KB config next to it
+    # (sensitivity, bar count, output mode, shader) stays hand-owned and is
+    # never written by this pipeline -- only the colours are. The live file
+    # deliberately has no extension: cava builds the path as themes/<name>
+    # verbatim, the same shape as the solarized_dark/tricolor themes it
+    # ships with.
+    @{ Name='cava';     Staged='cava.theme';       Live="$env:USERPROFILE\.config\cava\themes\wallpaper" }
     # Unlike the two targets above, this one lives INSIDE the repo -- the
     # zebar pack is tracked, and theme.css is a committed generated
     # artifact (see Task 9 brief).
@@ -246,6 +254,72 @@ function Test-StagedFile {
             if ($code -ne 0) {
                 Write-Warning "starship rejected the generated config (exit $code)"
                 return $false
+            }
+            return $true
+        }
+        'cava' {
+            # cava refuses to START if the theme file named by its config is
+            # missing or holds a value it cannot parse ("Error loading
+            # config. The value for 'foreground' is invalid...", verified
+            # live) -- so unlike the other targets here, a bad write is not
+            # merely cosmetic, it takes the visualiser down entirely. These
+            # checks run pre-copy, and state/pre-apply/ holds the rollback.
+
+            # On Windows cava does not use iniparser at all: config.c's
+            # entire Windows branch reads every key through
+            # GetPrivateProfileString, the Win32 INI API, which honours only
+            # ';' as a comment marker. A '#' comment that happened to contain
+            # an '=' would therefore be read as a key/value pair rather than
+            # ignored. The template is written to that rule; this is what
+            # stops a later edit from quietly breaking it.
+            foreach ($line in ($text -split "`r?`n")) {
+                if ($line -match '^\s*#') {
+                    Write-Warning "cava.theme has a '#' comment line -- cava's Windows INI reader only honours ';'"
+                    return $false
+                }
+            }
+
+            if ($text -notmatch '(?m)^\s*\[color\]\s*$') {
+                Write-Warning "cava.theme has no [color] section"
+                return $false
+            }
+            if ($text -notmatch '(?m)^\s*gradient\s*=\s*1\s*$') {
+                Write-Warning "cava.theme does not enable the gradient (gradient = 1)"
+                return $false
+            }
+
+            $stops = [regex]::Matches($text, "(?m)^\s*gradient_color_(\d+)\s*=\s*'#[0-9a-fA-F]{6}'\s*$")
+            # cava computes its per-line interpolation as
+            # gradient_size / (gradient_count - 1), so a single stop is a
+            # divide-by-zero, and MAX_GRADIENT_COLOR_DEFS caps it at 8.
+            if ($stops.Count -lt 2) {
+                Write-Warning "cava.theme defines $($stops.Count) usable gradient stop(s); cava needs at least 2"
+                return $false
+            }
+            if ($stops.Count -gt 8) {
+                Write-Warning "cava.theme defines $($stops.Count) gradient stops; cava reads at most 8"
+                return $false
+            }
+            # cava reads gradient_color_1..N by name and stops at the first
+            # gap, so a non-contiguous run silently drops every stop past
+            # the hole rather than erroring -- exactly the kind of quiet
+            # wrongness a structural check exists to catch.
+            for ($i = 0; $i -lt $stops.Count; $i++) {
+                if ([int]$stops[$i].Groups[1].Value -ne ($i + 1)) {
+                    Write-Warning "cava.theme's gradient stops are not numbered 1..$($stops.Count) contiguously"
+                    return $false
+                }
+            }
+
+            # Every remaining key must carry a quoted 6-digit hex. This is
+            # the check that catches a role rendering to something that is
+            # not a colour at all; `gradient` is the one numeric key.
+            foreach ($m in [regex]::Matches($text, "(?m)^\s*([A-Za-z_0-9]+)\s*=\s*(.+?)\s*$")) {
+                if ($m.Groups[1].Value -eq 'gradient') { continue }
+                if ($m.Groups[2].Value -notmatch "^'#[0-9a-fA-F]{6}'$") {
+                    Write-Warning "cava.theme has a non-colour value for '$($m.Groups[1].Value)': $($m.Groups[2].Value)"
+                    return $false
+                }
             }
             return $true
         }

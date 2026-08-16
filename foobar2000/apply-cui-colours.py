@@ -1,4 +1,29 @@
 """
+!!! THIS SCRIPT DOES NOT WORK. DO NOT USE IT TO THEME COLUMNS UI. !!!
+
+foo_ui_columns.dll.cfg is integrity-checked. Changing even three bytes of it --
+a colour value OR an inert comment string -- makes foobar2000 refuse the file
+with "Error reading configuration file (Corrupted configuration file)" on the
+next start. Header layout is:
+
+    magic GUID(16) | contentHash(16) | payloadLen:u32 | payload
+
+Bytes 16..31 demonstrably vary with payload content across two foobar-written
+samples, but the hash is not a stock digest: md5 / sha1 / sha256 / sha512 /
+blake2b / blake2s / ripemd160 / sm3 over eight span constructions in three byte
+orders all failed to reproduce it. Until that is cracked, this file must only be
+written by foobar2000 itself.
+
+Columns UI colours therefore have to be set through its Preferences GUI
+(Display > Columns UI > Colours and fonts), and the wallpaper-driven theming
+belongs in the foo_uie_webview panel instead -- see render-theme-css.py, whose
+output is plain CSS with no integrity checking at all.
+
+Kept only because the decode below is accurate and was expensive to obtain, and
+because --restore is a working way back from a botched experiment.
+
+---- original description ----
+
 Patch Columns UI's colour table in foo_ui_columns.dll.cfg from palette.json.
 
 The config is a binary blob of GUID-keyed records. Colour clients (playlist view,
