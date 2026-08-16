@@ -129,3 +129,66 @@ These are the project's, and they exist because each was paid for:
 4. A screenshot of the result.
 5. Whether this is templatable into the matugen pipeline later, and what that
    would take.
+
+---
+
+# STATE AT RESTART — 2026-08-16 21:15. READ THIS BEFORE THE TASK LIST ABOVE.
+
+An earlier agent worked this task for roughly two hours and **its transcript was
+never written to disk**, because it inherited a `CLAUDE_CODE_CHILD_SESSION`
+marker that silently disables transcript persistence. Its reasoning is
+unrecoverable. Only the artifacts below survive, and they are the whole record.
+This session is started with `CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1` so the
+same thing does not happen twice.
+
+**Nothing below is a suggestion to redo. It is done. Do not repeat it, and do
+not undo it without saying why.**
+
+## Established facts
+
+- **The backup exists and is verified**:
+  `state/foobar2000-backup/20260816-193112/`, **158 files**. The live install
+  is 159 files / 24.9 MB, so confirm the one-file difference is benign (likely a
+  lock or a file created after the copy) before relying on it.
+- **All work happens in a DUPLICATE portable install:**
+  `C:\Users\PC\Music\foobar2000-caelestia\` (511 files, 44.6 MB).
+  **`C:\Users\PC\Music\foobar2000\` is the user's LIVE player and is RUNNING
+  right now.** Never write to it. foobar2000 rewrites its configuration on
+  exit, so edits to a running instance are lost anyway.
+- **The UI is Columns UI** (`foo_ui_columns`), plus `foo_uie_webview`,
+  `foo_discord_rich` and `foo_playcount`, all under
+  `profile\user-components-x64\`.
+- **Columns UI's own `.cfg` is CHECKSUMMED — never hand-patch it.** A written
+  config with a stale checksum is rejected. Theming goes through the
+  `foo_uie_webview` panel's HTML/CSS instead, which is why the artifacts below
+  are a web page rather than a theme file.
+
+## Artifacts already built, all under `setup/foobar2000/`
+
+| file | what it is |
+|---|---|
+| `palette.json` | the eight Material You roles, and the **single substitution point** for a future matugen template |
+| `render-theme-css.py` | `palette.json` -> `theme.css`; writes UTF-8 **no BOM** per the house rule |
+| `theme.css` | generated; **do not hand-edit** |
+| `mockup.html` | the panel design (~24 KB). Contains **zero colour literals** — every colour is `var(--role)`, the same discipline the Zebar pack enforces |
+| `build-standalone.py` | inlines the CSS and rewrites every image to a `data:` URI, for a single self-contained page |
+| `art/` | 53 cover images plus `manifest.json` |
+
+## Question 5 is already answered
+
+`render-theme-css.py` **is** the substitution point. A future matugen template
+would replace that script and emit `theme.css` from the live wallpaper palette,
+with no other change anywhere — because `mockup.html` holds no colour literals.
+Do not re-derive this; build on it.
+
+## What is genuinely unfinished
+
+Establish this yourself rather than trusting this list — it is inferred from
+files on disk, not from the previous agent, which cannot be asked:
+
+1. Whether the webview panel is actually **wired into the duplicate install's
+   Columns UI layout** and pointed at these files, or whether `mockup.html` is
+   still only a standalone design.
+2. A **screenshot of the result running inside foobar2000** — item 4 of the
+   report above. A mockup rendered in a browser is not that, and this project's
+   house rule is that looking at the real thing is the only proof.
