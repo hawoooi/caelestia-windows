@@ -1,207 +1,129 @@
-# starship prompt.
+# starship prompt -- agnoster, in this wallpaper's palette.
 #
-# Started as the Catppuccin Powerline preset
-# (https://starship.rs/presets/catppuccin-powerline) with the Catppuccin
-# palette swapped for this wallpaper's matugen roles. The powerline half was
-# then removed, on direct user feedback, and it is worth recording why so it is
-# not "restored" later.
+# Chosen from ten printed candidates (scripts/Show-PromptCandidates.ps1); this
+# is the "10-agnoster-themed" one, ported here so it follows the wallpaper. The
+# preview configs under state/prompt-candidates/ have the palette baked in as
+# literal hex and must never be installed -- a literal palette stops
+# re-theming. This file is the only version that does.
 #
-# **The separators could not render correctly on this terminal.** Powerline
-# glyphs (U+E0B0 and friends) are drawn to fill exactly one cell, edge to edge.
-# `~/.wezterm.lua` sets `config.cell_width = 0.9` -- a deliberate tightening,
-# because "Cartograph's natural advance reads as too spread out" -- so every
-# separator is squeezed into 90% of the width it was designed for and clips
-# into a doubled-chevron artifact. Reported as "why is there weird shapes on
-# the arrows". The only real fix is cell_width = 1.0, which would re-space
-# every character in the terminal to repair six glyphs. Not worth it.
+# ---------------------------------------------------------------------------
+# CORRECTION: POWERLINE SEPARATORS WORK. The previous version of this file
+# argued at length that they could not, on the grounds that ~/.wezterm.lua's
+# `cell_width = 0.9` squeezes U+E0B0 into a doubled-chevron artifact, and that
+# the only fix was cell_width = 1.0. THAT WAS INFERRED AND NEVER TESTED, and it
+# is wrong. Tested by rendering this design in a real WezTerm at the live
+# setting and zooming in: the separators are clean solid triangles, no doubling
+# and no seam. The artifact belonged to a DIFFERENT glyph -- the catppuccin
+# preset also uses the ROUND caps U+E0B4/U+E0B6, a different shape with a
+# different cell fit. cell_width does not need changing.
+# ---------------------------------------------------------------------------
 #
-# So: **no backgrounds and no separators.** Colour lives in the TEXT. That also
-# settles the original complaint that started this ("this looks too blocky"),
-# and it removes the preset's habit of drawing empty coloured slivers for
-# language modules that have nothing to report.
+# THE ONE RULE THIS FILE FOLLOWS: every arrow is drawn by a module that knows
+# BOTH blocks it sits between, because an arrow is coloured
+# `fg = block on its left, bg = block on its right`. A closing arrow placed in
+# [character] is a guess -- starship has no conditional styling and no way to
+# ask whether a module rendered, so [character] cannot know which block came
+# last, and the arrow comes out mismatched against the block it touches. That
+# is why git_branch (the last block inside a repo) owns the closing arrow, and
+# why [character] draws nothing at all. If you re-enable a module that renders
+# AFTER git_branch, the closing arrow must move onto it.
+#
+# Verify a change by dumping the raw SGR escapes and checking the pair
+# preceding each U+E0B0, not by eye:
+#   $env:STARSHIP_CONFIG = "$env:USERPROFILE\.config\starship.toml"
+#   starship prompt --status=0 | Format-Hex
 #
 # EVERY GLYPH IS A \uXXXX ESCAPE, DELIBERATELY. An earlier version pasted them
 # in raw and every character in the BMP private-use area (U+E000-U+F8FF) was
-# silently stripped -- the separators became empty `[]` and the icons vanished
-# entirely. An escape is plain ASCII and cannot be lost that way. TOML detail
-# that forces: BASIC strings ("...") support \uXXXX, LITERAL strings ('...') do
-# not, and inside a basic string `\(` is a parse error -- so [python]'s format
-# stays literal (it needs \( and \), and carries no glyph of its own).
+# silently stripped -- separators became empty `[]` and icons vanished. An
+# escape is plain ASCII and cannot be lost that way. TOML detail that forces
+# it: BASIC strings ("..." and """...""") support \uXXXX, LITERAL strings
+# ('...') do not -- in a literal string the backslash reaches starship's own
+# format parser raw and is rejected with "expected escaped_char".
 #
-# Codepoints are chosen for the font this terminal actually uses,
-# `CartographCF Nerd Font`, which is a **Nerd Fonts v2** build. v2 puts
-# Material Design Icons at U+F500-U+FD46 where v3 puts them at
-# U+F0001-U+F1AF0, so the upstream preset's icons are absent here. Every
-# codepoint below was checked against the font's own cmap, and the ones that
-# matter were rendered and looked at -- presence in a cmap says nothing about
-# what a glyph draws.
+# Codepoints are chosen for `CartographCF Nerd Font`, a Nerd Fonts **v2**
+# build. Each was verified present by rendering it and comparing its ink
+# against a deliberately-unassigned codepoint, so a .notdef fallback would be
+# caught rather than assumed.
 
-format = """
-$os\
-$username\
-$directory\
-$git_branch\
-$git_status\
-$c\
-$rust\
-$golang\
-$nodejs\
-$bun\
-$php\
-$java\
-$kotlin\
-$haskell\
-$python\
-$conda\
-$time\
-$cmd_duration\
-$line_break\
-$character"""
-
-[os]
-disabled = false
-style = "fg:{{colors.error.default.hex}}"
-format = "[$symbol]($style)"
-
-[os.symbols]
-# A GHOST, matching the left bar's own top logo, so the prompt and the bar
-# carry the same signature.
+# The leading block is a GHOST, matching the left bar's own logo, in place of
+# agnoster's user@host. Direct user request.
 #
 # NOT the bar's codepoint. The bar uses Font Awesome Free 6 Solid's U+F6E2
 # (bar/entries/logo.js); that codepoint IS in this font's cmap, where it draws
 # the DROPBOX logo, because it falls inside Nerd Fonts v2's Material Design
-# block. The real ghost is U+F79F (nf-mdi-ghost), found by rendering the whole
-# U+F500-U+FD46 range as a contact sheet and reading the alphabetical order --
-# it sits between gender-transgender (U+F79E) and gift (U+F7A0).
+# block. The real ghost is U+F79F (nf-mdi-ghost).
 #
-# Only Windows is defined. The preset's other OS symbols use Nerd Fonts v3
-# codepoints that are absent from this font, so carrying them would be a list
-# of guaranteed tofu for machines this config will never run on.
-Windows = "\uF79F"
-
-[username]
-show_always = true
-style_user = "fg:{{colors.error.default.hex}}"
-style_root = "fg:{{colors.error.default.hex}}"
-format = '[ $user ]($style)'
+# It is literal styled text rather than a module because no starship module
+# renders a constant. The arrow out of it is drawn here for the usual reason.
+#
+# Cost of the simplification, stated rather than hidden: agnoster shows the
+# user in red when root, via [username]'s style_root. With that module gone
+# there is no root indicator at all.
+format = """[ \uF79F ](bg:{{colors.surface_container_highest.default.hex}} fg:{{colors.on_surface.default.hex}})\
+[\uE0B0](fg:{{colors.surface_container_highest.default.hex}} bg:{{colors.primary.default.hex}})\
+$directory\
+$git_branch\
+$cmd_duration\
+$character"""
 
 [directory]
-# The FULL path, on direct user feedback ("print the full path").
-#
-# `truncation_length = 0` disables the 3-component truncation, and
-# `truncate_to_repo = false` stops starship shortening the path to the git
-# repository root -- which is the setting that actually matters here, since
-# this prompt is usually inside one. `home_symbol` keeps ~ rather than spelling
-# out C:\Users\PC, which is shorter without hiding anything.
-style = "fg:{{colors.primary.default.hex}}"
+# Colours are a Material ROLE PAIR, not a computed tone. The preview derived
+# each block's text by dropping its own background to 11% lightness; here
+# `on_primary` is the counterpart Material already designs for exactly this --
+# text on a primary-filled surface -- so contrast is guaranteed by construction
+# and survives any wallpaper, which a hand-computed lightness would not.
+style = "bg:{{colors.primary.default.hex}} fg:{{colors.on_primary.default.hex}}"
 format = "[ $path ]($style)"
+# The FULL path. Standing user instruction ("print the full path"), and it is
+# also what real agnoster does -- its prompt_dir is `%~`, the whole path with ~
+# abbreviation, NOT a truncation. The candidate preview showed `…\setup` only
+# because the preview set truncation_length = 3; that was a deviation, not
+# agnoster. To go back to three components: truncation_length = 3 and
+# truncation_symbol = "…/".
 truncation_length = 0
 truncate_to_repo = false
 home_symbol = "~"
 
 # NO [directory.substitutions] -- direct user feedback, "no icons on the path".
-# The folder icons replaced the words Documents / Downloads / Music / Pictures,
-# which made a full path read as a row of pictograms.
 
 [git_branch]
+# Owns the CLOSING ARROW, because with git_status disabled this is the last
+# block inside a repo. See the rule at the top of this file before moving it.
 symbol = "\uF418"
-style = "fg:{{colors.tertiary.default.hex}}"
-format = '[$symbol $branch ]($style)'
+style = "bg:{{colors.tertiary.default.hex}} fg:{{colors.on_tertiary.default.hex}}"
+format = "[\uE0B0](fg:{{colors.primary.default.hex}} bg:{{colors.tertiary.default.hex}})[ $symbol $branch ]($style)[\uE0B0](fg:{{colors.tertiary.default.hex}})"
 
 [git_status]
-style = "fg:{{colors.tertiary.default.hex}}"
-format = '[($all_status$ahead_behind )]($style)'
-
-[nodejs]
-symbol = "\uE718"
-style = "fg:{{colors.secondary.default.hex}}"
-format = '[$symbol( $version) ]($style)'
-
-[bun]
-symbol = "\uE76F"
-style = "fg:{{colors.secondary.default.hex}}"
-format = '[$symbol( $version) ]($style)'
-
-[c]
-symbol = "\uE61E"
-style = "fg:{{colors.secondary.default.hex}}"
-format = '[$symbol( $version) ]($style)'
-
-[rust]
-symbol = "\uE7A8"
-style = "fg:{{colors.secondary.default.hex}}"
-format = '[$symbol( $version) ]($style)'
-
-[golang]
-symbol = "\uE627"
-style = "fg:{{colors.secondary.default.hex}}"
-format = '[$symbol( $version) ]($style)'
-
-[php]
-symbol = "\uE608"
-style = "fg:{{colors.secondary.default.hex}}"
-format = '[$symbol( $version) ]($style)'
-
-[java]
-symbol = "\uE256"
-style = "fg:{{colors.secondary.default.hex}}"
-format = '[$symbol( $version) ]($style)'
-
-[kotlin]
-# The preset's U+E634 is absent from this font (checked against its cmap), so
-# the generic Font Awesome "code" glyph stands in rather than a tofu box.
-symbol = "\uF121"
-style = "fg:{{colors.secondary.default.hex}}"
-format = '[$symbol( $version) ]($style)'
-
-[haskell]
-symbol = "\uE61F"
-style = "fg:{{colors.secondary.default.hex}}"
-format = '[$symbol( $version) ]($style)'
-
-[python]
-# LITERAL string on purpose: it needs `\(` and `\)`, which a basic string would
-# reject as invalid escapes. It carries no glyph of its own, so it loses
-# nothing by staying literal.
-symbol = "\uE606"
-style = "fg:{{colors.secondary.default.hex}}"
-format = '[$symbol( $version)(\(#$virtualenv\)) ]($style)'
-
-[docker_context]
-symbol = "\uF308"
-style = "fg:{{colors.primary_fixed.default.hex}}"
-format = '[$symbol( $context) ]($style)'
-
-[conda]
-symbol = "\uF10C"
-style = "fg:{{colors.primary_fixed.default.hex}}"
-format = '[$symbol $environment ]($style)'
-ignore_base = false
-
-[time]
-# No clock glyph -- direct user feedback, "we can remove the time icon as
-# well". A bare HH:MM in a dimmer colour reads as a timestamp on its own.
-disabled = false
-time_format = "%R"
-style = "fg:{{colors.tertiary_fixed.default.hex}}"
-format = '[$time ]($style)'
-
-[line_break]
+# OFF by direct request -- "remove those marks". It showed, in order: tracked
+# files with unstaged edits (!), untracked files (?), and commits ahead of the
+# remote (arrow + count).
+#
+# To bring it back: set disabled = false, MOVE the closing arrow off
+# git_branch's format above onto the end of this one, and restore
+#   style  = "bg:{{colors.tertiary.default.hex}} fg:{{colors.on_tertiary.default.hex}}"
+#   format = "[ $all_status$ahead_behind ]($style)[\uE0B0](fg:{{colors.tertiary.default.hex}})"
+#   ahead / behind / diverged = the SOLID arrows U+2191 / U+2193 / U+2195.
+# Never starship's dashed U+21E1/U+21E3 defaults: measured at ~54px of ink
+# against ~107px for the solid ones and ~71px for a plain "?", they read as
+# broken glyphs at terminal size rather than as arrows.
 disabled = true
 
 [character]
-disabled = false
-success_symbol = "[\u276F](bold fg:{{colors.secondary.default.hex}})"
-error_symbol = "[\u276F](bold fg:{{colors.error.default.hex}})"
-vimcmd_symbol = "[\u276E](bold fg:{{colors.secondary.default.hex}})"
-vimcmd_replace_one_symbol = "[\u276E](bold fg:{{colors.tertiary_fixed.default.hex}})"
-vimcmd_replace_symbol = "[\u276E](bold fg:{{colors.tertiary_fixed.default.hex}})"
-vimcmd_visual_symbol = "[\u276E](bold fg:{{colors.tertiary.default.hex}})"
+# Draws NOTHING. The prompt already ends in git_branch's closing arrow, and an
+# arrow here could not know which block preceded it. See the rule at the top.
+success_symbol = ""
+error_symbol = ""
 
 [cmd_duration]
-show_milliseconds = true
-format = "took $duration "
-style = "fg:{{colors.tertiary_fixed.default.hex}}"
+# Plain text after the closing arrow, so it never participates in the powerline
+# chain and can appear or vanish without leaving a mismatched separator.
+min_time = 2000
+format = " took $duration"
+style = "fg:{{colors.outline.default.hex}}"
 disabled = false
 show_notifications = true
 min_time_to_notify = 45000
+
+[line_break]
+disabled = true
