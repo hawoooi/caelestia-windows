@@ -1,40 +1,47 @@
-# starship prompt -- the Catppuccin Powerline preset
-# (https://starship.rs/presets/catppuccin-powerline), with the Catppuccin
-# palette swapped out for this wallpaper's matugen roles.
+# starship prompt.
 #
-# EVERY GLYPH IN THIS FILE IS A \uXXXX ESCAPE, DELIBERATELY. The previous
-# version of this template pasted them in as raw characters, and every glyph in
-# the BMP private-use area (U+E000-U+F8FF) was silently stripped at some point
-# -- the powerline separators became empty `[]`, and the Windows, git-branch,
-# clock and language icons all vanished. Only the 4-byte Material Design glyphs
-# and one U+2588 FULL BLOCK survived, which is why the prompt rendered as hard
-# colour blocks with no transitions between them ("this looks too blocky").
+# Started as the Catppuccin Powerline preset
+# (https://starship.rs/presets/catppuccin-powerline) with the Catppuccin
+# palette swapped for this wallpaper's matugen roles. The powerline half was
+# then removed, on direct user feedback, and it is worth recording why so it is
+# not "restored" later.
 #
-# TOML makes this safe to express: BASIC strings ("..." and """...""") support
-# \uXXXX, LITERAL strings ('...') do not. So anything carrying a glyph below is
-# a basic string. Note the one trap that creates: inside a basic string, only
-# \b \t \n \f \r \" \ \uXXXX \UXXXXXXXX are legal escapes, so `\(` must be
-# written `\(` -- see [python] below, which is left as a LITERAL string for
-# exactly that reason since it needs no glyph of its own.
+# **The separators could not render correctly on this terminal.** Powerline
+# glyphs (U+E0B0 and friends) are drawn to fill exactly one cell, edge to edge.
+# `~/.wezterm.lua` sets `config.cell_width = 0.9` -- a deliberate tightening,
+# because "Cartograph's natural advance reads as too spread out" -- so every
+# separator is squeezed into 90% of the width it was designed for and clips
+# into a doubled-chevron artifact. Reported as "why is there weird shapes on
+# the arrows". The only real fix is cell_width = 1.0, which would re-space
+# every character in the terminal to repair six glyphs. Not worth it.
 #
-# Codepoints are chosen for the font this terminal actually uses --
-# `CartographCF Nerd Font` (~/.wezterm.lua), a **Nerd Fonts v2** build. That
-# matters: v2 puts Material Design Icons at U+F500-U+FD46, where v3 puts them
-# at U+F0001-U+F1AF0, so the upstream preset's OS symbols (U+F0548 for Ubuntu
-# and friends) are ABSENT here and would render as tofu. Every codepoint below
-# was checked against the font's own cmap before being written, and the ones
-# that matter were rendered and looked at.
+# So: **no backgrounds and no separators.** Colour lives in the TEXT. That also
+# settles the original complaint that started this ("this looks too blocky"),
+# and it removes the preset's habit of drawing empty coloured slivers for
+# language modules that have nothing to report.
+#
+# EVERY GLYPH IS A \uXXXX ESCAPE, DELIBERATELY. An earlier version pasted them
+# in raw and every character in the BMP private-use area (U+E000-U+F8FF) was
+# silently stripped -- the separators became empty `[]` and the icons vanished
+# entirely. An escape is plain ASCII and cannot be lost that way. TOML detail
+# that forces: BASIC strings ("...") support \uXXXX, LITERAL strings ('...') do
+# not, and inside a basic string `\(` is a parse error -- so [python]'s format
+# stays literal (it needs \( and \), and carries no glyph of its own).
+#
+# Codepoints are chosen for the font this terminal actually uses,
+# `CartographCF Nerd Font`, which is a **Nerd Fonts v2** build. v2 puts
+# Material Design Icons at U+F500-U+FD46 where v3 puts them at
+# U+F0001-U+F1AF0, so the upstream preset's icons are absent here. Every
+# codepoint below was checked against the font's own cmap, and the ones that
+# matter were rendered and looked at -- presence in a cmap says nothing about
+# what a glyph draws.
 
 format = """
-[\uE0B6](#ffb4ab)\
 $os\
 $username\
-[\uE0B0](bg:#80d4d9 fg:#ffb4ab)\
 $directory\
-[\uE0B0](bg:#b5c7e9 fg:#80d4d9)\
 $git_branch\
 $git_status\
-[\uE0B0](fg:#b5c7e9 bg:#b1cccd)\
 $c\
 $rust\
 $golang\
@@ -45,141 +52,139 @@ $java\
 $kotlin\
 $haskell\
 $python\
-[\uE0B0](fg:#b1cccd bg:#9cf0f5)\
 $conda\
-[\uE0B0](fg:#9cf0f5 bg:#d5e3ff)\
 $time\
-[\uE0B4](fg:#d5e3ff)\
 $cmd_duration\
 $line_break\
 $character"""
 
 [os]
 disabled = false
-style = "bg:#ffb4ab fg:#690005"
+style = "fg:#ffb4ab"
+format = "[$symbol]($style)"
 
 [os.symbols]
-# A GHOST, not the Windows logo -- the same mark the left bar wears as its top
-# logo, so the prompt and the bar carry the same signature.
+# A GHOST, matching the left bar's own top logo, so the prompt and the bar
+# carry the same signature.
 #
-# The bar's ghost is Font Awesome Free 6 Solid's, U+F6E2 (bar/entries/logo.js).
-# That codepoint is NOT the same icon here: this is a Nerd Fonts v2 build, and
-# U+F6E2 lands inside its Material Design block, where it renders as the
-# DROPBOX logo. Rendered and looked at, rather than trusted -- being present in
-# the cmap says nothing about what a glyph draws.
+# NOT the bar's codepoint. The bar uses Font Awesome Free 6 Solid's U+F6E2
+# (bar/entries/logo.js); that codepoint IS in this font's cmap, where it draws
+# the DROPBOX logo, because it falls inside Nerd Fonts v2's Material Design
+# block. The real ghost is U+F79F (nf-mdi-ghost), found by rendering the whole
+# U+F500-U+FD46 range as a contact sheet and reading the alphabetical order --
+# it sits between gender-transgender (U+F79E) and gift (U+F7A0).
 #
-# The real ghost is U+F79F (nf-mdi-ghost), found by rendering the whole
-# U+F500-U+FD46 range as a contact sheet: it sits at the end of the g-names,
-# between gender-transgender (U+F79E) and gift (U+F7A0), which is exactly
-# Material Design's alphabetical order.
-#
-# Only Windows is defined. The upstream preset's other OS symbols use Nerd
-# Fonts **v3** codepoints that are absent from this font, so carrying them here
-# would just be a list of guaranteed tofu for machines this config will never
-# run on. starship's own defaults cover them.
+# Only Windows is defined. The preset's other OS symbols use Nerd Fonts v3
+# codepoints that are absent from this font, so carrying them would be a list
+# of guaranteed tofu for machines this config will never run on.
 Windows = "\uF79F"
 
 [username]
 show_always = true
-style_user = "bg:#ffb4ab fg:#690005"
-style_root = "bg:#ffb4ab fg:#690005"
-format = '[ $user]($style)'
+style_user = "fg:#ffb4ab"
+style_root = "fg:#ffb4ab"
+format = '[ $user ]($style)'
 
 [directory]
-style = "bg:#80d4d9 fg:#003739"
+# The FULL path, on direct user feedback ("print the full path").
+#
+# `truncation_length = 0` disables the 3-component truncation, and
+# `truncate_to_repo = false` stops starship shortening the path to the git
+# repository root -- which is the setting that actually matters here, since
+# this prompt is usually inside one. `home_symbol` keeps ~ rather than spelling
+# out C:\Users\PC, which is shorter without hiding anything.
+style = "fg:#80d4d9"
 format = "[ $path ]($style)"
-truncation_length = 3
-truncation_symbol = "\u2026/"
+truncation_length = 0
+truncate_to_repo = false
+home_symbol = "~"
 
-[directory.substitutions]
-# Font Awesome 4 codepoints (U+F000-U+F2E0), which Nerd Fonts v2 and v3 both
-# carry -- unlike the preset's Material Design ones, which are v3-only.
-"Documents" = "\uF15C "
-"Downloads" = "\uF019 "
-"Music" = "\uF001 "
-"Pictures" = "\uF03E "
-"Developer" = "\uF121 "
+# NO [directory.substitutions] -- direct user feedback, "no icons on the path".
+# The folder icons replaced the words Documents / Downloads / Music / Pictures,
+# which made a full path read as a row of pictograms.
 
 [git_branch]
 symbol = "\uF418"
-style = "bg:#b5c7e9"
-format = '[[ $symbol $branch ](fg:#1f314c bg:#b5c7e9)]($style)'
+style = "fg:#b5c7e9"
+format = '[$symbol $branch ]($style)'
 
 [git_status]
-style = "bg:#b5c7e9"
-format = '[[($all_status$ahead_behind )](fg:#1f314c bg:#b5c7e9)]($style)'
+style = "fg:#b5c7e9"
+format = '[($all_status$ahead_behind )]($style)'
 
 [nodejs]
 symbol = "\uE718"
-style = "bg:#b1cccd"
-format = '[[ $symbol( $version) ](fg:#1b3436 bg:#b1cccd)]($style)'
+style = "fg:#b1cccd"
+format = '[$symbol( $version) ]($style)'
 
 [bun]
 symbol = "\uE76F"
-style = "bg:#b1cccd"
-format = '[[ $symbol( $version) ](fg:#1b3436 bg:#b1cccd)]($style)'
+style = "fg:#b1cccd"
+format = '[$symbol( $version) ]($style)'
 
 [c]
-symbol = "\uE61E "
-style = "bg:#b1cccd"
-format = '[[ $symbol( $version) ](fg:#1b3436 bg:#b1cccd)]($style)'
+symbol = "\uE61E"
+style = "fg:#b1cccd"
+format = '[$symbol( $version) ]($style)'
 
 [rust]
 symbol = "\uE7A8"
-style = "bg:#b1cccd"
-format = '[[ $symbol( $version) ](fg:#1b3436 bg:#b1cccd)]($style)'
+style = "fg:#b1cccd"
+format = '[$symbol( $version) ]($style)'
 
 [golang]
 symbol = "\uE627"
-style = "bg:#b1cccd"
-format = '[[ $symbol( $version) ](fg:#1b3436 bg:#b1cccd)]($style)'
+style = "fg:#b1cccd"
+format = '[$symbol( $version) ]($style)'
 
 [php]
 symbol = "\uE608"
-style = "bg:#b1cccd"
-format = '[[ $symbol( $version) ](fg:#1b3436 bg:#b1cccd)]($style)'
+style = "fg:#b1cccd"
+format = '[$symbol( $version) ]($style)'
 
 [java]
-symbol = "\uE256 "
-style = "bg:#b1cccd"
-format = '[[ $symbol( $version) ](fg:#1b3436 bg:#b1cccd)]($style)'
+symbol = "\uE256"
+style = "fg:#b1cccd"
+format = '[$symbol( $version) ]($style)'
 
 [kotlin]
 # The preset's U+E634 is absent from this font (checked against its cmap), so
 # the generic Font Awesome "code" glyph stands in rather than a tofu box.
 symbol = "\uF121"
-style = "bg:#b1cccd"
-format = '[[ $symbol( $version) ](fg:#1b3436 bg:#b1cccd)]($style)'
+style = "fg:#b1cccd"
+format = '[$symbol( $version) ]($style)'
 
 [haskell]
 symbol = "\uE61F"
-style = "bg:#b1cccd"
-format = '[[ $symbol( $version) ](fg:#1b3436 bg:#b1cccd)]($style)'
+style = "fg:#b1cccd"
+format = '[$symbol( $version) ]($style)'
 
 [python]
 # LITERAL string on purpose: it needs `\(` and `\)`, which a basic string would
 # reject as invalid escapes. It carries no glyph of its own, so it loses
 # nothing by staying literal.
 symbol = "\uE606"
-style = "bg:#b1cccd"
-format = '[[ $symbol( $version)(\(#$virtualenv\)) ](fg:#1b3436 bg:#b1cccd)]($style)'
+style = "fg:#b1cccd"
+format = '[$symbol( $version)(\(#$virtualenv\)) ]($style)'
 
 [docker_context]
 symbol = "\uF308"
-style = "bg:#9cf0f5"
-format = '[[ $symbol( $context) ](fg:#002021 bg:#9cf0f5)]($style)'
+style = "fg:#9cf0f5"
+format = '[$symbol( $context) ]($style)'
 
 [conda]
-symbol = "\uF10C  "
-style = "fg:#002021 bg:#9cf0f5"
-format = '[$symbol$environment ]($style)'
+symbol = "\uF10C"
+style = "fg:#9cf0f5"
+format = '[$symbol $environment ]($style)'
 ignore_base = false
 
 [time]
+# No clock glyph -- direct user feedback, "we can remove the time icon as
+# well". A bare HH:MM in a dimmer colour reads as a timestamp on its own.
 disabled = false
 time_format = "%R"
-style = "bg:#d5e3ff"
-format = "[[ \uF43A  $time ](fg:#081c36 bg:#d5e3ff)]($style)"
+style = "fg:#d5e3ff"
+format = '[$time ]($style)'
 
 [line_break]
 disabled = true
@@ -194,11 +199,9 @@ vimcmd_replace_symbol = "[\u276E](bold fg:#d5e3ff)"
 vimcmd_visual_symbol = "[\u276E](bold fg:#b5c7e9)"
 
 [cmd_duration]
-# The preset prefixes this with U+EAF4, which this font does not have -- so it
-# is plain text here rather than a tofu box.
 show_milliseconds = true
-format = " in $duration "
-style = "bg:#d5e3ff"
+format = "took $duration "
+style = "fg:#d5e3ff"
 disabled = false
 show_notifications = true
 min_time_to_notify = 45000

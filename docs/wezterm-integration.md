@@ -262,3 +262,22 @@ what the terminal would actually show. Two PowerShell traps it hit, both silent:
   as one unstyled run — indistinguishable from starship emitting no colour. Use `[char]27`.
 - PowerShell variable names are **case-insensitive**, so a loop-local `$w` overwrote the image
   width `$W`. The bitmap came out 18px wide, which also looks like "starship emitted nothing".
+
+## 9. Powerline separators cannot render here, and the cursor is static
+
+Two more untracked-file facts, both from direct user feedback.
+
+**`config.cell_width = 0.9` and powerline glyphs are incompatible.** Powerline separators
+(U+E0B0–U+E0B6) are drawn to fill exactly one cell edge to edge. The tightened advance squeezes
+them into 90% of that, and they clip into a doubled-chevron artifact — reported as "why is there
+weird shapes on the arrows". The only real fix is `cell_width = 1.0`, which re-spaces every
+character in the terminal to repair six glyphs; the tightening is deliberate ("Cartograph's natural
+advance reads as too spread out"). So the starship prompt dropped backgrounds and separators
+entirely and puts its colour in the text instead. **Do not reintroduce powerline separators without
+changing `cell_width` first** — they will look broken, and it will read as a font problem rather
+than a metrics one.
+
+**The cursor is `SteadyBar`, and `cursor_blink_rate = 0`.** "The blinking cursor is distracting."
+Both lines are needed, not just the style: a program can switch the cursor at runtime with a
+DECSCUSR escape (PSReadLine does this in Vi mode, as do many TUIs), which would put the blink back
+under a `Steady*` default. `cursor_blink_rate = 0` disables blinking whatever style is selected.
