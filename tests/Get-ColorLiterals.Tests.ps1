@@ -128,6 +128,43 @@ Describe "The zebar bar's zero-color-literal invariant (I5)" {
         @(Get-ColorLiterals -Path $script:fontawesomeCss).Count | Should -Be 0
     }
 
+    It "EVERY structural stylesheet in the pack contains zero colour literals" {
+        <#
+          The checks above name each file explicitly, and that list has already
+          failed once: dockpreview/preview.css was added as a new widget's
+          stylesheet and was never added here, so it sat outside the gate while
+          appearing to be covered by it. An explicit list only protects the
+          files someone remembered to add, which is exactly the wrong property
+          for an invariant that is supposed to hold pack-wide.
+
+          So this DISCOVERS them. Any .css added under zebar/caelestia is
+          checked from the moment it exists, with no test edit required.
+
+          theme.css is the sole exclusion, and legitimately so: it IS the
+          matugen-generated palette every other file's var(--...) tokens point
+          at, so it is supposed to be nothing but colour literals. It has its
+          own non-vacuity check below.
+        #>
+        $packRoot = "$PSScriptRoot\..\zebar\caelestia"
+        $sheets = Get-ChildItem -Path $packRoot -Filter '*.css' -Recurse -File |
+            Where-Object { $_.Name -ne 'theme.css' }
+
+        # Guard against the discovery itself silently finding nothing, which
+        # would make this pass vacuously -- the precise failure mode it exists
+        # to prevent.
+        @($sheets).Count | Should -BeGreaterThan 8
+
+        $offenders = @()
+        foreach ($sheet in $sheets) {
+            $found = @(Get-ColorLiterals -Path $sheet.FullName)
+            if ($found.Count -gt 0) {
+                $offenders += "$($sheet.FullName -replace [regex]::Escape($packRoot), '')" +
+                    " -> $(($found | ForEach-Object { $_.Literal }) -join ', ')"
+            }
+        }
+        $offenders -join "`n" | Should -Be ''
+    }
+
     It "is non-vacuous: theme.css (which legitimately hardcodes the matugen palette) returns a nonzero count" {
         # Proves the check above can actually fail against a real file with
         # real colour literals in it -- theme.css is the one file in this

@@ -400,6 +400,64 @@
                                     ]
                     },
                     {
+                        "name":  "launcher",
+                        "htmlPath":  "./launcher/index.html",
+                        "zOrder":  "top_most",
+                        "shownInTaskbar":  false,
+                        "focused":  false,
+                        "resizable":  true,
+                        "transparent":  true,
+                        "includeFiles":  [
+                                             "*"
+                                         ],
+                        "caching":  {
+                                        "defaultDuration":  0,
+                                        "rules":  [
+
+                                                  ]
+                                    },
+                        "privileges":  {
+                                           "shellCommands":  [
+                                                                 {
+                                                                     "program":  "C:\\Users\\PC\\Documents\\git\\setup\\zebar\\caelestia\\tools\\app-list.exe",
+                                                                     "argsRegex":  "^(list|list --icons|icons .+)$"
+                                                                 },
+                                                                 {
+                                                                     "program":  "C:\\Windows\\explorer.exe",
+                                                                     "argsRegex":  "^[^\"]+\\.lnk$"
+                                                                 },
+                                                                 {
+                                                                     "program":  "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+                                                                     "argsRegex":  "^-NoProfile -ExecutionPolicy Bypass -File C:\\\\Users\\\\PC\\\\Documents\\\\git\\\\setup\\\\scripts\\\\hotkey-(next-wallpaper|retheme|reload-widgets)\\.ps1$"
+                                                                 },
+                                                                 {
+                                                                     "program":  "C:\\Windows\\System32\\rundll32.exe",
+                                                                     "argsRegex":  "^(user32\\.dll,LockWorkStation|powrprof\\.dll,SetSuspendState 0,1,0)$"
+                                                                 },
+                                                                 {
+                                                                     "program":  "C:\\Windows\\System32\\shutdown.exe",
+                                                                     "argsRegex":  "^/s /t 0$"
+                                                                 }
+                                                             ]
+                                       },
+                        "presets":  [
+                                        {
+                                            "name":  "default",
+                                            "anchor":  "top_left",
+                                            "offsetX":  "0px",
+                                            "offsetY":  "0px",
+                                            "width":  "1px",
+                                            "height":  "1px",
+                                            "monitorSelection":  {
+                                                                     "type":  "all"
+                                                                 },
+                                            "dockToEdge":  {
+                                                               "enabled":  false
+                                                           }
+                                        }
+                                    ]
+                    },
+                    {
                         "name":  "dockpreview",
                         "htmlPath":  "./dockpreview/index.html",
                         "zOrder":  "top_most",

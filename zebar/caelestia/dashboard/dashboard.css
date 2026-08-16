@@ -642,13 +642,34 @@ body.fullscreen-hidden .stage { transform: translateY(-100%); }
    away to show the desktop. So the circle is centred on that bottom-left
    corner: inside it transparent, outside it surface.
 
-   They inherit the slide for free by being children of the panel -- the
-   transform is on .stage above them, so they scale and slide with it exactly
-   as asked, with no separate animation to keep in step. */
-.panel::before,
-.panel::after {
+   THEY DO NOT SLIDE, and that is the correction. They used to be children of
+   .panel, which inherits .stage's transform -- so they travelled the panel's
+   whole height and, sitting at its TOP corners, arrived dead last: the panel
+   was fully open before the arches appeared, which read as them popping in
+   afterwards. Direct user feedback: "the arch slideout animation isn't good
+   when it slides out last ... it should slide out along with the window and
+   lock in place the moment it slides out completely, also remember that it
+   can't slide with the rounded corner".
+
+   An arch is a JUNCTION, not a moving part: it is the fillet where the frame's
+   top band meets the panel's side. That junction is at the top of the screen
+   for the entire slide, so the arches are anchored to the window's top edge
+   and never move at all. They are simply present from the first frame and in
+   their final place at the last -- which is what "locks in place" means here,
+   and it also settles the concave-corner problem, because a hard-stopped
+   radial gradient cannot be translated without the arc visibly sweeping.
+
+   They live on BODY, not on .stage and not on .panel. A transformed ancestor
+   becomes the containing block for position:fixed descendants, so pseudo-
+   elements of .stage would still have been carried by its translate -- the
+   fix would have looked applied and changed nothing. body is the nearest
+   ancestor with no transform on it. */
+body::before,
+body::after {
   content: '';
-  position: absolute;
+  position: fixed;
+  /* Nothing to fillet while the panel is parked off-screen. */
+  opacity: 0;
   /* Spans the BAND AS WELL as the radius, exactly like the screen corners --
      they are 16x24 (radius + band), not 16x16. A box only radius-tall has
      78% of its area eaten by the transparent quarter-disc, leaving a 2px
@@ -661,8 +682,11 @@ body.fullscreen-hidden .stage { transform: translateY(-100%); }
   pointer-events: none;
 }
 
-.panel::before {
-  left: calc(-1 * var(--arch-w, 16px));
+/* Positioned from the WINDOW edges, not the panel: the panel is centred in a
+   window that is an arch wider on each side, so the arch squares are exactly
+   the outermost --arch-w of that window. */
+body::before {
+  left: 0;
   background: radial-gradient(
     circle var(--arch-w, 16px) at bottom left,
     transparent 0 var(--arch-w, 16px),
@@ -670,11 +694,17 @@ body.fullscreen-hidden .stage { transform: translateY(-100%); }
   );
 }
 
-.panel::after {
-  right: calc(-1 * var(--arch-w, 16px));
+body::after {
+  right: 0;
   background: radial-gradient(
     circle var(--arch-w, 16px) at bottom right,
     transparent 0 var(--arch-w, 16px),
     var(--surface) var(--arch-w, 16px)
   );
 }
+
+/* Present for the whole slide, gone the moment the panel is away. No
+   transition on the way in: the arch has to be there from the first frame,
+   which is the entire point of the change. */
+body.is-open::before,
+body.is-open::after { opacity: 1; }

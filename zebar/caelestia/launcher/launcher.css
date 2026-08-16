@@ -1,0 +1,188 @@
+/* The launcher. Structural only -- ZERO colour literals, every colour from
+   ../bar/theme.css, enforced by tests/Get-ColorLiterals.Tests.ps1. */
+
+:root {
+  --pad: 12px;
+  --row-h: 56px;
+  --input-h: 52px;
+  --radius: 22px;
+  --radius-row: 14px;
+  --icon: 26px;
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --dur: 190ms;   /* keep in step with launcher.js's SLIDE_MS */
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+  font-family: "0xProto Nerd Font", monospace;
+}
+
+/* Slides up out of the bottom edge, the same gesture the dashboard uses coming
+   down from the top -- direct user feedback, "I want it to slide out like the
+   top bar".
+
+   The WINDOW is the viewport and never moves during the animation; only the
+   panel inside it does. At rest the panel is translated fully below the
+   window's own bounds, so it is clipped out of existence rather than merely
+   transparent, and sliding it to 0 brings it into view. That is exactly how
+   the dock's slide works, and it is deliberate: moving the window instead
+   would be a geometry change under a stationary pointer, which this pack has
+   lost three separate rounds of bugs to. */
+.launcher {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border-radius: var(--radius);
+  color: var(--on-surface);
+  overflow: hidden;
+
+  transform: translateY(100%);
+  transition: transform var(--dur) var(--ease);
+}
+
+body.open .launcher { transform: translateY(0); }
+
+.launcher__results {
+  display: flex;
+  flex-direction: column;
+  padding: var(--pad) var(--pad) 0 var(--pad);
+  gap: 2px;
+}
+
+.launcher__row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  height: var(--row-h);
+  padding: 0 12px;
+  box-sizing: border-box;
+  border: none;
+  border-radius: var(--radius-row);
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  /* No transition on the background: the selected row moves with the arrow
+     keys, and a fade makes a held-down arrow key smear two rows together. */
+}
+
+/* One selected row at a time, driven by the keyboard. Hovering only PREVIEWS
+   with a weaker tint -- it must not steal the selection, or moving the mouse
+   while typing would change what Enter runs. */
+.launcher__row:hover { background: var(--surface-container); }
+.launcher__row--selected,
+.launcher__row--selected:hover { background: var(--surface-container-high); }
+
+.launcher__icon {
+  flex: 0 0 auto;
+  width: var(--icon);
+  height: var(--icon);
+  object-fit: contain;
+}
+
+/* An entry whose icon has not arrived (or does not exist) keeps the slot, so
+   names stay aligned and the list does not reflow as icons stream in. */
+.launcher__icon--missing { visibility: hidden; }
+
+.launcher__glyph {
+  flex: 0 0 auto;
+  width: var(--icon);
+  font-size: 17px;
+  text-align: center;
+  color: var(--on-surface);
+}
+
+.launcher__text {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+  gap: 2px;
+}
+
+.launcher__name,
+.launcher__detail {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.launcher__name {
+  font-size: 14px;
+  line-height: 1.2;
+}
+
+.launcher__detail {
+  font-size: 12px;
+  line-height: 1.2;
+  color: var(--on-surface-variant);
+}
+
+.launcher__empty {
+  display: none;
+  padding: 22px var(--pad) 6px calc(var(--pad) + 12px);
+  font-size: 13px;
+  color: var(--on-surface-variant);
+}
+
+body.no-matches .launcher__empty { display: block; }
+
+/* The query row. A hairline above it rather than a filled bar: the panel reads
+   as one continuous surface, which is this desktop's language -- grouped
+   content on a single surface, not stacked boxes. */
+.launcher__query {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: var(--input-h);
+  padding: 0 calc(var(--pad) + 12px);
+  border-top: 1px solid var(--surface-container-high);
+}
+
+.launcher__search {
+  flex: 0 0 auto;
+  font-size: 14px;
+  color: var(--on-surface-variant);
+}
+
+.launcher__input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--on-surface);
+  font-family: inherit;
+  /* Explicit, not `font: inherit`: the shorthand resets font-family too, which
+     is what once broke the bar's Font Awesome cascade in a way that still
+     rendered the low codepoints and only tofu'd the FA6-only ones. */
+  font-size: 15px;
+  padding: 0;
+}
+
+.launcher__input::placeholder { color: var(--on-surface-variant); }
+
+.launcher__close {
+  flex: 0 0 auto;
+  border: none;
+  background: transparent;
+  color: var(--on-surface-variant);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 6px;
+  border-radius: var(--radius-row);
+}
+
+.launcher__close:hover {
+  background: var(--surface-container);
+  color: var(--on-surface);
+}

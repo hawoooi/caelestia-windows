@@ -223,6 +223,60 @@ function Remove-ZebarStartupConfig {
     [System.IO.File]::WriteAllText($Path, $json, (New-Object System.Text.UTF8Encoding($false)))
 }
 
+function Get-LauncherKeyShortcutPath {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$StartupDir)
+    Join-Path $StartupDir 'Caelestia launcher key.lnk'
+}
+
+function Set-LauncherKeyAutostart {
+    <#
+      Registers tools/launcher-key.exe to start with the session.
+
+      It is the one helper in this pack that must OUTLIVE zebar: it owns a
+      low-level keyboard hook and is what makes the Windows key open the
+      launcher at all. Without this, the hook stops at the first reboot and the
+      Windows key silently does nothing -- not even opening Start, since it is
+      only Start-suppressed while the hook is running, so the failure is
+      invisible rather than loud.
+
+      A Startup-folder shortcut rather than a Run key or a scheduled task: it
+      is the one mechanism the user can see and remove without this repo, which
+      matters for something that hooks the keyboard.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$StartupDir,
+        [Parameter(Mandatory)][string]$ExePath
+    )
+
+    if (-not (Test-Path $ExePath)) {
+        Write-Warning "launcher-key.exe not found at $ExePath -- the Windows key will not open the launcher. Build it with csc.exe (see the header of tools/launcher-key.cs)."
+        return $false
+    }
+    if (-not (Test-Path $StartupDir)) { New-Item -ItemType Directory -Force -Path $StartupDir | Out-Null }
+
+    $link = Get-LauncherKeyShortcutPath -StartupDir $StartupDir
+    # WScript.Shell is the only way to author a .lnk without shipping a binary
+    # blob. Idempotent: re-running rewrites the same shortcut in place.
+    $wsh = New-Object -ComObject WScript.Shell
+    $sc = $wsh.CreateShortcut($link)
+    $sc.TargetPath = $ExePath
+    $sc.WorkingDirectory = Split-Path $ExePath -Parent
+    $sc.Description = 'Opens the Caelestia launcher on the Windows key'
+    $sc.WindowStyle = 7          # minimised; the exe is a winexe and shows nothing anyway
+    $sc.Save()
+    return (Test-Path $link)
+}
+
+function Remove-LauncherKeyAutostart {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$StartupDir)
+    $link = Get-LauncherKeyShortcutPath -StartupDir $StartupDir
+    if (Test-Path $link) { Remove-Item $link -Force }
+    return (-not (Test-Path $link))
+}
+
 function Install-Config {
     <#
       Task 9: the top-level installer this whole helper file existed for but
@@ -257,7 +311,14 @@ function Install-Config {
         [string]$JunctionLink      = "$env:USERPROFILE\.glzr\zebar\caelestia",
         [string]$JunctionTarget    = (Join-Path $script:Root "zebar\caelestia"),
         [string]$BackupRoot        = (Join-Path $script:Root "state\config-backup"),
-        [string]$ZebarSettingsPath = "$env:USERPROFILE\.glzr\zebar\settings.json"
+        [string]$ZebarSettingsPath = "$env:USERPROFILE\.glzr\zebar\settings.json",
+        # The Windows-key hook helper is NOT a Zebar widget, so settings.json's
+        # startupConfigs cannot carry it. It gets a Startup-folder shortcut
+        # instead. Deliberately not launched by zebar either: a shellExec child
+        # of zebar can inherit zebar's listening socket on port 6124, which has
+        # cost this project two debugging sessions.
+        [string]$StartupDir     = [Environment]::GetFolderPath('Startup'),
+        [string]$LauncherKeyExe = (Join-Path $script:Root "zebar\caelestia\tools\launcher-key.exe")
     )
 
     $marker = 'caelestia-shell'
@@ -364,6 +425,15 @@ ctrl + alt + w                : Start-Process powershell -WindowStyle Hidden -Ar
     # nothing at all.
     $dockPreviewPreset = 'default'
 
+    # The launcher: a search box at the bottom of the screen, opened by the
+    # Windows key via tools/launcher-key.exe. Parks at 1x1 like the other
+    # flyouts, and is opened by an EXTERNAL SetForegroundWindow rather than by
+    # a message -- the window's own setFocus is refused by Zebar's ACL, and
+    # `window.onfocus` in the page is the whole open signal. A missing
+    # autostart is silent in the worst way: the Windows key would be swallowed
+    # by the hook helper and open nothing at all.
+    $launcherPreset = 'default'
+
     if ($DryRun) {
         # I1: the junction/settings.json steps below must ALSO be a no-op
         # under -DryRun, for BOTH the install and the uninstall direction.
@@ -388,6 +458,8 @@ ctrl + alt + w                : Start-Process powershell -WindowStyle Hidden -Ar
             "would remove startupConfigs entries for caelestia/panels (all presets) from $ZebarSettingsPath"
             "would remove startupConfigs entries for caelestia/dashboard (all presets) from $ZebarSettingsPath"
             "would remove startupConfigs entries for caelestia/dockpreview (all presets) from $ZebarSettingsPath"
+            "would remove startupConfigs entries for caelestia/launcher (all presets) from $ZebarSettingsPath"
+            "would remove the launcher-key autostart shortcut from $StartupDir"
         } else {
             "would create/verify junction $JunctionLink -> $JunctionTarget"
             "would add startupConfigs entry for caelestia/bar to $ZebarSettingsPath"
@@ -399,6 +471,8 @@ ctrl + alt + w                : Start-Process powershell -WindowStyle Hidden -Ar
             "would add startupConfigs entry for caelestia/panels ($panelsPreset) to $ZebarSettingsPath"
             "would add startupConfigs entry for caelestia/dashboard ($dashboardPreset) to $ZebarSettingsPath"
             "would add startupConfigs entry for caelestia/dockpreview ($dockPreviewPreset) to $ZebarSettingsPath"
+            "would add startupConfigs entry for caelestia/launcher ($launcherPreset) to $ZebarSettingsPath"
+            "would add a launcher-key autostart shortcut in $StartupDir -> $LauncherKeyExe"
         }
         return
     }
@@ -416,6 +490,8 @@ ctrl + alt + w                : Start-Process powershell -WindowStyle Hidden -Ar
         Remove-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'panels'
         Remove-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'dashboard'
         Remove-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'dockpreview'
+        Remove-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'launcher'
+        Remove-LauncherKeyAutostart -StartupDir $StartupDir | Out-Null
     } else {
         Set-ManagedJunction -LinkPath $JunctionLink -TargetPath $JunctionTarget | Out-Null
         Set-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'bar' -Preset 'default'
@@ -438,5 +514,7 @@ ctrl + alt + w                : Start-Process powershell -WindowStyle Hidden -Ar
         Set-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'panels' -Preset $panelsPreset
         Set-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'dashboard' -Preset $dashboardPreset
         Set-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'dockpreview' -Preset $dockPreviewPreset
+        Set-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'launcher' -Preset $launcherPreset
+        Set-LauncherKeyAutostart -StartupDir $StartupDir -ExePath $LauncherKeyExe | Out-Null
     }
 }
