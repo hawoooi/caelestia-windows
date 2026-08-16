@@ -34,16 +34,19 @@ test('splitClock tolerates an unexpected format', () => {
   assert.deepStrictEqual(splitClock('nonsense'), { top: '--', bottom: '--' });
 });
 
+// A workspace holding one tiled window, in the shape komorebi's provider
+// actually emits: tilingContainers is an array of CONTAINERS, each with its
+// own windows array.
+const busy = (name) => ({ name, tilingContainers: [{ windows: [{ exe: 'x.exe' }] }] });
+const empty = (name) => ({ name, tilingContainers: [], floatingWindows: [] });
+
 test('workspaceState marks the focused workspace', () => {
   const out = workspaceState({
-    currentWorkspaces: [{ name: '1' }, { name: '2' }, { name: '3' }],
+    currentWorkspaces: [busy('1'), busy('2'), busy('3')],
     focusedWorkspace: { name: '2' },
   });
-  assert.deepStrictEqual(out, [
-    { name: '1', focused: false },
-    { name: '2', focused: true },
-    { name: '3', focused: false },
-  ]);
+  assert.deepStrictEqual(out.map((w) => [w.name, w.focused]),
+    [['1', false], ['2', true], ['3', false]]);
 });
 
 test('workspaceState returns empty when komorebi output is absent', () => {
@@ -51,8 +54,71 @@ test('workspaceState returns empty when komorebi output is absent', () => {
 });
 
 test('workspaceState handles a null focusedWorkspace', () => {
-  const out = workspaceState({ currentWorkspaces: [{ name: '1' }], focusedWorkspace: null });
-  assert.deepStrictEqual(out, [{ name: '1', focused: false }]);
+  const out = workspaceState({ currentWorkspaces: [busy('1')], focusedWorkspace: null });
+  assert.deepStrictEqual(out.map((w) => [w.name, w.focused]), [['1', false]]);
+});
+
+// --- hiding workspaces that have not been used -----------------------------
+
+test('an empty workspace is hidden', () => {
+  // komorebi always reports all nine; on this machine seven are usually empty.
+  const out = workspaceState({
+    currentWorkspaces: [busy('1'), busy('2'), empty('3'), empty('4')],
+    focusedWorkspace: { name: '1' },
+  });
+  assert.deepStrictEqual(out.map((w) => w.name), ['1', '2']);
+});
+
+test('the FOCUSED workspace is kept even when empty', () => {
+  // Otherwise stepping onto an empty workspace leaves the bar showing no
+  // current position at all, which is worse than one extra button.
+  const out = workspaceState({
+    currentWorkspaces: [busy('1'), empty('2'), empty('3')],
+    focusedWorkspace: { name: '2' },
+  });
+  assert.deepStrictEqual(out.map((w) => [w.name, w.focused]), [['1', false], ['2', true]]);
+});
+
+test('index is the ORIGINAL position, not the position in the filtered list', () => {
+  // The trap this guards: komorebic focus-workspace takes a zero-indexed
+  // POSITION, and once the list is filtered the rendered order no longer
+  // matches it. The button labelled "5" here must focus position 4, not 1.
+  const out = workspaceState({
+    currentWorkspaces: [busy('1'), empty('2'), empty('3'), empty('4'), busy('5')],
+    focusedWorkspace: { name: '1' },
+  });
+  assert.deepStrictEqual(out.map((w) => [w.name, w.index]), [['1', 0], ['5', 4]]);
+});
+
+test('a workspace counts as used for windows komorebi holds ANYWHERE', () => {
+  // Four places komorebi can put a window; counting only tilingContainers
+  // would hide a workspace that plainly has something on it.
+  const cases = {
+    floating: { name: 'f', tilingContainers: [], floatingWindows: [{ exe: 'a.exe' }] },
+    maximized: { name: 'm', tilingContainers: [], maximizedWindow: { exe: 'a.exe' } },
+    monocle: { name: 'o', tilingContainers: [], monocleContainer: { windows: [{ exe: 'a.exe' }] } },
+  };
+  for (const [label, ws] of Object.entries(cases)) {
+    const out = workspaceState({ currentWorkspaces: [ws], focusedWorkspace: { name: 'other' } });
+    assert.deepStrictEqual(out.map((w) => w.name), [ws.name], `${label} should count as used`);
+  }
+});
+
+test('an empty tiling CONTAINER does not count as used', () => {
+  const out = workspaceState({
+    currentWorkspaces: [{ name: '1', tilingContainers: [{ windows: [] }] }],
+    focusedWorkspace: { name: 'other' },
+  });
+  assert.deepStrictEqual(out, []);
+});
+
+test('onlyOccupied:false returns every workspace, still with real indices', () => {
+  const out = workspaceState({
+    currentWorkspaces: [busy('1'), empty('2'), empty('3')],
+    focusedWorkspace: { name: '1' },
+  }, { onlyOccupied: false });
+  assert.deepStrictEqual(out.map((w) => [w.name, w.index, w.occupied]),
+    [['1', 0, true], ['2', 1, false], ['3', 2, false]]);
 });
 
 // komorebic's focus-workspace target is a zero-indexed position, but the bar
