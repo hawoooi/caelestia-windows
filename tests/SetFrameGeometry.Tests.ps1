@@ -94,11 +94,48 @@ Describe "Set-FrameGeometry -- the invariant gap == totalPadding - thickness" {
         }
     }
 
-    It "splits total padding into ceil/floor halves that sum back to the total" {
+    It "splits total padding so the two halves still sum back to the total" {
         $summary = Set-FrameGeometry -Thickness 7 -GapRatio 1.0 -Radius 16 -DryRun `
             -ZpackPath $script:realZpack -ScreenWidth 2560 -ScreenHeight 1440
         ($summary.WorkspacePadding + $summary.ContainerPadding) | Should -Be $summary.TotalPadding
         $summary.WorkspacePadding | Should -BeGreaterOrEqual $summary.ContainerPadding
+    }
+
+    # THE CHECK THAT DID NOT EXIST, AND WHOSE ABSENCE IS THE WHOLE BUG.
+    #
+    # Every test above pins the gap AT THE FRAME. None of them pinned the gap
+    # BETWEEN WINDOWS, so a 50/50 split of total padding sailed through while
+    # putting 16px between windows and 8px at the frame -- a 2:1 mismatch,
+    # confirmed on screen by measuring window borders (16px apart, 8px from
+    # the bar and the bands) before it was fixed here.
+    #
+    # komorebi applies workspace padding once at the work-area edge and
+    # container padding around every container, so:
+    #     gap at the frame    = workspace + container - thickness
+    #     gap between windows = 2 * container
+    # The frame's premise is that every wallpaper gap is the same width, and
+    # that requires BOTH to equal G.
+    It "gives the same wallpaper gap between windows as at the frame" {
+        foreach ($t in @(4, 8, 12, 16)) {
+            $summary = Set-FrameGeometry -Thickness $t -GapRatio 1.0 -Radius 16 -DryRun `
+                -ZpackPath $script:realZpack -ScreenWidth 2560 -ScreenHeight 1440
+            $atFrame = $summary.WorkspacePadding + $summary.ContainerPadding - $t
+            $between = 2 * $summary.ContainerPadding
+            $atFrame | Should -Be $summary.Gap -Because "thickness=$t, gap at the frame"
+            $between | Should -Be $summary.Gap -Because "thickness=$t, gap between windows"
+            $summary.InterWindowGap | Should -Be $between -Because "thickness=$t, reported value"
+        }
+    }
+
+    It "reports the between-windows gap even when an odd gap cannot halve exactly" {
+        # G=7 cannot split into two equal integers, so the between-windows gap
+        # lands on 8, not 7. That is a real 1px miss and the summary must say
+        # so rather than claiming the gaps match.
+        $summary = Set-FrameGeometry -Thickness 7 -GapRatio 1.0 -Radius 16 -DryRun `
+            -ZpackPath $script:realZpack -ScreenWidth 2560 -ScreenHeight 1440
+        $summary.Gap | Should -Be 7
+        $summary.InterWindowGap | Should -Be 8
+        ($summary.WorkspacePadding + $summary.ContainerPadding - 7) | Should -Be $summary.Gap
     }
 }
 
@@ -114,8 +151,11 @@ Describe "Set-FrameGeometry -DryRun" {
             -ZpackPath $script:realZpack -ScreenWidth 2560 -ScreenHeight 1440
         $summary.Gap | Should -Be 8
         $summary.CornerSize | Should -Be 24
-        $summary.WorkspacePadding | Should -Be 8
-        $summary.ContainerPadding | Should -Be 8
+        # 12/4, not 8/8: the split is derived from the GAP, so that 2*container
+        # (the gap between windows) equals G, the same as the gap at the frame.
+        $summary.WorkspacePadding | Should -Be 12
+        $summary.ContainerPadding | Should -Be 4
+        $summary.InterWindowGap | Should -Be 8
         $summary.Table.Count | Should -Be 7
         ($summary.Table | Where-Object { $_.Widget -eq 'edges' -and $_.Preset -eq 'left' }) | Should -BeNullOrEmpty
         ($summary.Table | Where-Object { $_.Widget -eq 'corners' -and $_.Preset -eq 'top-left' }).OffsetX | Should -Be 52
@@ -378,24 +418,23 @@ Describe "Set-FrameGeometry (non-DryRun, fixtures only, live komorebi calls mock
 
         (Get-ChildItem $script:backupRoot -Filter "komorebi.json.bak-frame-geometry-*").Count | Should -Be 1
         $obj = [System.IO.File]::ReadAllText($script:komorebiFixture) | ConvertFrom-Json
-        $obj.default_workspace_padding | Should -Be 8
-        $obj.default_container_padding | Should -Be 8
+        $obj.default_workspace_padding | Should -Be 12
+        $obj.default_container_padding | Should -Be 4
         ($obj.ignore_rules -join ',') | Should -Be 'keep-me'
     }
 
-    It "invokes the live-nudge function with the computed padding values, including an uneven ceil/floor split" {
-        # T=8, GapRatio=0.375 -> G=round(3.0)=3 -> P=11 (odd) -> workspace
-        # ceil(5.5)=6, container floor(5.5)=5. Deliberately picked to prove
-        # the ceil/floor split is wired through end-to-end, not just equal
-        # halves (which T==G always produces and wouldn't catch a
-        # ceil/floor swap bug).
+    It "invokes the live-nudge function with the computed padding values, including an uneven split" {
+        # T=8, GapRatio=0.375 -> G=3 -> P=11. The split is driven by the GAP,
+        # not by half of P: container = round(3/2) = 2, workspace = 11 - 2 = 9.
+        # Deliberately picked so the two paddings are far apart, which proves
+        # the split is wired through end-to-end and would catch a swap.
         Set-FrameGeometry -Thickness 8 -GapRatio 0.375 -Radius 16 `
             -ZpackPath $script:zpackFixture -CornersCssPath $script:cornersFixture -EdgesCssPath $script:edgesFixture `
             -KomorebiJsonPath $script:komorebiFixture -BackupRoot $script:backupRoot `
             -ScreenWidth 2560 -ScreenHeight 1440 | Out-Null
 
         Should -Invoke Update-KomorebiFramePaddingLive -Times 1 -ParameterFilter {
-            $WorkspacePadding -eq 6 -and $ContainerPadding -eq 5
+            $WorkspacePadding -eq 9 -and $ContainerPadding -eq 2
         }
     }
 }
