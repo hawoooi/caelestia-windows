@@ -35,28 +35,28 @@
 -- cyan slot ("no true cyan in its palette, so the cyan slot carries the
 -- orange accent").
 return {
-  surface    = "#0e1416",
-  on_surface = "#dee3e5",
-  primary    = "#83d2e5",
+  surface    = "#0e1415",
+  on_surface = "#dde4e4",
+  primary    = "#80d4d9",
 
   ansi = {
-    "#303637", -- black
+    "#303636", -- black
     "#ffb4ab",                      -- red
-    "#bdc5eb",                    -- green
-    "#b2cbd2",                   -- yellow
-    "#83d2e5",                     -- blue
+    "#b5c7e9",                    -- green
+    "#b1cccd",                   -- yellow
+    "#80d4d9",                     -- blue
     "#ffb4ab",                       -- magenta (reuses red's hue -- see note above)
-    "#bdc5eb",                     -- cyan (reuses green's hue -- see note above)
-    "#bfc8cb",          -- white
+    "#b5c7e9",                     -- cyan (reuses green's hue -- see note above)
+    "#bec8c9",          -- white
   },
   brights = {
-    "#899295",                     -- bright black
+    "#899393",                     -- bright black
     "#ffdad6",          -- bright red
-    "#dce1ff",       -- bright green
-    "#cde7ee",      -- bright yellow
-    "#a6eeff",        -- bright blue
+    "#d5e3ff",       -- bright green
+    "#cce8e9",      -- bright yellow
+    "#9cf0f5",        -- bright blue
     "#ffdad6",          -- bright magenta
-    "#dce1ff",        -- bright cyan
-    "#dee3e5",                  -- bright white
+    "#d5e3ff",        -- bright cyan
+    "#dde4e4",                  -- bright white
   },
 }

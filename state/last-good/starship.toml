@@ -1,27 +1,55 @@
+# starship prompt -- the Catppuccin Powerline preset
+# (https://starship.rs/presets/catppuccin-powerline), with the Catppuccin
+# palette swapped out for this wallpaper's matugen roles.
+#
+# EVERY GLYPH IN THIS FILE IS A \uXXXX ESCAPE, DELIBERATELY. The previous
+# version of this template pasted them in as raw characters, and every glyph in
+# the BMP private-use area (U+E000-U+F8FF) was silently stripped at some point
+# -- the powerline separators became empty `[]`, and the Windows, git-branch,
+# clock and language icons all vanished. Only the 4-byte Material Design glyphs
+# and one U+2588 FULL BLOCK survived, which is why the prompt rendered as hard
+# colour blocks with no transitions between them ("this looks too blocky").
+#
+# TOML makes this safe to express: BASIC strings ("..." and """...""") support
+# \uXXXX, LITERAL strings ('...') do not. So anything carrying a glyph below is
+# a basic string. Note the one trap that creates: inside a basic string, only
+# \b \t \n \f \r \" \ \uXXXX \UXXXXXXXX are legal escapes, so `\(` must be
+# written `\(` -- see [python] below, which is left as a LITERAL string for
+# exactly that reason since it needs no glyph of its own.
+#
+# Codepoints are chosen for the font this terminal actually uses --
+# `CartographCF Nerd Font` (~/.wezterm.lua), a **Nerd Fonts v2** build. That
+# matters: v2 puts Material Design Icons at U+F500-U+FD46, where v3 puts them
+# at U+F0001-U+F1AF0, so the upstream preset's OS symbols (U+F0548 for Ubuntu
+# and friends) are ABSENT here and would render as tofu. Every codepoint below
+# was checked against the font's own cmap before being written, and the ones
+# that matter were rendered and looked at.
+
 format = """
-[](#ffb4ab)\
+[\uE0B6](#ffb4ab)\
 $os\
 $username\
-[█](bg:#80d4d9 fg:#ffb4ab)\
+[\uE0B0](bg:#80d4d9 fg:#ffb4ab)\
 $directory\
-[](bg:#b5c7e9 fg:#80d4d9)\
+[\uE0B0](bg:#b5c7e9 fg:#80d4d9)\
 $git_branch\
 $git_status\
-[](fg:#b5c7e9 bg:#b1cccd)\
+[\uE0B0](fg:#b5c7e9 bg:#b1cccd)\
 $c\
 $rust\
 $golang\
 $nodejs\
+$bun\
 $php\
 $java\
 $kotlin\
 $haskell\
 $python\
-[](fg:#b1cccd bg:#9cf0f5)\
+[\uE0B0](fg:#b1cccd bg:#9cf0f5)\
 $conda\
-[](fg:#9cf0f5 bg:#d5e3ff)\
+[\uE0B0](fg:#9cf0f5 bg:#d5e3ff)\
 $time\
-[ ](fg:#d5e3ff)\
+[\uE0B4](fg:#d5e3ff)\
 $cmd_duration\
 $line_break\
 $character"""
@@ -31,25 +59,25 @@ disabled = false
 style = "bg:#ffb4ab fg:#690005"
 
 [os.symbols]
-Windows = ""
-Ubuntu = "󰕈"
-SUSE = ""
-Raspbian = "󰐿"
-Mint = "󰣭"
-Macos = "󰀵"
-Manjaro = ""
-Linux = "󰌽"
-Gentoo = "󰣨"
-Fedora = "󰣛"
-Alpine = ""
-Amazon = ""
-Android = ""
-Arch = "󰣇"
-Artix = "󰣇"
-CentOS = ""
-Debian = "󰣚"
-Redhat = "󱄛"
-RedHatEnterprise = "󱄛"
+# A GHOST, not the Windows logo -- the same mark the left bar wears as its top
+# logo, so the prompt and the bar carry the same signature.
+#
+# The bar's ghost is Font Awesome Free 6 Solid's, U+F6E2 (bar/entries/logo.js).
+# That codepoint is NOT the same icon here: this is a Nerd Fonts v2 build, and
+# U+F6E2 lands inside its Material Design block, where it renders as the
+# DROPBOX logo. Rendered and looked at, rather than trusted -- being present in
+# the cmap says nothing about what a glyph draws.
+#
+# The real ghost is U+F79F (nf-mdi-ghost), found by rendering the whole
+# U+F500-U+FD46 range as a contact sheet: it sits at the end of the g-names,
+# between gender-transgender (U+F79E) and gift (U+F7A0), which is exactly
+# Material Design's alphabetical order.
+#
+# Only Windows is defined. The upstream preset's other OS symbols use Nerd
+# Fonts **v3** codepoints that are absent from this font, so carrying them here
+# would just be a list of guaranteed tofu for machines this config will never
+# run on. starship's own defaults cover them.
+Windows = "\uF79F"
 
 [username]
 show_always = true
@@ -61,17 +89,19 @@ format = '[ $user]($style)'
 style = "bg:#80d4d9 fg:#003739"
 format = "[ $path ]($style)"
 truncation_length = 3
-truncation_symbol = "…/"
+truncation_symbol = "\u2026/"
 
 [directory.substitutions]
-"Documents" = " "
-"Downloads" = " "
-"Music" = "󰝚 "
-"Pictures" = " "
-"Developer" = "󰲋 "
+# Font Awesome 4 codepoints (U+F000-U+F2E0), which Nerd Fonts v2 and v3 both
+# carry -- unlike the preset's Material Design ones, which are v3-only.
+"Documents" = "\uF15C "
+"Downloads" = "\uF019 "
+"Music" = "\uF001 "
+"Pictures" = "\uF03E "
+"Developer" = "\uF121 "
 
 [git_branch]
-symbol = ""
+symbol = "\uF418"
 style = "bg:#b5c7e9"
 format = '[[ $symbol $branch ](fg:#1f314c bg:#b5c7e9)]($style)'
 
@@ -80,57 +110,67 @@ style = "bg:#b5c7e9"
 format = '[[($all_status$ahead_behind )](fg:#1f314c bg:#b5c7e9)]($style)'
 
 [nodejs]
-symbol = ""
+symbol = "\uE718"
+style = "bg:#b1cccd"
+format = '[[ $symbol( $version) ](fg:#1b3436 bg:#b1cccd)]($style)'
+
+[bun]
+symbol = "\uE76F"
 style = "bg:#b1cccd"
 format = '[[ $symbol( $version) ](fg:#1b3436 bg:#b1cccd)]($style)'
 
 [c]
-symbol = " "
+symbol = "\uE61E "
 style = "bg:#b1cccd"
 format = '[[ $symbol( $version) ](fg:#1b3436 bg:#b1cccd)]($style)'
 
 [rust]
-symbol = ""
+symbol = "\uE7A8"
 style = "bg:#b1cccd"
 format = '[[ $symbol( $version) ](fg:#1b3436 bg:#b1cccd)]($style)'
 
 [golang]
-symbol = ""
+symbol = "\uE627"
 style = "bg:#b1cccd"
 format = '[[ $symbol( $version) ](fg:#1b3436 bg:#b1cccd)]($style)'
 
 [php]
-symbol = ""
+symbol = "\uE608"
 style = "bg:#b1cccd"
 format = '[[ $symbol( $version) ](fg:#1b3436 bg:#b1cccd)]($style)'
 
 [java]
-symbol = " "
+symbol = "\uE256 "
 style = "bg:#b1cccd"
 format = '[[ $symbol( $version) ](fg:#1b3436 bg:#b1cccd)]($style)'
 
 [kotlin]
-symbol = ""
+# The preset's U+E634 is absent from this font (checked against its cmap), so
+# the generic Font Awesome "code" glyph stands in rather than a tofu box.
+symbol = "\uF121"
 style = "bg:#b1cccd"
 format = '[[ $symbol( $version) ](fg:#1b3436 bg:#b1cccd)]($style)'
 
 [haskell]
-symbol = ""
+symbol = "\uE61F"
 style = "bg:#b1cccd"
 format = '[[ $symbol( $version) ](fg:#1b3436 bg:#b1cccd)]($style)'
 
 [python]
-symbol = ""
+# LITERAL string on purpose: it needs `\(` and `\)`, which a basic string would
+# reject as invalid escapes. It carries no glyph of its own, so it loses
+# nothing by staying literal.
+symbol = "\uE606"
 style = "bg:#b1cccd"
 format = '[[ $symbol( $version)(\(#$virtualenv\)) ](fg:#1b3436 bg:#b1cccd)]($style)'
 
 [docker_context]
-symbol = ""
+symbol = "\uF308"
 style = "bg:#9cf0f5"
 format = '[[ $symbol( $context) ](fg:#002021 bg:#9cf0f5)]($style)'
 
 [conda]
-symbol = "  "
+symbol = "\uF10C  "
 style = "fg:#002021 bg:#9cf0f5"
 format = '[$symbol$environment ]($style)'
 ignore_base = false
@@ -139,21 +179,23 @@ ignore_base = false
 disabled = false
 time_format = "%R"
 style = "bg:#d5e3ff"
-format = '[[  $time ](fg:#081c36 bg:#d5e3ff)]($style)'
+format = "[[ \uF43A  $time ](fg:#081c36 bg:#d5e3ff)]($style)"
 
 [line_break]
 disabled = true
 
 [character]
 disabled = false
-success_symbol = '[❯](bold fg:#b1cccd)'
-error_symbol = '[❯](bold fg:#ffb4ab)'
-vimcmd_symbol = '[❮](bold fg:#b1cccd)'
-vimcmd_replace_one_symbol = '[❮](bold fg:#d5e3ff)'
-vimcmd_replace_symbol = '[❮](bold fg:#d5e3ff)'
-vimcmd_visual_symbol = '[❮](bold fg:#b5c7e9)'
+success_symbol = "[\u276F](bold fg:#b1cccd)"
+error_symbol = "[\u276F](bold fg:#ffb4ab)"
+vimcmd_symbol = "[\u276E](bold fg:#b1cccd)"
+vimcmd_replace_one_symbol = "[\u276E](bold fg:#d5e3ff)"
+vimcmd_replace_symbol = "[\u276E](bold fg:#d5e3ff)"
+vimcmd_visual_symbol = "[\u276E](bold fg:#b5c7e9)"
 
 [cmd_duration]
+# The preset prefixes this with U+EAF4, which this font does not have -- so it
+# is plain text here rather than a tofu box.
 show_milliseconds = true
 format = " in $duration "
 style = "bg:#d5e3ff"
