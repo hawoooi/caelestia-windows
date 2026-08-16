@@ -1,6 +1,5 @@
 import { register } from './registry.js';
 import { PANELS_CMD_KEY, PANELS_ACK_KEY, createChannel } from '../../widget-channel.js';
-import { openOnHover } from './hover-open.js';
 
 // The bar trigger for the system-tray panel. It owns no tray data -- it just
 // asks the panels flyout (panels/panels.js) to open its 'tray' panel beside
@@ -78,10 +77,6 @@ register('trayToggle', (ctx) => {
     document.removeEventListener('click', onDocumentClick, true);
   }
 
-  // Hover OPENS but never closes: the panel appears to the right of the bar,
-  // so reaching it means leaving this button, and a close-on-leave would make
-  // the flyout unreachable. Dismissal stays click-away / pick / timer.
-  openOnHover(el, show);
   el.addEventListener('click', () => { if (open) hide(); else show(); });
 
   // The flyout acks every close it performs itself (its dismiss timer, or the

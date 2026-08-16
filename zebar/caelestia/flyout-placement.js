@@ -25,16 +25,38 @@ export const SLIDE_PX = 10;
 // Vertically the panel is centred on the button and then clamped into the
 // monitor, so a layout button near the very bottom of the bar -- which is
 // exactly where it is -- can never place half the panel off-screen.
-export function menuPlacement({ anchorX, anchorY, panelWidth, panelHeight, monitor }) {
+// The bottom strip a bar flyout must stay out of: the dock's whole window.
+//
+// This is dock.js's DOCK_H + ARCH_W, and the two are a matched pair -- there is
+// nothing to derive it from here, since the bar and the dock are separate
+// widgets that never talk.
+//
+// Why it exists: the dock's window is a PERMANENT footprint, transparent above
+// the row but still swallowing every click inside it, and hovering it opens the
+// dock. A flyout whose bottom reached into that strip was unreachable --
+// reported as "when i click the side menu open, i cannot access the bottom menu
+// of komorebi layout since it lives inside the zone of the taskbar hover".
+// Reaching for the last item both failed to click it and popped the dock out.
+export const DOCK_RESERVED_H = 72;
+
+export function menuPlacement({
+  anchorX, anchorY, panelWidth, panelHeight, monitor,
+  bottomReserved = DOCK_RESERVED_H,
+}) {
   const width = panelWidth + SLIDE_PX;
   const height = panelHeight;
   const x = Math.round(anchorX + GAP_PX - SLIDE_PX);
   const unclampedY = Math.round(anchorY - height / 2);
   const minY = monitor.y;
-  // Math.max last, so a panel taller than the monitor is pinned to the top
-  // edge (clipped at the bottom) rather than the other way round -- the
-  // active marker and the first items stay visible either way.
-  const maxY = monitor.y + monitor.height - height;
+  // The usable bottom is the dock's top edge, less the frame's own gap -- not
+  // the screen's bottom. Every one of these flyouts opens directly beside the
+  // bar, which is inside the dock's horizontal span, so this applies to all of
+  // them rather than being conditional on overlap.
+  //
+  // Math.max last, so a panel taller than the space is pinned to the TOP edge
+  // (clipped at the bottom) rather than the other way round -- the active
+  // marker and the first items stay visible either way.
+  const maxY = monitor.y + monitor.height - bottomReserved - GAP_PX - height;
   const y = Math.max(minY, Math.min(unclampedY, maxY));
   return { x, y, width, height };
 }
@@ -44,14 +66,16 @@ export function menuPlacement({ anchorX, anchorY, panelWidth, panelHeight, monit
 // Gap between the dock's top edge and the card's bottom edge. Same 8px as
 // everything else in this desktop's frame, so the card reads as part of the
 // same system.
-export const PREVIEW_GAP_PX = 8;
+export const PREVIEW_GAP_PX = 10;
 
-// Vertical slack reserved BELOW the card inside its window, so the card has
-// somewhere to rise in from without animating straight into its own clip edge
-// -- the same trick SLIDE_PX plays horizontally for the layout menu. The card
-// sits at `top: 0` and animates translateY(RISE) -> 0. Keep in step with
-// dockpreview/preview.css's --rise.
-export const PREVIEW_RISE_PX = 10;
+// The card used to reserve slack below itself to animate up into. It does not
+// animate any more -- direct user feedback, "make it so that taskbar hover
+// previews are instant and have no animation" -- so the window is exactly the
+// card, with nothing under it.
+//
+// Removing the slack also removed 10px of overlap with the dock's window,
+// which mattered for more than tidiness: see previewPlacement below.
+export const PREVIEW_RISE_PX = 0;
 
 // The thumbnail's box, fitted to the captured window's own aspect ratio.
 //
@@ -114,9 +138,24 @@ export function previewBox(naturalWidth, naturalHeight, {
 // anything: the dock is at the bottom of the screen and the card is the thing
 // that has to get out of its way.
 //
-// `dockTop` is the dock WINDOW's top edge, not the visible row's -- the dock's
-// window is a fixed footprint that never moves (see dock.js's placeWindow), so
-// it is the one stable thing to hang this off.
+// `dockTop` is the dock's VISIBLE row, not its window. Those differ: the dock's
+// window is ARCH_W taller than the row, to hold the corner fillet above it.
+//
+// Measuring from the window was tried, on the theory that the card's window
+// overlapping the dock's was causing the reported flicker ("the taskbar
+// sometimes flickers, making do half the closing animation just to reopen").
+// It was not. The flicker came from the dock re-appending its icon nodes on a
+// window-list refresh, which moves the element under the pointer and fires a
+// spurious mouseleave -- measured with the cursor verified parked, `render` at
+// +87ms and `close` at +146ms. That is fixed in dock.js's renderItems.
+//
+// Clearing the whole window also cost 16px of empty space under the card that
+// the eye reads as padding, against 10px on its sides -- reported as "the
+// bottom padding is a lot bigger than the side padding". Measuring from the
+// visible row puts the gap back where it looks right. The residual overlap
+// with the dock's transparent fillet strip is tolerated deliberately: the
+// flicker's real cause is fixed, and this pack's own isolation test found an
+// overlapping card harmless across 5 clean trials.
 export function previewPlacement({
   anchorX, dockTop, cardWidth, cardHeight, monitor,
   gap = PREVIEW_GAP_PX, rise = PREVIEW_RISE_PX, leftLimit,

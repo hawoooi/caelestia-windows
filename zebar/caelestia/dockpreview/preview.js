@@ -40,9 +40,12 @@ import { previewPlacement, previewBox, isAnchorOnMonitor } from '../flyout-place
 // window left parked would be a permanent dead zone over the desktop.
 export const PARKED_SIZE = 1;
 
-// Keep in step with preview.css's --dur. The window must not shrink back until
-// the fade has actually played.
-export const FADE_MS = 160;
+// The card no longer fades -- it is shown and hidden instantly, per "make it
+// so that taskbar hover previews are instant and have no animation". This is
+// therefore not a fade delay any more: it is one frame of slack so the browser
+// has painted the hidden state before the window shrinks under it. Zero works
+// too, but a shrink racing the repaint can flash the card's last frame at 1x1.
+export const FADE_MS = 16;
 
 // A card can only ever be closed by the dock. If the dock's window dies while
 // one is open -- Apply-Theme restarts every widget on a theme change, and they

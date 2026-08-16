@@ -13,8 +13,6 @@
   --shot-h: 203px;
   --radius: 14px;
   --radius-sm: 8px;
-  --rise: 10px;         /* keep in step with flyout-placement.js's PREVIEW_RISE_PX */
-  --dur: 160ms;
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
@@ -26,11 +24,11 @@ html, body {
   overflow: hidden;
 }
 
-/* Pinned to the TOP of the window, with the rise slack left below it: the card
-   animates translateY(--rise) -> 0, so it needs that slack underneath or it
-   would start its animation already clipped by its own window bounds. The
-   window is positioned so the card's resting bottom edge -- not the window's --
-   sits 8px above the dock. See previewPlacement in ../flyout-placement.js. */
+/* Fills its window exactly. The window is sized to the card and positioned so
+   the card sits clear of the dock's whole window, fillet strip included --
+   overlapping it put two top_most windows on top of each other with no defined
+   z-order, which is what made the dock flicker while the card resized over it.
+   See previewPlacement in ../flyout-placement.js. */
 .preview {
   position: absolute;
   top: 0;
@@ -46,15 +44,18 @@ html, body {
   color: var(--on-surface);
   font-family: "0xProto Nerd Font", monospace;
 
+  /* NO transition and NO transform -- direct user feedback, "make it so that
+     taskbar hover previews are instant and have no animation". A preview is a
+     glance, not a reveal: any easing at all puts the card's arrival behind the
+     pointer that asked for it.
+
+     Removing the rise also removed the slack the window used to reserve
+     underneath the card, which is what let the card's window stop overlapping
+     the dock's. See previewPlacement in ../flyout-placement.js. */
   opacity: 0;
-  transform: translateY(var(--rise));
-  transition: opacity var(--dur) var(--ease), transform var(--dur) var(--ease);
 }
 
-body.open .preview {
-  opacity: 1;
-  transform: translateY(0);
-}
+body.open .preview { opacity: 1; }
 
 .preview__head {
   display: flex;

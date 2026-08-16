@@ -1,7 +1,6 @@
 import { register, create } from './registry.js';
 import { statusRows } from '../../status-catalogue.js';
 import { STATUS_CMD_KEY, STATUS_ACK_KEY, PANELS_CMD_KEY, PANELS_ACK_KEY, createChannel } from '../../widget-channel.js';
-import { openOnHover } from './hover-open.js';
 
 // Change 1 (lower-cluster restyle): Caelestia's visual language groups
 // related lower-bar items onto ONE elevated rounded surface, not one boxed
@@ -206,17 +205,6 @@ register('statusCluster', (ctx) => {
       syncToggleGlyph();
     });
 
-    // Hover OPENS but never closes -- see hover-open.js. Guarded on the
-    // controller's own flag so a hover can never toggle the dropdown SHUT
-    // under a pointer that is merely on its way to it.
-    openOnHover(toggle, () => {
-      if (controller.isOpen && controller.isOpen()) return;
-      if (controller.toggle()) {
-        postOpen();
-        document.addEventListener('click', onDocumentClick, true);
-        syncToggleGlyph();
-      }
-    });
 
     channel.subscribe(() => {
       controller.applyAck();

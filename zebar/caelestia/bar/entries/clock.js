@@ -1,6 +1,5 @@
 import { register } from './registry.js';
 import { PANELS_CMD_KEY, PANELS_ACK_KEY, createChannel } from '../../widget-channel.js';
-import { openOnHover } from './hover-open.js';
 
 export function splitClock(formatted) {
   if (typeof formatted !== 'string') return { top: '--', bottom: '--' };
@@ -86,9 +85,6 @@ register('clock', (ctx) => {
     document.removeEventListener('click', onDocumentClick, true);
   }
 
-  // Hover OPENS but never closes -- see hover-open.js. The panel is to the
-  // right of the bar, so reaching it means leaving this button.
-  openOnHover(el, show);
   el.addEventListener('click', () => { if (open) hide(); else show(); });
 
   // Any ack means the flyout closed itself (dismiss timer, an in-panel action,

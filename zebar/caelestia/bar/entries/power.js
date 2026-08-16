@@ -1,6 +1,5 @@
 import { register } from './registry.js';
 import { PANELS_CMD_KEY, PANELS_ACK_KEY, createChannel } from '../../widget-channel.js';
-import { openOnHover } from './hover-open.js';
 
 // The bar trigger for the power panel.
 //
@@ -76,7 +75,6 @@ register('power', (ctx) => {
   }
 
   el.addEventListener('click', () => { if (open) hide(); else show(); });
-  openOnHover(el, show);
 
   // The flyout acks every close it performs itself (its dismiss timer, a row
   // being clicked, or the "I just restarted" message it posts on startup). Any
