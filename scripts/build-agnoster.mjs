@@ -87,6 +87,11 @@ const SEP = '\\uE0B0';       // powerline right arrow -- agnoster's separator
 // CartographCF at cell_width 0.9. U+F418 is the same icon drawn properly, and
 // is already verified present in this font's cmap.
 const BRANCH = '\\uF418';
+// The bar's own ghost, standing in for agnoster's user@host context segment.
+// U+F79F is the REAL ghost in this Nerd Fonts v2 build -- U+F6E2, the codepoint
+// usually cited for it, draws the Dropbox logo here. Verified by rendering it,
+// and by checking it does not fall back to .notdef.
+const GHOST = '\\uF79F';
 
 // agnoster's own palette, as the terminal's 8-colour names resolve on this
 // desktop. Kept literal: that IS the variant.
@@ -187,18 +192,26 @@ const build = (c) => {
   // derives its foregrounds.
   const fgOn = (bg) => (c.deriveFg ? onColour(bg) : c.fg);
   return `
-format = """$username$hostname$directory$git_branch$git_status$character"""
-
-[username]
-show_always = true
-style_user = "bg:${c.context} fg:${c.contextFg}"
-style_root = "bg:${c.error} fg:${fgOn(c.error)}"
-format = '[ $user ]($style)'
-
-[hostname]
-ssh_only = false
-style = "bg:${c.context} fg:${c.contextFg}"
-format = "[@$hostname ]($style)[${SEP}](fg:${c.context} bg:${c.dir})"
+# The leading block is a GHOST, not agnoster's user@host. Direct user request:
+# "for the PC @hwoi part you can simplify into a nerd font ghost character
+# instead" -- prompted by the block reading bare, since it was the only one
+# carrying no icon at all. (Nothing was actually missing: every glyph used here
+# was checked against the font and none falls back to .notdef.)
+#
+# It is literal styled text in the top-level format rather than a module,
+# because no starship module renders a constant. The arrow out of it is drawn
+# here too, for the usual reason -- an arrow belongs to whoever knows the blocks
+# on both of its sides.
+#
+# This must stay a TOML BASIC string (double quotes). In a literal '...' string
+# the \\u escape would reach starship's own format parser raw, which rejects it
+# with "expected escaped_char"; in a basic string TOML decodes it to the real
+# character first. That trap has cost this file two rounds already.
+#
+# Cost of the simplification, stated rather than hidden: agnoster shows the user
+# in red when root, via [username]'s style_root. With the module gone there is
+# no root indicator at all.
+format = """[ ${GHOST} ](bg:${c.context} fg:${c.contextFg})[${SEP}](fg:${c.context} bg:${c.dir})$directory$git_branch$git_status$character"""
 
 [directory]
 style = "bg:${c.dir} fg:${fgOn(c.dir)}"
@@ -221,6 +234,15 @@ format = "[${SEP}](fg:${c.dir} bg:${c.clean})[ $symbol$branch]($style)"
 # (...) group, so inside a repo this always renders and is therefore always
 # the last block. That is what makes the closing arrow below deterministic.
 style = "bg:${c.clean} fg:${fgOn(c.clean)}"
+# starship's defaults for these are the DASHED arrows U+21E1/U+21E3, which are
+# present in this font but drawn with about a fifth of a normal glyph's ink
+# (measured: 54px against the ghost's 476, and against 71px for a plain "?").
+# At terminal size that reads as a broken or half-missing symbol, which is what
+# prompted "it seems like there are symbols missing?". The solid arrows below
+# measure ~107px, in line with the surrounding punctuation.
+ahead = "\\u2191\${count}"
+behind = "\\u2193\${count}"
+diverged = "\\u2195\${ahead_count}\\u2193\${behind_count}"
 format = "[ $all_status$ahead_behind ]($style)[${SEP}](fg:${c.clean})"
 
 [character]
