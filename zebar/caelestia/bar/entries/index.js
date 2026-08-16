@@ -1,5 +1,6 @@
 import { register } from './registry.js';
 import './logo.js';
+import './evkey.js';
 import './workspaces.js';
 import './layoutToggle.js';
 import './clock.js';

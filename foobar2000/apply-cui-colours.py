@@ -83,6 +83,10 @@ def main():
     ap.add_argument('--mode', type=int, default=None,
                     help="also force the per-entry u32 mode field (e.g. 1 = custom colours)")
     ap.add_argument('--restore', action='store_true', help="restore from the .orig backup and exit")
+    ap.add_argument('--entries', default='all',
+                    help="which matched blocks to patch: 'all', or a comma list / range like '1-12'")
+    ap.add_argument('--slots', default='all',
+                    help="which of the 7 colour slots to patch: 'all', or a comma list / range like '0-3'")
     args = ap.parse_args()
 
     backup = args.cfg + '.orig'
@@ -111,6 +115,20 @@ def main():
     for i, (slot, role) in enumerate(SLOTS):
         print("  %-30s <- %-24s %s" % (slot, role, palette[role]))
 
+    # narrow to the requested subset
+    if args.entries != 'all':
+        want = set()
+        for part in args.entries.split(','):
+            part = part.strip()
+            if '-' in part:
+                a, b = part.split('-', 1)
+                want.update(range(int(a), int(b) + 1))
+            elif part:
+                want.add(int(part))
+        sel = [h for i, h in enumerate(hits) if i in want]
+        print("\nselecting entries %s -> %d of %d blocks" % (args.entries, len(sel), len(hits)))
+        hits = sel
+
     print("\noffsets  : %s" % hits)
 
     if args.dry_run:
@@ -121,8 +139,25 @@ def main():
         shutil.copyfile(args.cfg, backup)
         print("\nbackup   : %s" % backup)
 
+    def parse_set(spec, n):
+        if spec == 'all':
+            return set(range(n))
+        out = set()
+        for part in spec.split(','):
+            part = part.strip()
+            if '-' in part:
+                a, b = part.split('-', 1)
+                out.update(range(int(a), int(b) + 1))
+            elif part:
+                out.add(int(part))
+        return out
+
+    slots = parse_set(args.slots, len(SLOTS))
+    print("slots    : %s" % sorted(slots))
+
     for off in hits:
-        data[off:off + 28] = new_block
+        for si in sorted(slots):
+            data[off + si * 4: off + si * 4 + 4] = new_block[si * 4: si * 4 + 4]
         if args.mode is not None:
             # mode u32 sits 4 bytes before the colour block (GUID(16) then mode(4))
             struct.pack_into('<I', data, off - 4, args.mode)

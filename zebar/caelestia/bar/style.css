@@ -532,3 +532,31 @@ body.fullscreen-hidden #bar { display: none; }
   animation-duration: var(--dur);
   animation-timing-function: var(--ease);
 }
+
+/* ------------------------------------------------------------------ EVKey */
+/* Which mode EVKey is typing in -- VI or EN. A readout, not a control: it has
+   no click handler, so it deliberately does NOT get the .bar-btn affordance.
+   This bar's standing rule is that anything looking interactive must be. */
+.evkey {
+  font-family: "0xProto Nerd Font", monospace;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-align: center;
+  padding: 3px 0;
+  border-radius: var(--radius-sm, 8px);
+  color: var(--on-surface-variant);
+}
+
+/* Vietnamese is the state you switch INTO and want to notice; English is the
+   resting mode and stays quiet. One accent on the one thing that is "now",
+   which is this desktop's rule everywhere else. */
+.evkey--vi {
+  color: var(--on-primary);
+  background: var(--primary);
+}
+
+/* EVKey not running, or a tooltip this parser does not understand. Nothing is
+   shown rather than a guess -- a mode indicator that invents a mode is worse
+   than an absent one. */
+.evkey--hidden { display: none; }

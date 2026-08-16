@@ -24,6 +24,7 @@ import {
 import {
   GAP_PX,
   SLIDE_PX,
+  DOCK_RESERVED_H,
   menuPlacement,
   isAnchorOnMonitor,
 } from '../../zebar/caelestia/flyout-placement.js';
@@ -152,12 +153,18 @@ test('the panel is vertically centred on the button', () => {
   assert.strictEqual(p.y + 90 / 2, 720);
 });
 
-test('a button near the bottom edge does not push the panel off-screen', () => {
-  // This is the real case, not a hypothetical: layoutToggle sits second
-  // from the bottom of a bar that runs to the bottom of the screen, so a
-  // naive centre would put roughly half the panel below y = 1440.
+test('a button near the bottom edge lands clear of the dock, not just on-screen', () => {
+  // This is the real case, not a hypothetical: layoutToggle sits second from
+  // the bottom of a bar that runs to the bottom of the screen, so a naive
+  // centre would put roughly half the panel below y = 1440.
+  //
+  // This used to assert the panel's bottom landed exactly at MON.height --
+  // on-screen, but INSIDE the dock's window, which is a permanent footprint
+  // that swallows clicks and opens on hover. Reported as "i cannot access the
+  // bottom menu of komorebi layout since it lives inside the zone of the
+  // taskbar hover". On-screen was never the right bar.
   const p = menuPlacement({ anchorX: 52, anchorY: 1420, panelWidth: 300, panelHeight: 90, monitor: MON });
-  assert.strictEqual(p.y + p.height, MON.height);
+  assert.strictEqual(p.y + p.height, MON.height - DOCK_RESERVED_H - GAP_PX);
   assert.ok(p.y >= MON.y);
 });
 
@@ -171,7 +178,11 @@ test('clamping is relative to the monitor, not to the desktop origin', () => {
   // would fling the panel to the primary monitor's top edge.
   const right = { x: 2560, y: 0, width: 1920, height: 1080 };
   const p = menuPlacement({ anchorX: 2612, anchorY: 1070, panelWidth: 300, panelHeight: 90, monitor: right });
-  assert.strictEqual(p.y + p.height, right.y + right.height);
+  // The dock reservation is applied per-monitor, against THAT monitor's
+  // height. Uniform on purpose: a second monitor has no dock today, so this
+  // costs it a little headroom rather than risking the flyout being
+  // unreachable if one ever appears there.
+  assert.strictEqual(p.y + p.height, right.y + right.height - DOCK_RESERVED_H - GAP_PX);
   assert.strictEqual(p.x, 2612 + GAP_PX - SLIDE_PX);
 });
 

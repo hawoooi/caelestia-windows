@@ -25,6 +25,10 @@ const providers = zebar.createProviderGroup({
   cpu:      { type: 'cpu' },
   memory:   { type: 'memory' },
   disk:     { type: 'disk' },
+  // EVKey's input mode is read from its TRAY TOOLTIP (see
+  // entries/evkey.js). A provider subscription, not a poll -- nothing here
+  // spawns a process.
+  systray:  { type: 'systray' },
 });
 
 // I3: fetch as text, not `.then(r => r.json())` -- the latter throws
