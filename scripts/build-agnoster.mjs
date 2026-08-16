@@ -211,7 +211,7 @@ const build = (c) => {
 # Cost of the simplification, stated rather than hidden: agnoster shows the user
 # in red when root, via [username]'s style_root. With the module gone there is
 # no root indicator at all.
-format = """[ ${GHOST} ](bg:${c.context} fg:${c.contextFg})[${SEP}](fg:${c.context} bg:${c.dir})$directory$git_branch$git_status$character"""
+format = """[ ${GHOST} ](bg:${c.context} fg:${c.contextFg})[${SEP}](fg:${c.context} bg:${c.dir})$directory$git_branch$character"""
 
 [directory]
 style = "bg:${c.dir} fg:${fgOn(c.dir)}"
@@ -227,23 +227,28 @@ style = "bg:${c.clean} fg:${fgOn(c.clean)}"
 # this segment lives here rather than at the end of the directory segment: an
 # arrow is coloured fg=block-on-its-left, bg=block-on-its-right, so only a
 # module that knows both can get it right.
-format = "[${SEP}](fg:${c.dir} bg:${c.clean})[ $symbol$branch]($style)"
+# git_branch is the last block inside a repo now that git_status is off, so it
+# owns the CLOSING ARROW. That keeps the arrow deterministic: it is still drawn
+# by a module that knows the block on its left (this one) and what is on its
+# right (the terminal background).
+format = "[${SEP}](fg:${c.dir} bg:${c.clean})[ $symbol$branch ]($style)[${SEP}](fg:${c.clean})"
 
 [git_status]
-# Shares git_branch's colour and its block, and is NOT wrapped in an optional
-# (...) group, so inside a repo this always renders and is therefore always
-# the last block. That is what makes the closing arrow below deterministic.
-style = "bg:${c.clean} fg:${fgOn(c.clean)}"
-# starship's defaults for these are the DASHED arrows U+21E1/U+21E3, which are
-# present in this font but drawn with about a fifth of a normal glyph's ink
-# (measured: 54px against the ghost's 476, and against 71px for a plain "?").
-# At terminal size that reads as a broken or half-missing symbol, which is what
-# prompted "it seems like there are symbols missing?". The solid arrows below
-# measure ~107px, in line with the surrounding punctuation.
-ahead = "\\u2191\${count}"
-behind = "\\u2193\${count}"
-diverged = "\\u2195\${ahead_count}\\u2193\${behind_count}"
-format = "[ $all_status$ahead_behind ]($style)[${SEP}](fg:${c.clean})"
+# OFF by direct request -- "remove those marks and show me the prompt again",
+# meaning the !?<arrow>N field. It showed, in order: tracked files with unstaged
+# edits (!), untracked files (?), and commits ahead of the remote (arrow + count).
+#
+# To bring it back, set disabled = false, move the closing arrow from
+# git_branch's format above back onto the end of this one, and restore:
+#     style  = "bg:CLEAN fg:ON_CLEAN"
+#     format = "[ $all_status$ahead_behind ]($style)[SEP](fg:CLEAN)"
+#     ahead / behind / diverged = the SOLID arrows U+2191 / U+2193 / U+2195,
+#       never starship's dashed U+21E1 / U+21E3 defaults -- those measure ~54px
+#       of ink against ~107px for the solid ones and ~71px for a plain "?", and
+#       at terminal size they read as broken glyphs rather than as arrows.
+# The arrow has to move with it, because whichever module renders last must be
+# the one that closes the prompt.
+disabled = true
 
 [character]
 # NO ARROW HERE. It used to close the prompt with an arrow coloured ${'$'}{clean},
