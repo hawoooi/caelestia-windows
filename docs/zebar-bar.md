@@ -2762,3 +2762,36 @@ rather than restarted, so a jittering hand cannot hold the countdown at zero.
 `dockpreview/preview.css`. Live: cards opened for 3/3 dock icons with real thumbnails and correct
 titles, sized to each window's aspect ratio, and the window parked back to 1x1 after leaving the
 dock. Screenshotted rather than only read from state.
+
+## The port-6124 failure, and why warning about it was not enough
+
+Reported as "reloading the zebar bar doesn't work somehow? and it just removes the bar" — and the
+symptom is worth naming precisely, because "the bar" understates it: **nothing** renders. Bar,
+frame bands, corners, dock, everything. Every widget is served by the same asset server, so if it
+cannot bind the port, the whole desktop goes.
+
+**What was actually holding it.** `Get-NetTCPConnection -LocalPort 6124` reported the listener as
+owned by a PID that **no longer existed**. The instructive part: killing the *currently running*
+`zebar.exe` released it. The live zebar had inherited a dead predecessor's listening socket and
+could therefore never bind its own — so a dead-PID holder is not necessarily unrecoverable, and
+the first thing to try is killing zebar itself rather than hunting for an orphaned helper.
+
+**Why `Restart-ZebarWidgets` did not save it.** It already checked the port and printed an accurate
+warning — and then started all thirteen widgets into a port it had just said was occupied. The
+warning scrolled past, every widget failed to bind, and the desktop went blank. A warning is worth
+almost nothing when the very next statement guarantees the failure it warned about.
+
+It now **waits** for the port to come free (`-PortWaitMs`, default 5000, polled every 200ms) and
+only reports a stuck holder if it never does. A listening socket does not reliably vanish the
+instant its process is killed, and the fixed 500ms sleep after `Stop-Process` was a guess.
+
+**Proven, not assumed.** A check that has never been seen to fire is not a check. The wait was
+tested by taking port 6124 with a real `TcpListener`, releasing it 2s later from a timer, and
+confirming `Restart-ZebarWidgets` waited it out and zebar ended up owning the port — rather than
+starting immediately and binding nothing.
+
+`app-list.exe` (the launcher's Start Menu enumerator) joined the orphan reap list, being another
+shellExec-ed child with the same handle-inheritance risk. **`launcher-key.exe` is deliberately NOT
+in that list**: it is the Windows-key hotkey daemon, it is started outside zebar so it never
+inherits zebar's socket, and it has to survive a widget restart or the Windows key stops opening
+anything.

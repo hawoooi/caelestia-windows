@@ -645,7 +645,13 @@ function Restart-ZebarWidgets {
         [string]$ZebarExe     = $script:ZebarExe,
         [string]$SettingsPath = (Join-Path $env:USERPROFILE ".glzr\zebar\settings.json"),
         [int]$StartupWaitMs   = 500,
-        [int]$AssetServerPort = 6124
+        [int]$AssetServerPort = 6124,
+        # How long to wait for the asset-server port to actually come free
+        # after killing zebar, before giving up and reporting a stuck holder.
+        # A listening socket does not always vanish the instant its process
+        # does, and starting the widgets while it is still held renders the
+        # entire desktop blank.
+        [int]$PortWaitMs      = 5000
     )
 
     if (-not (Test-Path $ZebarExe)) {
@@ -677,7 +683,13 @@ function Restart-ZebarWidgets {
     # fullscreen-detect.exe is -- it inherits the same CreateProcess
     # handle-inheritance risk, so it gets the same reap, not a separate
     # bespoke check.
-    $orphans = Get-Process fullscreen-detect, app-icon, audio-mixer, net-stats, window-list, vesktop-unread, media-art, window-preview -ErrorAction SilentlyContinue
+    # app-list.exe is the launcher's Start Menu enumerator -- another
+    # shellExec-ed child, so the same handle-inheritance risk and the same
+    # reap. launcher-key.exe is deliberately NOT in this list: it is the
+    # Windows-key hotkey daemon, it is started outside zebar (so it never
+    # inherits zebar's socket), and it has to survive a widget restart or the
+    # Windows key stops opening anything.
+    $orphans = Get-Process fullscreen-detect, app-icon, audio-mixer, net-stats, window-list, vesktop-unread, media-art, window-preview, app-list -ErrorAction SilentlyContinue
     if ($orphans) {
         $orphanIds = ($orphans | ForEach-Object { "$($_.ProcessName) (PID $($_.Id))" }) -join ', '
         Write-Warning "Reaping $(@($orphans).Count) surviving fullscreen-detect.exe/app-icon.exe/audio-mixer.exe/net-stats.exe/window-list.exe/vesktop-unread.exe/media-art.exe/window-preview.exe process(es) ($orphanIds) before restarting zebar widgets -- see docs/zebar-bar.md's port-$AssetServerPort troubleshooting entry. This is expected occasionally (a poll outliving its parent zebar), not itself a sign of a new bug."
@@ -685,21 +697,46 @@ function Restart-ZebarWidgets {
         Start-Sleep -Milliseconds 200
     }
 
-    # Step 2: if the asset-server port is STILL held after that reap,
-    # report the holder clearly instead of letting the widgets below fail
-    # to bind silently -- this exact silent failure is what cost two prior
-    # agents ~an hour misdiagnosing a WebView2 problem that never existed.
+    # Step 2: WAIT for the asset-server port to actually be free, rather than
+    # noting that it isn't and starting anyway.
+    #
+    # The previous version only warned. That is worth almost nothing in
+    # practice: a warning scrolls past, the widgets start, every one of them
+    # fails to bind, and the whole desktop -- bar, frame bands, corners, dock
+    # -- renders nothing. Reported as "reloading the zebar bar doesn't work
+    # somehow? and it just removes the bar", and the warning had been printed
+    # correctly on the way past.
+    #
+    # A listening socket does not always disappear the instant its process is
+    # killed, and the fixed 500ms sleep above is a guess, not a guarantee. This
+    # polls instead, so the common case (the socket needs another beat) simply
+    # works, and only a genuinely stuck holder is reported.
+    #
+    # The incident this was written for: the port was held by a PID that no
+    # longer existed, and killing the CURRENT zebar released it -- the running
+    # zebar had inherited a dead predecessor's listener and could never bind.
+    # So a dead-PID holder is not necessarily unrecoverable, which is exactly
+    # why waiting is worth doing before giving up.
+    $portFreed = $true
     try {
-        $portHolder = Get-NetTCPConnection -LocalPort $AssetServerPort -ErrorAction SilentlyContinue |
-            Where-Object { $_.State -eq 'Listen' } | Select-Object -First 1
+        $deadline = (Get-Date).AddMilliseconds($PortWaitMs)
+        $portHolder = $null
+        do {
+            $portHolder = Get-NetTCPConnection -LocalPort $AssetServerPort -ErrorAction SilentlyContinue |
+                Where-Object { $_.State -eq 'Listen' } | Select-Object -First 1
+            if (-not $portHolder) { break }
+            Start-Sleep -Milliseconds 200
+        } while ((Get-Date) -lt $deadline)
+
         if ($portHolder) {
+            $portFreed = $false
             $holderProc = Get-Process -Id $portHolder.OwningProcess -ErrorAction SilentlyContinue
             $holderDesc = if ($holderProc) {
                 "$($holderProc.ProcessName) (PID $($portHolder.OwningProcess))"
             } else {
                 "PID $($portHolder.OwningProcess) (process no longer exists -- a stale/inherited socket handle, the same shape of bug fullscreen-detect.exe hit)"
             }
-            Write-Warning "Port $AssetServerPort is still held by $holderDesc after reaping known orphans -- the zebar asset server below will likely fail to bind (`"Bind(Os { code: 10048, kind: AddrInUse ... }`" in state\zebar-logs) and the bar will render nothing. Investigate/kill that process manually if the widgets started below don't come up."
+            Write-Warning "Port $AssetServerPort is STILL held by $holderDesc after $PortWaitMs ms and after reaping known orphans. Every widget started below will fail to bind (`"Bind(Os { code: 10048, kind: AddrInUse ... }`" in state\zebar-logs) and the DESKTOP WILL RENDER NOTHING -- not just the bar. Kill that process, confirm `Get-NetTCPConnection -LocalPort $AssetServerPort` returns nothing, then run this again."
         }
     } catch {
         Write-Warning "Could not check whether port $AssetServerPort is already held (Get-NetTCPConnection failed: $_) -- continuing the restart anyway."
