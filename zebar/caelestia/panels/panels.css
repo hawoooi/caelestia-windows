@@ -476,3 +476,56 @@ body.open .panel-flyout {
   font-size: 11px;
   color: var(--on-surface-variant);
 }
+
+/* ---------------------------------------------------------------- power */
+/* Rows, not a grid of icons: every one of these ends or interrupts the
+   session, so each needs a name and a sentence rather than a glyph to guess
+   at. The bar button that opens this panel opens it on HOVER, so nothing here
+   may act without a deliberate click. */
+.power-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.power-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 10px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--on-surface);
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.power-row:hover { background: var(--surface-container-high); }
+
+.power-row__glyph {
+  flex: 0 0 auto;
+  width: 20px;
+  font-size: 14px;
+  text-align: center;
+  color: var(--on-surface-variant);
+}
+
+.power-row__text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 1px;
+}
+
+.power-row__label {
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.power-row__detail {
+  font-size: 11px;
+  line-height: 1.2;
+  color: var(--on-surface-variant);
+}

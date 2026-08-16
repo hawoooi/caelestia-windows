@@ -1,4 +1,5 @@
 import { register } from './registry.js';
+import { openOnHover } from './hover-open.js';
 import {
   LAYOUT_CYCLE,
   currentLayout,
@@ -245,6 +246,18 @@ register('layoutToggle', ({ shell }) => {
     } else {
       postClose();
       document.removeEventListener('click', onDocumentClick, true);
+    }
+  });
+
+  // Hover OPENS but never closes -- see hover-open.js. Goes through the same
+  // controller as the click, so the two can never disagree about the flag;
+  // toggle() is only called when the menu is shut, so a hover can open it but
+  // can never toggle it closed under a pointer that is on its way to it.
+  openOnHover(btn, () => {
+    if (controller.isOpen && controller.isOpen()) return;
+    if (controller.toggle()) {
+      postOpen();
+      document.addEventListener('click', onDocumentClick, true);
     }
   });
 

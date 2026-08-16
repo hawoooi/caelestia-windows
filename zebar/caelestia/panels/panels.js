@@ -550,11 +550,74 @@ function buildClock(out) {
   return update;
 }
 
+// --- power ----------------------------------------------------------------
+// The bar's power button used to do literally nothing: it called `confirm()`
+// and then logged "power action not yet wired". Reported as "power button
+// still doesn't do anything".
+//
+// It opens THIS panel rather than acting directly, and that is deliberate on
+// two counts. The bar's buttons now open their flyouts on HOVER, and a hover
+// that shuts the machine down is indefensible. And even on a click, a single
+// mis-aimed press on a 52px bar should not end the session -- every action
+// here needs a deliberate second click on a labelled row.
+const POWER_ACTIONS = [
+  {
+    id: 'lock', label: 'Lock', detail: 'Lock the current session', glyph: '\uF023',
+    program: 'C:\\Windows\\System32\\rundll32.exe', args: ['user32.dll,LockWorkStation'],
+  },
+  {
+    id: 'sleep', label: 'Sleep', detail: 'Suspend then hibernate', glyph: '\uF186',
+    program: 'C:\\Windows\\System32\\rundll32.exe', args: ['powrprof.dll,SetSuspendState', '0,1,0'],
+  },
+  {
+    id: 'restart', label: 'Restart', detail: 'Reboot the machine', glyph: '\uF2F1',
+    program: 'C:\\Windows\\System32\\shutdown.exe', args: ['/r', '/t', '0'],
+  },
+  {
+    id: 'shutdown', label: 'Shut down', detail: 'Power off the machine', glyph: '\uF011',
+    program: 'C:\\Windows\\System32\\shutdown.exe', args: ['/s', '/t', '0'],
+  },
+];
+
+function buildPower() {
+  panel.replaceChildren();
+  const head = el('div', 'panel-head');
+  head.append(el('h3', null, 'Power'), el('span', 'sub', 'Session'));
+  panel.append(head);
+
+  const list = el('div', 'power-list');
+  for (const action of POWER_ACTIONS) {
+    const row = el('button', 'power-row');
+    row.type = 'button';
+    const glyph = el('span', 'power-row__glyph fa-solid');
+    glyph.textContent = action.glyph;
+    const text = el('span', 'power-row__text');
+    text.append(el('span', 'power-row__label', action.label),
+                el('span', 'power-row__detail', action.detail));
+    row.append(glyph, text);
+    row.addEventListener('click', () => {
+      // Close first: shutdown and restart tear the session down, and leaving a
+      // flyout painted over the top of that is the last thing on screen.
+      dismissFromPanel();
+      if (!zebar.shellExec) return;
+      // Fail soft, like every shell-out in this pack: a refused command warns
+      // and never throws out of a click handler.
+      zebar.shellExec(action.program, action.args)
+        .catch((e) => console.warn(`power: ${action.id} failed`, e));
+    });
+    list.append(row);
+  }
+  panel.append(list);
+
+  return () => {};   // nothing here changes with a provider tick
+}
+
 const BUILDERS = {
   tray: buildTray,
   volume: buildVolume,
   network: buildNetwork,
   clock: buildClock,
+  power: buildPower,
 };
 
 async function init() {
