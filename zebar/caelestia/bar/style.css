@@ -551,9 +551,23 @@ body.fullscreen-hidden #bar { display: none; }
   font-weight: 600;
   line-height: 1.15;
   text-align: center;
-  /* Matches .clock-btn's padding and radius so the VI pill occupies the same
-     footprint the clock's hover surface does, directly beneath it. */
-  padding: var(--space-sm) var(--space-md);
+  /* Horizontal padding matches .clock-btn so the VI pill lines up with the
+     clock's hover surface. VERTICAL padding is nearly nothing, and the bar's
+     own flex gap is cancelled above it, because the two have to read as ONE
+     stacked group.
+
+     The arithmetic that made it look detached -- reported as "the spacing
+     looks too big on the top": the clock's 6px bottom padding, plus the bar's
+     10px gap between entries, plus this element's 6px top padding, put 22px
+     between the digits and EN, against the ~5px between the clock's own two
+     lines. Three separate sources of space, none of them individually wrong.
+
+     The negative margin cancels exactly the bar's gap (--space-md), leaving
+     the pair spaced only by their own padding. It is the one place in this
+     bar that overrides the shared rhythm, and it earns it: EN is a caption on
+     the clock, not a sibling of it. */
+  padding: 2px var(--space-md);
+  margin-top: calc(-1 * var(--space-md));
   border-radius: var(--radius-sm);
   color: var(--on-surface-variant);
 }

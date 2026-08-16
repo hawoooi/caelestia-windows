@@ -751,6 +751,9 @@ function Restart-ZebarWidgets {
     $logDir = Join-Path $script:Root 'state\zebar-logs'
     if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Force -Path $logDir | Out-Null }
 
+    # Every process started, checked in one pass after they are all running.
+    $started = @()
+
     foreach ($c in $toStart) {
         $preset = if ($c.preset) { $c.preset } else { 'default' }
 
@@ -781,12 +784,33 @@ function Restart-ZebarWidgets {
         # start (bad pack ID, etc.) exits almost immediately. A short poll
         # is the only way to tell "started fine" from "failed silently"
         # without hanging Apply-Theme for the widget's entire lifetime.
-        Start-Sleep -Milliseconds $StartupWaitMs
+        # Collected, NOT waited on here -- see the single wait below.
+        $started += [PSCustomObject]@{
+            Proc = $proc; Pack = $c.pack; Widget = $c.widget; Preset = $preset
+        }
+    }
+
+    # ONE wait for all of them, rather than one per widget.
+    #
+    # This used to Start-Sleep inside the loop, so a restart took
+    # StartupWaitMs x (number of widgets) -- 500ms x 14 = SEVEN SECONDS with
+    # the desktop blank the whole time, because there is no per-widget reload
+    # verb in zebar and every CSS change costs a full restart. Asked directly
+    # whether zebar was unresponsive or whether it was me: it was me.
+    #
+    # The wait exists to tell "started fine" from "failed silently":
+    # start-widget-preset blocks for as long as its widget window stays open,
+    # so it can never be -Wait-ed on, but a bad pack ID exits almost
+    # immediately. Nothing about that needs the waits to be sequential -- the
+    # processes start in parallel and are all checked after one interval.
+    Start-Sleep -Milliseconds $StartupWaitMs
+
+    foreach ($s in $started) {
         # $proc.ExitCode can be $null even when HasExited reports true (seen live
         # with redirected output). Without the explicit null check, `$null -ne 0`
         # is TRUE and this warns on every successful start.
-        if ($proc -and $proc.HasExited -and $null -ne $proc.ExitCode -and $proc.ExitCode -ne 0) {
-            Write-Warning "start-widget-preset failed for pack '$($c.pack)' widget '$($c.widget)' (exit code $($proc.ExitCode)) -- that widget's bar did NOT restart. Check the pack name and that it exists under ~/.glzr/zebar."
+        if ($s.Proc -and $s.Proc.HasExited -and $null -ne $s.Proc.ExitCode -and $s.Proc.ExitCode -ne 0) {
+            Write-Warning "start-widget-preset failed for pack '$($s.Pack)' widget '$($s.Widget)' preset '$($s.Preset)' (exit code $($s.Proc.ExitCode)) -- that widget did NOT restart. Check the pack name and that it exists under ~/.glzr/zebar."
         }
     }
 }
