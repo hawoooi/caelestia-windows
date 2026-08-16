@@ -95,6 +95,19 @@ shim on PATH. The two script bindings changed from `Start-Process powershell
 `~/.config/whkdrc.bak-before-cmd-shell`. **whkd must be restarted to pick up
 whkdrc changes** -- it reads the file once at startup.
 
+**That conversion had come undone, and the two script bindings were dead.**
+Found while adding the cava binds: `alt + w` (next wallpaper) and `ctrl + alt + w`
+(retheme) were back to `Start-Process powershell -WindowStyle Hidden
+-ArgumentList ...` while `.shell` was still `cmd` -- and cmd has no
+`Start-Process`, so both hotkeys did nothing at all (`cmd /c Start-Process ...`
+-> "'Start-Process' is not recognized"). Repaired to the `start "" /b powershell
+-NoProfile -ExecutionPolicy Bypass -File "..."` form this section already
+documents. Backup at `~/.config/whkdrc.bak-before-cava-binds`. **The lesson is
+that whkdrc is out of version control and silently drifts** -- when touching it,
+re-check that every binding's syntax matches the `.shell` in force, and test the
+exact command line through `cmd /c` before trusting it, because whkd reports
+nothing when a binding's command is bad.
+
 **`~/komorebi.json` (not version controlled).** Added `{kind: Exe, id:
 zebar.exe}` to `ignore_rules`. `yasb.exe` was already there; yasb was retired
 in favour of the zebar bar and **the ignore rule was never migrated**, so
@@ -286,11 +299,34 @@ it is red in every palette matugen builds, whatever the wallpaper.
   `gradient_count - 1`, and `MAX_GRADIENT_COLOR_DEFS` is 8), and every non-`gradient` value a
   quoted 6-digit hex.
 
-**There is deliberately no reload machinery.** cava reloads via `SIGUSR1`/`SIGUSR2` on Linux;
-Windows has no signals, leaving only the interactive keys `r` (reload config) and `c` (reload
-colours). A "switcher" would have to kill and relaunch the user's foreground visualiser mid-song.
-The file on disk always matching the wallpaper is the whole win -- a running cava picks it up on
-the next launch or one keypress.
+**EVERY KEY cava DOCUMENTS IS DEAD ON THIS BUILD.** `cava -h` prints the full list -- Left/Right
+for bar count, Up/Down for sensitivity, `r` reload config, `c` reload colours, `f`/`b` cycle
+colours, `o` orientation, `q` quit -- and **none of them do anything here**, including `q`, so the
+window has to be closed or Ctrl-C'd. That help text is shared across platforms. In cava 1.0.0's
+`cava.c` the variable the key `switch` reads is assigned in exactly two places: one guarded
+`#ifdef NCURSES` (this build has no ncurses -- see above) and one guarded `#ifndef _WIN32`. The
+whole switch is therefore unreachable on Windows. Confirmed against the `1.0.0` tag specifically,
+not master, and falsified by feeding 200 `q` keystrokes on stdin and watching cava keep running.
+**Do not write "press `r` to reload" anywhere.** This was told to the user twice before it was
+checked.
+
+**`live-config = 1` is the only runtime path, and it is enabled** in `~/.config/cava/config`. cava
+polls that file's mtime and size every frame and re-runs its entire config load on a change --
+which re-reads the theme file too. Measured with a control arm: bar count moved 8 -> 16 mid-run
+with it on and stayed at 8 with it off. Two consequences:
+
+- **Editing the config IS the keybind.** `scripts/hotkey-cava-bars.ps1 -Adjust more|fewer` steps
+  `bar_width` in that file (min 1, max 12) and a running cava re-lays out within a frame; bound to
+  `alt + shift + s` / `alt + shift + a` in `~/.config/whkdrc`, mirroring the existing `alt + s` /
+  `alt + a` pair. It moves `bar_width`, not `bars`, for the same reason cava's own dead key handler
+  did (`case 68: p.bar_width++`): a pinned `bars = N` makes cava REFUSE TO START in any pane too
+  narrow for N, which is no way to behave when a global hotkey has no idea how wide the pane is.
+  Verified end to end by screenshotting one cava process before and after the hotkey fired --
+  ~20 bars to ~35, never restarted.
+- **A wallpaper change still cannot reach a running cava**, because live-config watches the
+  *config* file and the pipeline writes the *theme* file. The fix is for `Apply-Theme` to touch
+  `~/.config/cava/config` after the copy -- exactly the trick already used on `~/.wezterm.lua`,
+  which has the same "only notices its own file" behaviour. **Offered and not yet wired up.**
 
 **Verifying it.** cava's `[output] method = raw` with `raw_target = /dev/stdout` and
 `data_format = ascii` prints bar heights as numbers, so audio capture can be proved without looking
@@ -315,7 +351,28 @@ content area reads as a rounded rectangle. Every piece is a separate `top_most` 
 **The one invariant that matters: all four wallpaper gaps must be equal.** Gap = komorebi's total
 padding − band thickness. Top/right/bottom each spend the band out of that padding; the left side
 has no band, so it needs `global_work_area_offset` to compensate. Current values: thickness 8,
-gap 8, radius 16, padding 8/8, offset `{left:-8, top:0, right:-8, bottom:0}`.
+gap 8, radius 16, padding **12/4**, offset `{left:-8, top:0, right:-8, bottom:0}`.
+
+**The invariant covers the gaps BETWEEN windows too, and for a long time it silently did not.**
+The padding was 8/8, an even 50/50 split of the total, and every check in
+`tests/SetFrameGeometry.Tests.ps1` pinned only the gap at the frame -- which the split does not
+affect. The gap between windows is `2 × container_padding`, which the split is entirely
+responsible for, so the desktop ran at **16px between windows against 8px at the frame**, a 2:1
+mismatch nobody's test could see. Reported as "padding between windows are uneven" and confirmed
+by pixel-scanning a screen row (wallpaper visible for 8px at the bar, 16px between window
+borders), not from `komorebic state`. The two formulas:
+
+```
+gap at the frame    = workspace_padding + container_padding - thickness   (= G, split-independent)
+gap between windows = 2 * container_padding                              (= all split)
+```
+
+`Set-FrameGeometry` now derives the split from **G**, not from P: `container = round(G/2)`,
+`workspace = P - container`. Total padding is unchanged, so the offset and every zpack/CSS value
+stay exactly as they were -- only the split moves, and no komorebi restart is needed. An odd G
+cannot halve exactly, so the between-windows gap lands on the nearest even number; the summary
+reports `InterWindowGap` and `-DryRun` prints both gaps side by side rather than letting a 1px
+miss pass silently. **If you retune the frame, check both numbers, not just the frame gap.**
 
 **`scripts/Set-FrameGeometry.ps1` is the only supported way to retune** (`-Thickness -GapRatio
 -Radius`, `-DryRun` to preview). It rewrites the zpack presets, the CSS custom properties, the
@@ -386,6 +443,41 @@ Notable details:
   `mouseleave` was observed firing 12ms after `mouseenter` with the pointer provably stationary,
   and no `mouseenter` can follow while the cursor does not move -- so the close decision re-checks
   `:hover` and a `mousemove` listener re-arms, rather than trusting the leave.
+
+## The starship prompt, and one belief that was wrong for a long time
+
+`scripts/Show-PromptCandidates.ps1` prints every candidate in
+`state/prompt-candidates/` into a real terminal with real colour and the real font -- a prompt
+rendered into a transcript loses the colour, and rendered as a PNG is not the terminal. Candidates
+1-8 come from `scripts/build-prompt-candidates.mjs`, 9-10 (agnoster) from
+`scripts/build-agnoster.mjs`. They are PREVIEW configs with the palette baked in as literal hex,
+so they render truthfully **and must never be installed as-is** -- a literal palette stops
+following the wallpaper. The chosen design gets ported into `matugen/templates/starship.toml`,
+where the hex becomes `{{colors.*}}`. The script refuses `-Apply` and says exactly this.
+
+**`cell_width = 0.9` does NOT clip powerline separators.** Candidates 1-8 were all designed under
+the stated constraint that `~/.wezterm.lua`'s `cell_width = 0.9` squeezes `U+E0B0` into the
+doubled chevrons the user once reported as "weird shapes on the arrows". That was **inferred and
+never tested**. Tested at last by rendering agnoster in a real WezTerm at the live setting and
+zooming in: the separators are clean solid triangles, no doubling, no seam. The earlier artifact
+belonged to a different glyph -- the catppuccin-powerline preset also uses the ROUND caps
+`U+E0B4`/`U+E0B6`, a different shape with a different cell fit. **`cell_width` does not need
+changing and no design needs to avoid `U+E0B0`.** What IS wrong at 0.9 is agnoster's own git glyph
+`U+E0A0`, which renders as a thin spindly mark; `U+F418` is the same icon drawn properly and is
+verified present in CartographCF's cmap.
+
+**Powerline arrows have one rule: every arrow must be drawn by a module that knows BOTH sides of
+it**, because its colours are `fg = block on its left`, `bg = block on its right`. A closing arrow
+placed in `[character]` breaks this -- starship has no conditional styling and no way to ask "did
+that module render", so `[character]` cannot know which block came last, and the arrow came out in
+the branch colour while sitting against the status block. Agnoster's git is therefore **one block
+in one colour**, with the closing arrow owned by `git_status` (rendered unwrapped, so inside a repo
+it always renders and is always last). Verify by dumping the raw escapes and checking each
+`U+E0B0`'s preceding SGR pair, not by eye. A consequence worth accepting: outside a git repo no
+closing arrow is drawn at all, which is a shorter silhouette but never a wrong colour. A second
+consequence: agnoster's green-when-clean/yellow-when-dirty cannot be expressed at all, and the
+two-block approximation that tried to was abandoned precisely because it made the closing arrow
+undecidable.
 
 ## Pipeline flow
 
