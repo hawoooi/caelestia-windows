@@ -21,6 +21,7 @@ building it — read it before changing anything here.
 | tacky-borders | config + log at `~/.config/tacky-borders/`, **not installed as an executable on this machine** (Task 1 finding, unchanged through Task 10) and **retired as a theming target** on top of that — komorebi's own borders replaced the job this template was built for. The template (`matugen/templates/tacky-borders.yaml`) is kept on disk, unwired from `matugen/config.toml` and from `$script:Targets`, in case it's ever wanted again. |
 | WezTerm | `C:\Program Files\WezTerm\wezterm.exe` — config at `~/.wezterm.lua`, **not under version control** (home directory is not a git repo); the pipeline's two required edits there are recorded in `docs/wezterm-integration.md` because of this |
 | starship | config at `~/.config/starship.toml` |
+| cava (1.0.0) | `C:\Users\PC\AppData\Local\cava\cava.exe`, per-user MSI (`cava_win_x64_install.msi`) from the upstream GitHub release — **not in scoop, and there is no winget on this machine**. The installer appends its directory to the **User** PATH, so `cava` does not resolve in shells that were already open. Config at `~/.config/cava/config` (13 KB, **hand-owned, not version controlled, never written by this pipeline**); the only pipeline-owned thing there is `theme = 'wallpaper'` in its `[color]` section, which points it at `~/.config/cava/themes/wallpaper` — a theming target. See "cava" below. |
 | Wallpaper Engine | `C:\Program Files (x86)\Steam\steamapps\common\wallpaper_engine\` — `wallpaper32.exe` or `wallpaper64.exe` (whichever is the live process; both exist on disk, this machine runs `wallpaper32.exe`) |
 | Zebar (v3.3.1) | `C:\Program Files\glzr.io\Zebar\zebar.exe` — a vertical Caelestia-style bar docked left, and (since yasb's retirement) the **only** bar on the desktop. Pack source tracked at `zebar/caelestia/`, served to Zebar via a junction at `~/.glzr/zebar/caelestia`. The pack declares **nine** widgets -- `bar`, `corners`, `edges`, `layoutmenu`, `statusmenu`, `panels`, `dock`, `dockpreview`, `dashboard` -- each needing its own `startupConfigs` entry per preset (`Install-Config` writes them all). Full detail: `docs/zebar-bar.md`. |
 | komorebi + whkd | `~/komorebi.json`, `~/.config/whkdrc` — the tiling WM driving the desktop (GlazeWM was replaced during this project's pre-flight; see `~/.config/yasb/CLAUDE.md`). Since the borders/yasb-retirement task, komorebi.json also carries `border: true`, `border_style: "Rounded"`, `border_width: 4`, `border_offset: 1`, `default_workspace_padding`/`default_container_padding` of **8/8**, a `global_work_area_offset` of `{left:-8, top:0, right:-8, bottom:0}`, and a themed `border_colours` object -- see "Window borders and gaps" and "The desktop frame" below. |
@@ -228,6 +229,77 @@ pipeline did not create -- treat it accordingly.
 sliver is covered by the frame, so this retheme mostly shows up in the Start menu, in title bars,
 and while hovering the bottom edge -- not in normal use.
 
+## cava
+
+A terminal audio visualiser, themed from the wallpaper like everything else. Installed as a
+per-user MSI (see "The stack"). Everything below was established on this machine, from cava's own
+source or by running it -- not from its README, which describes the Linux build.
+
+**Why the bars were white before any of this existed.** Every key in the generated config's
+`[color]` block ships commented out, so `foreground = default` -- and "default" is not a colour, it
+tells cava to emit no colour escape at all and let the terminal's own foreground stand. WezTerm's
+foreground is `on_surface`, a near-white. Nothing was broken; cava had never been told a colour.
+
+**The theming seam is a THEME FILE, not the config.** `[color] theme = '<name>'` loads
+`~/.config/cava/themes/<name>` -- a small colour-only file. So the pipeline owns
+`matugen/templates/cava.theme` -> `state/staging/cava.theme` -> `~/.config/cava/themes/wallpaper`,
+and the 13 KB config next to it (sensitivity, bar count, output mode, shader choice) stays
+hand-owned and is never written. The live theme file deliberately has **no extension**: cava builds
+the path as `themes/<name>` verbatim, the same shape as the `solarized_dark`/`tricolor` themes it
+ships with. Theme paths always resolve under `%USERPROFILE%\.config\cava\themes\` regardless of
+where `-p` points the config.
+
+**Named colours ride the WezTerm palette; hex does not.** For the eight named colours cava emits a
+plain `\033[3Xm`, so the *terminal* chooses the pixels -- and `matugen/templates/palette.lua`
+already derives every ANSI slot from the wallpaper (`blue` = `primary`, `cyan`/`green` =
+`tertiary`, `yellow` = `secondary`, `red`/`magenta` = `error`). A single named colour therefore
+follows the wallpaper for free, with no template and no target at all. **Gradients are the reason
+that is not enough**: cava accepts only hex for `gradient_color_N`, which is what forced the
+templated theme file. Hex becomes true 24-bit `\033[38;2;r;g;bm`.
+
+**What the theme actually is.** A recreation of `catppuccin/cava`'s gradient
+(github.com/catppuccin/cava) in this palette. Catppuccin sweeps eight stops at one tone, a pure hue
+walk from calm floor to hot peak; that SHAPE is what is copied. Only three stops are used --
+`primary` -> `tertiary` -> `error` -- because matugen synthesises just four accent hues from one
+wallpaper (palette.lua's header records the same ceiling), and the fourth, `secondary`, is the
+dominant hue desaturated, which renders a muddy grey-cyan across the lower third where the bars
+spend most of their time. Both versions were rendered side by side and looked at before that was
+decided. Three stops costs nothing in smoothness: cava interpolates linearly in RGB between
+consecutive stops, one colour per terminal line. `error` is the stop that keeps the peak hot --
+it is red in every palette matugen builds, whatever the wallpaper.
+
+**Windows-specific traps, all confirmed against cava's own `config.c`:**
+
+- **This build has no ncurses.** `method = ncurses` exits with "cava was built without ncurses
+  support". Output is `noncurses` (default) or `sdl_glsl`. That is *why* hex works cleanly -- the
+  config's warning about needing "a terminal that can change color definitions" describes the
+  ncurses path, which does not exist here.
+- **Input is hard-locked to WASAPI.** Setting any `[input] method` is a fatal error ("on windows
+  changing input method is not supported"). Loopback capture needs no configuration at all.
+- **The config is read by `GetPrivateProfileString`, the Win32 INI API -- not iniparser.** That API
+  honours only `;` as a comment marker. cava's own shipped config uses `#` and gets away with it
+  only because those lines happen to contain no `=`; a `#` comment WITH an `=` would be parsed as a
+  key. The template uses `;` throughout and `Test-StagedFile`'s `cava` case rejects any `#` line.
+- **A bad theme file stops cava from starting**, unlike every other target here, where a bad write
+  is cosmetic. Hence the fuller structural check: `[color]` present, `gradient = 1`, stops numbered
+  1..N contiguously (cava stops reading at the first gap), between 2 and 8 of them (it divides by
+  `gradient_count - 1`, and `MAX_GRADIENT_COLOR_DEFS` is 8), and every non-`gradient` value a
+  quoted 6-digit hex.
+
+**There is deliberately no reload machinery.** cava reloads via `SIGUSR1`/`SIGUSR2` on Linux;
+Windows has no signals, leaving only the interactive keys `r` (reload config) and `c` (reload
+colours). A "switcher" would have to kill and relaunch the user's foreground visualiser mid-song.
+The file on disk always matching the wallpaper is the whole win -- a running cava picks it up on
+the next launch or one keypress.
+
+**Verifying it.** cava's `[output] method = raw` with `raw_target = /dev/stdout` and
+`data_format = ascii` prints bar heights as numbers, so audio capture can be proved without looking
+at anything: 0/49 frames non-zero during silence, 53/65 with a sound playing. Colour cannot be
+checked that way -- redirecting stdout leaves cava with a console width of 0 ("window is too narrow
+for number of bars set, maximum is 0") and it renders nothing. Launch it in a plain `cmd` console
+and screenshot that; do NOT spawn a WezTerm window for it, because `wezterm start` may attach to
+the existing GUI process and killing what it returns can take the session's own terminal with it.
+
 ## The desktop frame (branch `feat/corner-overlays`, UNMERGED)
 
 A Caelestia-style coloured frame around the desktop, plus a reworked bar. All of it lives on
@@ -324,12 +396,12 @@ Switch-Wallpaper.ps1
   -> Resolve-PreviewImage            (preview.jpg -> preview.gif -> preview.png -> $null)
   -> Apply-Theme.ps1
        -> matugen image <preview> --mode dark --type <scheme> --prefer saturation --config matugen/config.toml
-       -> renders the 3 live targets (wezterm, starship, zebar) PLUS the non-target
+       -> renders the 4 live targets (wezterm, starship, cava, zebar) PLUS the non-target
           komorebi-colours.json into state/staging/ -- yasb/tacky-borders templates are no longer
           in matugen/config.toml, so nothing renders for them at all (see "The stack" above)
        -> Remove-Bom + Test-StagedFile on every staged TARGET file (pre-copy, structural, per-target)
        -> abort here if any target fails -- nothing live has been touched yet
-       -> New-PreApplySnapshot: snapshot the CURRENTLY LIVE content of all 3 targets, PLUS
+       -> New-PreApplySnapshot: snapshot the CURRENTLY LIVE content of all 4 targets, PLUS
           ~/komorebi.json (F2 -- hand-maintained, outside any git repo, and not itself one of
           $script:Targets), into state/pre-apply/ (a directory SEPARATE from state/last-good/ --
           see below)
@@ -390,6 +462,21 @@ This machine has **no PowerShell 7**. Every script in this repo is 5.1-compatibl
 - `matugen` is not guaranteed to be on `PATH` in a fresh shell (see stack table above).
   `Apply-Theme.ps1` prepends `~/.cargo/bin` defensively at the top of the file if `matugen` isn't
   already resolvable — keep that guard if the script is ever split up.
+- **Capturing a UTF-8 program's stdout needs `[Console]::OutputEncoding` set to UTF-8 FIRST.**
+  PowerShell 5.1 decodes a native program's output using `[Console]::OutputEncoding`, which
+  defaults to the OEM code page (437/850 here), *not* UTF-8. Every multi-byte glyph then arrives
+  shattered into its individual bytes reinterpreted as OEM characters. Confirmed at codepoint
+  level against `starship prompt`: `U+F418 U+276F` (git branch, chevron) became
+  `U+2229 U+00C9 U+00FF U+0393 U+00A5 U+00BB` — on screen, `∩Éÿ` and `Γ¥»`. **It looks exactly
+  like a missing-font problem and is not one**: the bytes are already wrong before anything is
+  asked to draw them, so no font, terminal or config change can fix it downstream. Set it, and
+  restore it afterwards — it is the caller's console, not the script's.
+- **`` `e `` is PowerShell 6+**, so ANSI escapes must be written `[char]27` here. A `` `e ``
+  regex silently matches nothing rather than erroring, which reads as "the program emitted no
+  colour".
+- **Variable names are case-insensitive**: `$w` and `$W` are the same variable. A loop-local
+  `$w` once overwrote an image width `$W` and produced an 18px-wide screenshot that looked like
+  a rendering failure.
 
 ### The BOM rule
 

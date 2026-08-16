@@ -20,6 +20,24 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $ESC = [char]27          # `e is PowerShell 6+; this machine has 5.1 only.
+
+# THE CONSOLE MUST BE UTF-8 BEFORE starship IS INVOKED.
+#
+# PowerShell 5.1 decodes a native program's stdout using
+# [Console]::OutputEncoding, which defaults to the OEM code page (437/850 here)
+# -- NOT UTF-8. starship emits UTF-8, so every multi-byte glyph arrives
+# shattered into its individual bytes reinterpreted as OEM characters: the git
+# branch glyph became "∩Éÿ", the prompt chevron "Γ¥»", the ghost "∩Æƒ".
+#
+# It looks like a font problem and is not one -- the bytes are already wrong
+# before anything is asked to draw them. Nothing in the font, the terminal or
+# the candidate configs can fix it downstream.
+#
+# Saved and restored, because this is the caller's console, not ours.
+$prevOutputEncoding = [Console]::OutputEncoding
+$prevPsOutputEncoding = $OutputEncoding
+[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
+$OutputEncoding = New-Object System.Text.UTF8Encoding($false)
 $reset = "$ESC[0m"
 $dim = "$ESC[38;2;137;147;147m"
 $head = "$ESC[1;38;2;128;212;217m"
@@ -86,4 +104,7 @@ try {
 finally {
     Pop-Location
     Remove-Item Env:\STARSHIP_CONFIG -ErrorAction SilentlyContinue
+    # Hand the caller's console back exactly as it was found.
+    [Console]::OutputEncoding = $prevOutputEncoding
+    $OutputEncoding = $prevPsOutputEncoding
 }
