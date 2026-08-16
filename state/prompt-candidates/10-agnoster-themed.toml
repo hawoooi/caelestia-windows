@@ -1,0 +1,58 @@
+format = """$username$hostname$directory$git_branch$git_status$character"""
+
+[username]
+show_always = true
+style_user = "bg:#303636 fg:#dde4e4"
+style_root = "bg:#ffdad6 fg:#2b100d"
+format = '[ $user ]($style)'
+
+[hostname]
+ssh_only = false
+style = "bg:#303636 fg:#dde4e4"
+format = "[@$hostname ]($style)[\uE0B0](fg:#303636 bg:#80d4d9)"
+
+[directory]
+style = "bg:#80d4d9 fg:#0d292b"
+format = '[ $path ]($style)'
+truncation_length = 3
+truncation_symbol = "\u2026/"
+
+[git_branch]
+symbol = "\uF418 "
+style = "bg:#b5c7e9 fg:#0d172b"
+# EVERY ARROW IS DRAWN BY A MODULE THAT KNOWS BOTH SIDES OF IT. That is the
+# rule this file now follows without exception, and it is why the arrow into
+# this segment lives here rather than at the end of the directory segment: an
+# arrow is coloured fg=block-on-its-left, bg=block-on-its-right, so only a
+# module that knows both can get it right.
+format = "[\uE0B0](fg:#80d4d9 bg:#b5c7e9)[ $symbol$branch]($style)"
+
+[git_status]
+# Shares git_branch's colour and its block, and is NOT wrapped in an optional
+# (...) group, so inside a repo this always renders and is therefore always
+# the last block. That is what makes the closing arrow below deterministic.
+style = "bg:#b5c7e9 fg:#0d172b"
+format = "[ $all_status$ahead_behind ]($style)[\uE0B0](fg:#b5c7e9)"
+
+[character]
+# NO ARROW HERE. It used to close the prompt with an arrow coloured ${clean},
+# but [character] cannot know which block actually rendered last: with changes
+# in the tree the last block was the status one, so the closing arrow came out
+# in the branch colour against a different block -- the mismatch reported as
+# "the arrow's colour isn't the same as the background".
+#
+# starship has no conditional styling and no way to ask "did that module
+# render", so an arrow placed here is guessing. The closing arrow now belongs
+# to git_status, the module that knows it is last. Outside a git repo no
+# closing arrow is drawn at all and the directory block simply ends flat --
+# a slightly shorter silhouette, but never a wrong colour.
+success_symbol = ""
+error_symbol = ""
+
+[line_break]
+disabled = true
+
+[cmd_duration]
+min_time = 2000
+format = " took $duration"
+style = "fg:#899393"

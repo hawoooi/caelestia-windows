@@ -97,8 +97,9 @@ try {
     }
 
     Write-Host "${dim}  The trailing ? on the git segment is real status (untracked files).$reset"
-    Write-Host "${dim}  None of these use powerline separators: wezterm's cell_width = 0.9$reset"
-    Write-Host "${dim}  clips those into broken chevrons.$reset"
+    Write-Host "${dim}  1-8 carry no powerline separators. That was a mistaken constraint:$reset"
+    Write-Host "${dim}  cell_width = 0.9 was assumed to clip them, and 9/10 disprove it --$reset"
+    Write-Host "${dim}  their arrows are clean. Any of 1-8 can gain separators if wanted.$reset"
     Write-Host ""
 }
 finally {
