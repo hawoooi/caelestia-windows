@@ -537,14 +537,24 @@ body.fullscreen-hidden #bar { display: none; }
 /* Which mode EVKey is typing in -- VI or EN. A readout, not a control: it has
    no click handler, so it deliberately does NOT get the .bar-btn affordance.
    This bar's standing rule is that anything looking interactive must be. */
+/* Typography is the CLOCK's, deliberately: same family, size, weight and
+   line-height, so the two read as one stacked group rather than as a readout
+   that happens to sit near a clock. Direct user feedback -- "change the font
+   weight font and size so that it matches the clock".
+
+   `font-family: inherit` rather than naming the face again. #bar already sets
+   "0xProto Nerd Font", and restating it here is a second place to forget when
+   the bar's face changes -- which is exactly how a font drifts out of step. */
 .evkey {
-  font-family: "0xProto Nerd Font", monospace;
-  font-size: 11px;
+  font-family: inherit;
+  font-size: 0.95em;
   font-weight: 600;
-  letter-spacing: 0.04em;
+  line-height: 1.15;
   text-align: center;
-  padding: 3px 0;
-  border-radius: var(--radius-sm, 8px);
+  /* Matches .clock-btn's padding and radius so the VI pill occupies the same
+     footprint the clock's hover surface does, directly beneath it. */
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-sm);
   color: var(--on-surface-variant);
 }
 
