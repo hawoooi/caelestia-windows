@@ -1,0 +1,151 @@
+/* Structure/layout only -- zero colour literals, same invariant as
+   ../bar/style.css and ../corners/corners.css. Enforced by
+   tests/Get-ColorLiterals.Tests.ps1.
+
+   "Desktop frame" follow-up to corner-overlays: the four corner arc
+   widgets (../corners/) render correctly on their own, but with nothing
+   between them they read as four floating wedges instead of one frame.
+   This "edges" widget fills that gap with thin straight lines.
+
+   Unlike corners/ (one shared HTML/CSS/JS, four presets that classify
+   their OWN corner at runtime via classify.js, because all four are
+   geometrically identical modulo a rotation), every "edges" preset here
+   is already a different shape (a long horizontal bar, a long vertical
+   bar) -- zpack.json's per-preset width/height already captures 100% of
+   what makes each one different, so there is nothing left to decide at
+   runtime for layout. Each window's entire visible area is just a flat
+   var(--surface) fill, at the same width Zebar gave the window, the same
+   colour as the bar (see below) -- no classification, no orientation
+   logic.
+
+   Colour correction (direct user feedback): this used to be a
+   var(--primary) (cyan) stroke, matching a border the corner arcs used to
+   draw. The frame is now a solid var(--surface) band instead -- the same
+   colour as the bar itself, so bar + corners + edges read as one
+   continuous surface, not an accent-coloured outline. The two short
+   "bar-link" stubs that used to bridge the ~12px gap between the bar's own
+   right edge and the two left corner widgets were removed for the same
+   reason (the user only wants a rectangle fill on the sides that don't
+   already have the bar covering them) -- historically that left a
+   ~12x4px sliver of bare wallpaper at each left corner as an accepted side
+   effect.
+
+   A real "left" preset (sixth pass, direct user feedback -- see
+   ../corners/corners.css's own :root comment for the full account) now
+   exists alongside top/right/bottom, reversing the earlier "no left strip,
+   the bar already forms the frame's left edge" decision below. That
+   reasoning held only because top/right/bottom/left were treated
+   asymmetrically -- the bar (52px) standing in for a --frame-band-thick
+   left band meant the left side's wallpaper gap was structurally a whole
+   band thicker than the other three, not because a left strip was
+   actually undesired. This preset is --frame-band thick, flush against
+   the bar's own right edge (x == bar width), running the same
+   corner-to-corner span every other strip does -- see ../zpack.json's
+   "left" preset and ../../scripts/Set-FrameGeometry.ps1, which derives its
+   offset/width/height the same way it derives the other seven presets, not
+   as a special case.
+
+   Flush-to-edge correction (direct user feedback, fourth pass): all three
+   strips are now --frame-band (20px, matching komorebi's own
+   default_workspace_padding/default_container_padding -- see
+   ../corners/corners.css's :root comment) thick instead of the old 4px
+   hairline, and flush against the corner widgets' larger footprint
+   (../zpack.json's "corners" presets) -- see docs/zebar-bar.md's "Frame
+   flush-to-edge correction" section for that pass's geometry table and
+   rationale (band thickness == komorebi padding, closing the 12px band of
+   bare wallpaper that used to show outside the old inset frame).
+
+   No left band, left corners (fifth pass, direct user feedback): the top
+   and bottom strips re-anchor again in this pass, not because their own
+   thickness changed but because the two LEFT corner widgets they meet
+   (../corners/corners.css) got narrower -- 44px -> 24px wide, dropping the
+   redundant left-band paint those two corners used to draw on top of the
+   bar (see corners.css's own comment on this pass for why that redundant
+   band was there and what it broke). A narrower left corner moves its own
+   right-hand tangent point inward, so `top`/`bottom`'s offsetX moved 96 ->
+   76 and width grew 2420 -> 2440 to stay flush against it -- offsetY/
+   height on `top`/`bottom` and every axis on `right` are unchanged, since
+   none of those depend on the left corners' width. See docs/zebar-bar.md's
+   geometry table (current as of this pass) for the full live-measured
+   rects; this comment intentionally does not restate historical
+   superseded numbers inline -- a comment quoting stale offsets reads as
+   current and is worse than no comment at all (lesson from this same pass,
+   see its own commit message).
+
+   Thinner frame, equal gaps, left band restored (sixth pass): see
+   ../corners/corners.css's :root comment for the full rationale (thinner
+   band, an explicit tunable gap, and why the left side needed a real band
+   rather than staying an asymmetric special case). Same lesson as the
+   fifth pass applies here too -- current numbers live in
+   docs/zebar-bar.md's own geometry table and in
+   ../../scripts/Set-FrameGeometry.ps1 (the one place that computes and
+   writes them), not restated here.
+
+   Left-frame-removal pass (direct user feedback -- "remove the extra
+   border on the left and move the arcs in"): the "left" preset added by
+   the sixth pass is REMOVED again -- ../zpack.json's "edges" widget is
+   back to exactly three presets (top/right/bottom), and
+   ../../scripts/Set-FrameGeometry.ps1's own Get-FrameGeometryTable no
+   longer emits a row for it at all (not just an unused one -- the preset
+   itself is pruned from zpack.json on the next Set-FrameGeometry run, see
+   Set-FrameZpackGeometry's own updated doc comment). The bar (52px) is
+   once again the frame's entire left edge, same as the fifth pass; only
+   the left CORNER widgets (../corners/corners.css) carry the "no left
+   band" shape this time, at this pass's own thinner T=8/R=16 values. Kept
+   as history, not restated as current numbers -- see this pass's own
+   docs/zebar-bar.md entry and Set-FrameGeometry.ps1's own table. */
+
+:root {
+  /* Documentation/parity property only -- NOT read by #edge below (each
+     preset's real on-screen thickness comes entirely from its own
+     width/height in ../zpack.json, since every "edges" preset is already a
+     fixed, different shape -- see this file's own top comment). Exists so
+     "what thickness is this file currently built for" has one canonical,
+     mechanically-rewritable value (../../scripts/Set-FrameGeometry.ps1
+     updates this alongside ../corners/corners.css's own --frame-band)
+     instead of only living inside prose comments, which is exactly the
+     drift the fifth pass's own retrospective (this file's "this comment
+     intentionally does not restate historical numbers" note, above)
+     warned about. */
+  --frame-band: 8px;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+}
+
+#edge {
+  width: 100%;
+  height: 100%;
+  background: var(--surface);
+}
+
+/* Fullscreen auto-hide (see ./edges.js and ../fullscreen.js): toggled on
+   <body> by the shared poller when a real fullscreen window is detected.
+   Hides the painted content only -- see corners.css's own comment on the
+   same rule for why the window itself stays put. */
+body.fullscreen-hidden #edge {
+  display: none;
+}
+
+/* The dashboard's second hot zone, on the TOP strip only.
+   
+   Positioned and shown by edges.js, which is also the only thing that knows
+   which strip this is. It must line up with the panel exactly -- a zone wider
+   than the panel opens it out from under the pointer (see ../dash-hotzone.js)
+   -- so the left offset is computed rather than centred with a percentage:
+   this band spans x=68..2536, whose midpoint is 1302, while the panel is
+   centred on the MONITOR at 1280. A `left: 50%` would sit 22px off. */
+.dash-hot {
+  display: none;
+  position: absolute;
+  top: 0;
+  bottom: 0;
+}
+body.dash-armed .dash-hot { display: block; }

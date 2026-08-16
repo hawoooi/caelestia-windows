@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <!-- Reuses the bar widget's own theme.css, same as corners/index.html --
+         see docs/zebar-bar.md's "Corner overlays" section for why there is
+         exactly one matugen zebar target (it renders into ../bar/theme.css,
+         and every other widget in this pack links that same file rather
+         than getting its own copy). -->
+    <link rel="stylesheet" href="../bar/theme.css" />
+    <link rel="stylesheet" href="./edges.css" />
+    <title>Caelestia edge</title>
+  </head>
+  <body>
+    <div id="edge"></div>
+    <!-- A second hot zone for the top dashboard, armed and positioned by
+         edges.js on the TOP strip only. It exists because this band is
+         `top_most` and can win hit-testing over the dashtrigger window that
+         covers the same pixels -- see ../dash-hotzone.js. Invisible and
+         inert on every other strip. -->
+    <div id="dashHot" class="dash-hot"></div>
+    <script type="module" src="./edges.js"></script>
+  </body>
+</html>

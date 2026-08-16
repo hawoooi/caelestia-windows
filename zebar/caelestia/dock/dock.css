@@ -1,0 +1,207 @@
+/* The dock. Structural only -- ZERO colour literals, every colour from
+   ../bar/theme.css, enforced by tests/Get-ColorLiterals.Tests.ps1. */
+
+:root {
+  --space-sm: 6px;
+  --space-md: 10px;
+  --radius-sm: 10px;
+  --radius-lg: 18px;
+  --radius-full: 999px;
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --dur: 140ms;      /* keep in step with dock.js's SLIDE_MS */
+  /* Sized to dock.js's DOCK_H (56px): a 42px hit target plus the panel's own
+     6px padding fits exactly, with a 28px icon centred in it. These move with
+     DOCK_H and are not independent of it -- but they ARE independent of
+     TRIGGER_H, which is the point of the split. */
+  --icon: 28px;
+  --hit: 42px;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+}
+
+/* The dock sits flush to the BOTTOM of its window and grows upward, because
+   the window itself is anchored to the bottom of the screen and only changes
+   height. Translating it down by its own height while closed is what produces
+   the slide: at rest it is entirely below the visible area, and only the
+   window's few-pixel hot zone remains. */
+.dock {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+  width: max-content;
+  padding: var(--space-sm) var(--space-sm);
+  background: var(--surface);
+  /* Direct user feedback: "have rounded top corners", then "I want it to join
+     with the left side bar as well ... a joined background with the left bar".
+     Only the top RIGHT corner is rounded: the left edge is square so it butts
+     flush against the bar's own right edge, and the two surfaces read as one
+     continuous L rather than as two separate slabs that happen to touch. The
+     bottom edge is square for the same reason -- it is flush with the screen. */
+  border-top-left-radius: 0;
+  border-top-right-radius: var(--radius-lg);
+  color: var(--on-surface);
+  font-family: "0xProto Nerd Font", monospace;
+
+  transform: translateY(100%);
+  transition: transform var(--dur) var(--ease);
+}
+
+body.open .dock { transform: translateY(0); }
+
+/* Matches the bar's own fullscreen behaviour: the content hides, the window
+   (and therefore the hot zone) stays, so nothing pops up over a game. */
+body.fullscreen-hidden .dock { display: none; }
+
+/* And the trigger stops listening entirely, so a fullscreen desktop does not
+   even deliver the hover -- see slideIn() in dock.js for why hiding the
+   content alone was not enough. */
+body.fullscreen-hidden .dock-trigger { pointer-events: none; }
+
+.dock__item {
+  position: relative;
+  flex: 0 0 auto;
+  width: var(--hit);
+  height: var(--hit);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  /* Direct user feedback: "The hover background on the icon should be a
+     rectangle rounded instead of a circle." --radius-sm, not --radius-full:
+     a squircle that echoes the app icons themselves rather than a pill. */
+  border-radius: var(--radius-sm);
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  transition: background var(--dur) var(--ease), transform var(--dur) var(--ease);
+}
+
+.dock__item:hover { background: var(--surface-container-high); }
+.dock__item:active { transform: scale(0.92); }
+
+/* The focused app, in the same "filled, not outlined" language
+   .workspace--focused uses in the bar -- so focus reads the same way in both
+   places rather than inventing a second convention. */
+.dock__item--focused { background: var(--surface-container); }
+
+/* A minimized app is still open, so it keeps its slot -- just dimmed, the way
+   a taskbar distinguishes 'running' from 'on screen'. */
+.dock__item--minimized .dock__icon { opacity: 0.45; }
+
+.dock__icon {
+  width: var(--icon);
+  height: var(--icon);
+  object-fit: contain;
+  pointer-events: none;
+}
+
+/* An app whose icon could not be extracted (elevated processes refuse
+   MainModule access) keeps its slot rather than collapsing the row. */
+.dock__icon--missing { visibility: hidden; }
+
+/* Window count, for apps with more than one open. Sits on the icon rather
+   than beside it so every dock slot stays the same width and the icons keep
+   their rhythm. */
+.dock__badge {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-full);
+  background: var(--primary);
+  color: var(--on-primary);
+  font-size: 10px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+.dock__badge--hidden { display: none; }
+
+/* The hover trigger. Invisible, no background of its own, and pinned to the
+   bottom of the window at exactly TRIGGER_H (set from dock.js so there is one
+   source of truth). Only opening reads it; see dock.js.
+
+   It sits ABOVE .dock in paint order only while the dock is closed, because a
+   closed .dock is translated fully out of the window and cannot intercept
+   anything. Once open, the icons take the pointer as normal. */
+.dock-trigger {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: var(--trigger-h, 40px);
+}
+
+/* ============================================================== THE ARCH
+
+   Direct user feedback: "i think the taskbar needs an arch too, we don't want
+   hard 90 degree corners". Where the bar's right edge met the dock's top edge
+   there was a hard right angle -- the wallpaper gap column simply stopped dead
+   at the dock. This is the inverse fillet that joins them: the same concave
+   corner and the same technique as the four screen corners and the dashboard's
+   arches, a HARD-STOPPED radial gradient, transparent inside the radius and
+   surface outside it. border-radius cannot express it -- it rounds a corner
+   convexly, and this is the negative.
+
+   Geometry. The square sits immediately ABOVE the dock's top-left corner. Its
+   LEFT edge continues the bar, its BOTTOM edge continues the dock's top, and
+   the quarter-disc centred on its TOP-RIGHT is cut away to show the wallpaper.
+   So the surface hugs the left and bottom edges, which are exactly the two
+   edges that have to join something. The window is --arch-w taller than the
+   dock row to make room for it (dock.js's placeWindow).
+
+   IT TRAVELS WITH THE DOCK. It is a CHILD of .dock, so it inherits the slide
+   transform and moves with the row -- direct user feedback, "the top arch only
+   appears after the animation fully ended, i want it to slide out on top of the
+   taskbar along with the taskbar".
+
+   The first version did the opposite: a sibling, pinned to the window, revealed
+   only once the slide had landed. The reasoning was that the dock rises from
+   below, so a fixed arch would hang in mid-air over the gap until the row
+   caught up. Attaching it to the row removes that problem entirely rather than
+   timing around it -- there is never a gap to hang over, because the arch and
+   the row are the same moving object.
+
+   `bottom: 100%` rather than a negative top: it pins the arch's BOTTOM to the
+   dock's TOP no matter what the row's height is, so the two cannot drift apart
+   if DOCK_H changes. A -16px top offset assumed the arch's own height matched
+   the gap it had to fill, which is the kind of coincidence that turns into a
+   blank sliver later. */
+.dock-arch {
+  position: absolute;
+  left: 0;
+  bottom: 100%;
+  width: var(--arch-w, 16px);
+  height: var(--arch-w, 16px);
+  pointer-events: none;
+  background: radial-gradient(
+    circle var(--arch-w, 16px) at top right,
+    transparent 0 var(--arch-w, 16px),
+    var(--surface) var(--arch-w, 16px)
+  );
+  /* Hidden while the dock is parked below, so no fillet is left floating over
+     the frame band. No delay and no fade: it simply belongs to the row, and
+     the row is what animates. */
+  opacity: 0;
+}
+
+body.open .dock-arch { opacity: 1; }
+
+body.fullscreen-hidden .dock-arch { display: none; }

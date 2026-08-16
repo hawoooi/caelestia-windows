@@ -22,9 +22,96 @@ building it — read it before changing anything here.
 | WezTerm | `C:\Program Files\WezTerm\wezterm.exe` — config at `~/.wezterm.lua`, **not under version control** (home directory is not a git repo); the pipeline's two required edits there are recorded in `docs/wezterm-integration.md` because of this |
 | starship | config at `~/.config/starship.toml` |
 | Wallpaper Engine | `C:\Program Files (x86)\Steam\steamapps\common\wallpaper_engine\` — `wallpaper32.exe` or `wallpaper64.exe` (whichever is the live process; both exist on disk, this machine runs `wallpaper32.exe`) |
-| Zebar (v3.3.1) | `C:\Program Files\glzr.io\Zebar\zebar.exe` — a vertical Caelestia-style bar docked left, and (since yasb's retirement) the **only** bar on the desktop. Pack source tracked at `zebar/caelestia/`, served to Zebar via a junction at `~/.glzr/zebar/caelestia`. Full detail: `docs/zebar-bar.md`. |
-| komorebi + whkd | `~/komorebi.json`, `~/.config/whkdrc` — the tiling WM driving the desktop (GlazeWM was replaced during this project's pre-flight; see `~/.config/yasb/CLAUDE.md`). Since the borders/yasb-retirement task, komorebi.json also carries `border: true`, `border_style: "Rounded"`, `border_width: 4`, `border_offset: 1`, increased `default_workspace_padding`/`default_container_padding` (12/12, up from 5/5), and a themed `border_colours` object -- see "Window borders and gaps" below. |
+| Zebar (v3.3.1) | `C:\Program Files\glzr.io\Zebar\zebar.exe` — a vertical Caelestia-style bar docked left, and (since yasb's retirement) the **only** bar on the desktop. Pack source tracked at `zebar/caelestia/`, served to Zebar via a junction at `~/.glzr/zebar/caelestia`. The pack declares **nine** widgets -- `bar`, `corners`, `edges`, `layoutmenu`, `statusmenu`, `panels`, `dock`, `dockpreview`, `dashboard` -- each needing its own `startupConfigs` entry per preset (`Install-Config` writes them all). Full detail: `docs/zebar-bar.md`. |
+| komorebi + whkd | `~/komorebi.json`, `~/.config/whkdrc` — the tiling WM driving the desktop (GlazeWM was replaced during this project's pre-flight; see `~/.config/yasb/CLAUDE.md`). Since the borders/yasb-retirement task, komorebi.json also carries `border: true`, `border_style: "Rounded"`, `border_width: 4`, `border_offset: 1`, `default_workspace_padding`/`default_container_padding` of **8/8**, a `global_work_area_offset` of `{left:-8, top:0, right:-8, bottom:0}`, and a themed `border_colours` object -- see "Window borders and gaps" and "The desktop frame" below. |
 | Pester | 6.0.1 and 3.4.0 are both installed; **all tests in this repo are Pester 5+ syntax** (`Should -Be`, not `Should Be`) — `Import-Module Pester -MinimumVersion 5.0.0` before running the suite, or 3.4.0 loads by default and every test errors on syntax it doesn't recognize |
+
+## The one time zebar has ever crashed, and the spawn discipline it bought
+
+**2026-08-15, 13:57.** `zebar.exe` 3.3.1.0 faulted with `0xc0000409` (a CRT
+fail-fast) in `ucrtbase.dll`. It is the **only** zebar fault in this machine's
+entire Application event log, and it happened **nine minutes** after the
+dashboard's background stats poll first went live -- a change that had just
+made the widget spawn two helper processes (`net-stats.exe`, `nvidia-smi.exe`)
+every five seconds, permanently.
+
+That is a correlation, not a proven cause, and it should not be written up as
+one. But "the only crash it has ever had arrived minutes after I made it spawn
+two processes every five seconds forever" is not a coincidence worth assuming.
+
+**What changed in response** (`zebar/caelestia/dashboard/dashboard.js`):
+
+- idle cadence 5s -> **15s**
+- the idle sample no longer touches the GPU at all -- **network only**
+
+Together: one spawn per 15s instead of two per 5s, a **six-fold cut**, and no
+visible cost. Verified live: GPU reads 48% within ~1.1s of the open gesture,
+because a GPU read is single-shot (~100ms) and the panel takes ~380ms to open
+(220ms dwell + slide), so a sample fired when the open message arrives has
+landed before anyone can see the tile. Only the NETWORK genuinely needs to stay
+warm -- a rate is the difference between two counter readings, so with no
+previous sample there is no rate to show at all.
+
+**The general rule this leaves behind:** anything polled while the panel is
+CLOSED must justify itself against a process spawn. If a reading is single-shot
+and fast, sample it on open instead. Note also that this pack already spawns
+`fullscreen-detect.exe` ~10x/second across the bar, four corners, three edges,
+the dock and the dashtrigger -- that is a genuine and unaddressed cost, and if
+zebar faults again with no dashboard poll running, that is where to look next.
+
+## Keybind latency, and two out-of-repo files that were changed for it
+
+Reported as "komorebi sometimes lag with the keybinds and doesn't work when i
+click the bar as well". Neither turned out to be a hard failure -- both paths
+worked when tested directly -- but **every komorebi action was paying a
+process-spawn tax twice over**, and whkd spawns its shell *synchronously*, so
+that cost is also a window during which further presses queue behind it. That
+is what made a quick run of workspace switches feel like it dropped one.
+
+Measured on this machine, per `komorebic focus-workspace` call:
+
+| path | cost |
+|---|---|
+| `powershell -c` + scoop shim (what whkd did) | **233 ms** |
+| `cmd /c` + scoop shim | 122 ms |
+| `cmd /c` + real binary | **104 ms** |
+| scoop shim alone | 104 ms |
+| real binary alone | **60 ms** |
+
+A scoop shim is a launcher process in front of the real executable, so going
+through it is two process creations instead of one. End-to-end after the fix
+(keypress -> komorebi reporting the new workspace): **median 137 ms, worst 164
+ms, 0 dropped over 8 presses**, and a burst of 8 back-to-back presses lands on
+the right workspace.
+
+**`~/.config/whkdrc` (not version controlled).** `.shell powershell` ->
+`.shell cmd`, and all 49 `komorebic` invocations now use the full path to
+`scoop\apps\komorebi\current\komorebic.exe` rather than resolving through the
+shim on PATH. The two script bindings changed from `Start-Process powershell
+-WindowStyle Hidden -ArgumentList ...` to cmd's `start "" /b powershell
+-NoProfile ...` (still detached, so a theme apply does not block whkd), and
+`alt + return` from `Start-Process cmd` to `start "" cmd`. Backup at
+`~/.config/whkdrc.bak-before-cmd-shell`. **whkd must be restarted to pick up
+whkdrc changes** -- it reads the file once at startup.
+
+**`~/komorebi.json` (not version controlled).** Added `{kind: Exe, id:
+zebar.exe}` to `ignore_rules`. `yasb.exe` was already there; yasb was retired
+in favour of the zebar bar and **the ignore rule was never migrated**, so
+komorebi had been treating the current bar as an ordinary window. Applied both
+at runtime (`komorebic ignore-rule exe zebar.exe`, which needs no restart) and
+persisted into the config, the same dual approach the border colours use.
+Backup at `~/komorebi.json.bak-before-zebar-ignore`. **Honest caveat: a focus
+test did not reproduce a failure from its absence** -- with the bar focused,
+komorebi still reported the real window as focused and `cycle-focus` still
+worked -- so this is a migration gap closed on correctness grounds, not a
+proven cause of the reported symptom.
+
+In-repo, `zebar/caelestia/komorebi-commands.js` moved to the same real-binary
+path, so the bar's workspace buttons and the dashboard's workspace pane stop
+paying the shim cost too. `KOMOREBIC_PATH` and the `shellCommands` allowlists
+in `zpack.json` are a **matched pair** -- the allowlist matches the program
+string literally, so changing one alone fails at runtime with a privilege
+error, not a fallback.
 
 ## Window borders and gaps
 
@@ -33,8 +120,11 @@ komorebi has a full border CLI (`komorebic border enable|disable`, `border-style
 `~/komorebi.json` was hand-edited (surgically -- parsed, mutated, re-serialized, never rewritten
 wholesale, preserving all 20 `ignore_rules` entries and every other key) to turn this on
 persistently: `border: true`, `border_style: "Rounded"`, `border_width: 4`, `border_offset: 1`,
-`default_workspace_padding`/`default_container_padding` raised from 5 to 12. Applied live via
-`komorebic stop` + `komorebic start` (config is read at startup, not hot-reloaded).
+`default_workspace_padding`/`default_container_padding` (5 -> 12 originally, **now 8/8** -- see
+"The desktop frame" below, which owns those two values). Applied live via `komorebic stop` +
+`komorebic start` (config is read at startup, not hot-reloaded); the padding half also has a
+runtime CLI (`komorebic workspace-padding <mon> <ws> <n>` / `container-padding`) that avoids a
+restart.
 
 `Apply-Theme` now also themes the border colours every run, via `Update-KomorebiBorderTheme`
 (`scripts/Apply-Theme.ps1`):
@@ -43,9 +133,13 @@ persistently: `border: true`, `border_style: "Rounded"`, `border_width: 4`, `bor
   (`[templates.komorebi]` in `matugen/config.toml`) -- **not** one of `$script:Targets` (no live
   config of its own to copy/validate/roll back; it exists purely to hand this step hex values
   without a second matugen invocation).
-- Role mapping: `single` (focused window) -> `primary`, `stack` -> `tertiary`, `monocle` ->
-  `secondary`, `unfocused` -> `outline`, `floating` -> `error`. `unfocused_locked` is intentionally
-  left unmapped (komorebi's own default).
+- Role mapping: `single` (focused window) -> `surface_container_high`, `stack` ->
+  `surface_container`, `monocle` -> `surface_container_high`, `unfocused` -> `surface`, `floating`
+  -> `outline`. `unfocused_locked` is intentionally left unmapped (komorebi's own default).
+  **These are SURFACE-family roles, not accents, on purpose** (direct user feedback): the borders
+  sit immediately inside the desktop frame's own `var(--surface)` bands, so an accent border read as
+  a clashing second frame. Focused stays one step lighter than its surroundings so the focus cue
+  survives. Don't "restore" these to primary/tertiary/secondary/error.
 - **Runtime**: `Set-KomorebiBorderColour` calls `komorebic border-colour <R> <G> <B> --window-kind
   <kind>` per role (hex converted to RGB ints via `ConvertFrom-HexColor`). This is **fail-soft** --
   if `komorebic` isn't on PATH or komorebi isn't running, it warns and Apply-Theme continues; a
@@ -72,6 +166,154 @@ persistently: `border: true`, `border_style: "Rounded"`, `border_width: 4`, `bor
   themed and persisted, and `Update-KomorebiBorderTheme` never throws out to its caller over one bad
   value. `Apply-Theme`'s own call to `Update-KomorebiBorderTheme` is additionally wrapped in
   try/catch as defence in depth.
+
+## The Windows taskbar
+
+`Update-WindowsAccentTheme` (`scripts/Apply-Theme.ps1`) themes the taskbar, Start menu and window
+title bars from the wallpaper palette on every apply. Windows has **no supported API** for this --
+the accent colour is a user setting, and the only route is the same HKCU keys the Settings app
+writes, followed by a `WM_SETTINGCHANGE`/`ImmersiveColorSet` broadcast (`SendMessageTimeout` with
+`SMTO_ABORTIFHUNG`, so one hung window cannot stall a theme apply). All HKCU -- no elevation, and
+nothing outside this user account. An explorer restart would also work and is deliberately NOT
+used: it closes every File Explorer window and blanks the taskbar, on every wallpaper change.
+
+**Two encodings, three keys apart, in opposite byte orders.** Both were established by DECODING
+this machine's own pre-existing values before writing anything, not taken from documentation:
+
+| key | order | example (the old teal, RGB 0,215,215) |
+|---|---|---|
+| `Explorer\Accent\AccentColorMenu`, `StartColorMenu`, `DWM\AccentColor` | **ABGR** (0xAABBGGRR) | `0xFFD7D700` |
+| `DWM\ColorizationColor`, `ColorizationAfterglow` | **ARGB** (0xAARRGGBB) | `0xC400D7D7` |
+| `Explorer\Accent\AccentPalette` | 8 x **R,G,B,A** bytes (32 total) | entry 4 = the Start/taskbar shade |
+
+Confusing the first two swaps red and blue -- a colour that is wrong but plausible, never obviously
+broken. `ConvertTo-AbgrDword`/`ConvertTo-ArgbDword` are separate functions with separate tests
+pinning both against those exact decoded values. Don't merge them.
+
+The `AccentPalette` byte order and the meaning of entry 4 were confirmed the same way: the old
+palette's entry 4 decoded to RGB(0,113,113) and `StartColorMenu` read `0xFF717100` -- the same
+colour -- which is what identified entry 4 as the shade Windows paints the Start/taskbar surface
+with.
+
+**Mapping.** Deliberately splits accent from surface, which is what lets the taskbar match the bar
+without turning every highlight in Windows monochrome:
+
+- `AccentPalette` / `AccentColorMenu` / `DWM\AccentColor` -> `primary` (selection, focus, hover)
+- `StartColorMenu` -> `surface_container` -- the one that actually paints the taskbar surface
+- `ColorizationColor` / `Afterglow` -> `surface_container_high` (title bars, one step lighter,
+  the same reasoning as the komorebi border mapping and deliberately consistent with it)
+- `ColorPrevalence` is forced to 1 in both `DWM` and `Themes\Personalize`. It was 0 on this
+  machine, and without it Windows ignores the accent for Start and the taskbar entirely -- the
+  whole step would silently do nothing visible.
+
+**Recovery.** A registry write has no equivalent of "the old bytes are still on disk until they are
+replaced", which every file target in this pipeline relies on. `New-PreApplySnapshot` therefore
+writes the previous values to `state/pre-apply/windows-accent.json` (binary as a hex string). That
+file is the ONLY way back to the pre-pipeline taskbar colours, and they are a user setting this
+pipeline did not create -- treat it accordingly.
+
+**Verifying this is genuinely hard here, and the obvious approaches all fail:**
+
+- `PrintWindow` on `Shell_TrayWnd` returns **solid black**. The Windows 11 taskbar is XAML/DWM
+  composited and does not render that way, even with `PW_RENDERFULLCONTENT` (nFlags 2).
+- The taskbar is in auto-hide mode, so only ~2px of it is ever on screen -- and **the desktop
+  frame's own bottom band covers exactly those 2px**. A screen grab at y=1438 samples the `edges`
+  widget (`var(--surface)`), not the taskbar. This is easy to mistake for a successful read.
+- What DOES work: `DwmGetColorizationColor` is a live system read rather than an echo of the write,
+  so it confirms Windows actually absorbed the change. DWM applies its own slight darkening --
+  expect a near miss, not an exact match (`#252b2b` written -> `#212727` reported).
+- Beyond that, the taskbar has to be seen by hovering it. Nothing in this repo can screenshot it.
+
+**A consequence worth knowing:** on this desktop the taskbar is auto-hidden *and* its visible
+sliver is covered by the frame, so this retheme mostly shows up in the Start menu, in title bars,
+and while hovering the bottom edge -- not in normal use.
+
+## The desktop frame (branch `feat/corner-overlays`, UNMERGED)
+
+A Caelestia-style coloured frame around the desktop, plus a reworked bar. All of it lives on
+`feat/corner-overlays`, which is ~20 commits ahead of `main` and **not merged** -- the user was
+asked and had not answered. `docs/zebar-bar.md` is the full account; this is the orientation.
+
+**Shape.** Solid `var(--surface)` (the bar's own colour) bands on **top, right and bottom only** --
+the 52px bar is the left side of the frame. Four corner widgets paint a 90° inverse arc so the
+content area reads as a rounded rectangle. Every piece is a separate `top_most` Zebar preset with
+`dockToEdge` disabled, and all of them hide together when something goes fullscreen
+(`tools/fullscreen-detect.exe`, polled from `fullscreen.js`).
+
+**The one invariant that matters: all four wallpaper gaps must be equal.** Gap = komorebi's total
+padding − band thickness. Top/right/bottom each spend the band out of that padding; the left side
+has no band, so it needs `global_work_area_offset` to compensate. Current values: thickness 8,
+gap 8, radius 16, padding 8/8, offset `{left:-8, top:0, right:-8, bottom:0}`.
+
+**`scripts/Set-FrameGeometry.ps1` is the only supported way to retune** (`-Thickness -GapRatio
+-Radius`, `-DryRun` to preview). It rewrites the zpack presets, the CSS custom properties, the
+komorebi padding *and* the offset together. Hand-editing `zpack.json` alone silently breaks the
+equal-gap invariant. Note the asymmetry: the padding half applies live, the offset half needs a
+komorebi restart.
+
+**Two traps that each cost a full debugging session:**
+
+1. **`komorebic state` does not reflect `global_work_area_offset`.** With the offset demonstrably
+   working, `work_area_size` still reads `{left:52,...}` and `work_area_offset` reads empty. Two
+   passes concluded the feature was impossible from that evidence. The `komorebic
+   global-work-area-offset` *CLI* genuinely is a no-op; the *config field* is not, and is read only
+   at startup. **Verify by scanning screen pixels for where windows actually land**, never by
+   reading state.
+2. **A blank bar is almost never WebView2.** `fullscreen-detect.exe` (and now `app-icon.exe`) are
+   shelled out on a poll; one outliving its parent zebar **inherits zebar's listening socket on
+   port 6124**, so every later start fails to bind and paints nothing under a PID that no longer
+   exists. Check `Get-NetTCPConnection -LocalPort 6124` and kill the orphan. `Restart-ZebarWidgets`
+   now reaps both helpers first. **Never `Stop-Process msedgewebview2`** -- doing that once broke
+   WebView2 machine-wide and needed a reboot.
+
+**The bar** (`zebar/caelestia/bar/`, entries ordered by `bar.config.json`): logo, workspaces,
+app icon + app name centred between two spacers, clock, a status pill, a layout menu, power.
+Notable details:
+
+- **Status icons are configurable, pinned or dropdown** (`status` block in `bar.config.json`;
+  catalogue in `zebar/caelestia/status-catalogue.js`). Pinned ids render as glyphs in the pill;
+  the rest open in the `statusmenu` flyout behind a chevron that only exists when that list is
+  non-empty. `parseStatusConfig` never throws -- bad ids are dropped loudly, an id in both lists
+  stays pinned. The old `statusIcons` entry was **deleted**, not left registered, so exactly one
+  place decides what a status glyph means. Provider gotchas, all found live: the `battery` provider
+  *rejects* ("No battery found.") rather than returning null on a batteryless machine; `audio`
+  reports `isMuted` separately from `volume` (a 50%-but-muted device used to show the loud icon);
+  the `disk` provider pre-converts sizes, so use `siValue`/`siUnit`, never recompute from `bytes`.
+
+- **Icons are vendored Font Awesome Free 6** (`bar/vendor/fontawesome/`, no CDN). Beware: the bar's
+  fallback font `0xProto Nerd Font` embeds Font Awesome **v4** at U+F000–U+F2E0, so a broken FA
+  cascade *still renders* the low codepoints and only tofus the FA6-only ones. That is what made a
+  `font: inherit` shorthand (which resets font-family) look like a font-loading problem.
+- **`activeWindow` shows the app name only**, resolved from the komorebi provider's `exe` (a bare
+  name, never a path) through an alias table, plus the real extracted executable icon via
+  `tools/app-icon.exe`. That tool is cached per exe, timed out, non-overlapping, and reaped.
+- **The layout control is a menu, not a cycle** -- cycling retiled the user's windows at every
+  intermediate step. It now **opens sideways with text labels**, which it can only do by being a
+  *second widget* (`zebar/caelestia/layoutmenu/`, `dockToEdge` disabled) -- a Zebar widget cannot
+  paint outside its own 52px window, and both in-window escapes are closed on this build (widening
+  the docked window moves komorebi's work area 1:1 and retiles; `pointer-events: none` gives no
+  OS-level click-through). It **parks itself at 1x1 while closed and resizes to the panel on open**,
+  because a transparent Zebar window swallows clicks across its whole footprint. The bar and the
+  flyout talk over `localStorage` + `storage` events (`zebar/caelestia/layout-channel.js`) -- all
+  widgets in the pack share one origin (`http://127.0.0.1:6124`, verified live), so this needs no
+  new helper process and no new poll, which matters given trap 2. The flyout never runs `komorebic`
+  itself; the bar owns that. Its active marker still goes stale on externally-driven layout changes:
+  the komorebi provider never re-emits to a running widget, and no `komorebic` poller was added on
+  purpose, per trap 2.
+- **Every stylesheet must contain zero colour literals** -- `var(--…)` and `transparent` only,
+  enforced by a Pester test. Colours arrive only through matugen-generated `theme.css`.
+
+- **The dock's hover preview is a PASSIVE second widget** (`dockpreview`), not a taller dock. The
+  dock's own window must never change shape -- growing it was tried and reverted (trap 2's cousin;
+  `docs/zebar-bar.md`'s "Dock hover previews" has the full account). That a *separate* `top_most`
+  window resizing above the dock is harmless was **measured** first: 5/5 treatment and 5/5 control
+  trials, cursor integrity checked. **Two harness traps live here and both produced convincing
+  false failures:** the real user moving the mouse mid-measurement, and `SetCursorPos` teleports
+  (glide 4/5 vs jump 0/5 for the same target). Any hover test here must glide the cursor in steps
+  and discard trials where `GetCursorPos` has drifted, or it is measuring itself. Related:
+  `mouseleave` was observed firing 12ms after `mouseenter` with the pointer provably stationary,
+  and no `mouseenter` can follow while the cursor does not move -- so the close decision re-checks
+  `:hover` and a `mousemove` listener re-arms, rather than trusting the leave.
 
 ## Pipeline flow
 
@@ -113,6 +355,9 @@ Switch-Wallpaper.ps1
           (`komorebic border-colour`, fail-soft) and persisted into ~/komorebi.json's
           border_colours field -- see "Window borders and gaps" above. Entirely fail-soft; never
           affects this run's own Success/Failed result.
+       -> Update-WindowsAccentTheme: theme the Windows taskbar/Start/title bars from the same
+          palette, by writing HKCU accent keys + broadcasting WM_SETTINGCHANGE. Also entirely
+          fail-soft. See "The Windows taskbar" below.
   -> writes state/current.json ({ wallpaper, preview, appliedUtc }) -- also now the -Image
      fallback source: `Apply-Theme` with no -Image reads this file's `preview` field
 ```

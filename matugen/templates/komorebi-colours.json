@@ -1,7 +1,7 @@
 {
-  "single": "{{colors.primary.default.hex}}",
-  "stack": "{{colors.tertiary.default.hex}}",
-  "monocle": "{{colors.secondary.default.hex}}",
-  "unfocused": "{{colors.outline.default.hex}}",
-  "floating": "{{colors.error.default.hex}}"
+  "single": "{{colors.surface_container_high.default.hex}}",
+  "stack": "{{colors.surface_container.default.hex}}",
+  "monocle": "{{colors.surface_container_high.default.hex}}",
+  "unfocused": "{{colors.surface.default.hex}}",
+  "floating": "{{colors.outline.default.hex}}"
 }

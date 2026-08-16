@@ -42,12 +42,127 @@ Describe "The zebar bar's zero-color-literal invariant (I5)" {
       (Get-ColorLiterals); it just had no caller pointed at the real file.
     #>
     BeforeAll {
-        $script:styleCss = "$PSScriptRoot\..\zebar\caelestia\bar\style.css"
-        $script:themeCss = "$PSScriptRoot\..\zebar\caelestia\bar\theme.css"
+        $script:styleCss   = "$PSScriptRoot\..\zebar\caelestia\bar\style.css"
+        $script:themeCss   = "$PSScriptRoot\..\zebar\caelestia\bar\theme.css"
+        # corner-overlays: corners.css is a second structural stylesheet
+        # added alongside style.css (a different widget in the same pack --
+        # see zpack.json's "corners" widget) and is bound by the exact same
+        # invariant: every colour it paints (var(--surface), for the
+        # radial-gradient corner mask) must come from theme.css, never a
+        # literal.
+        $script:cornersCss = "$PSScriptRoot\..\zebar\caelestia\corners\corners.css"
+        # Desktop-frame follow-up: edges.css is a third structural
+        # stylesheet (the "edges" widget in zpack.json) under the exact
+        # same invariant -- its only colour, the frame-line fill, must come
+        # from theme.css's var(--primary), never a literal.
+        $script:edgesCss   = "$PSScriptRoot\..\zebar\caelestia\edges\edges.css"
+        # Task 3 (Font Awesome icons): fontawesome.css is a fourth
+        # structural stylesheet -- @font-face declarations and a shared
+        # font-metrics reset only, no fills of its own -- bound by the same
+        # invariant: icon colour always comes from whatever element applies
+        # the font, inheriting `color` from a var(--...) rule elsewhere,
+        # never a literal set in this file.
+        $script:fontawesomeCss = "$PSScriptRoot\..\zebar\caelestia\bar\vendor\fontawesome\fontawesome.css"
+        # Horizontal-layout-menu pass: layoutmenu.css is a fifth structural
+        # stylesheet (the "layoutmenu" widget in zpack.json -- the layout
+        # flyout that had to become its own window to paint outside the
+        # bar's 52px one). It paints a full panel: surface, hover, and the
+        # active item's --primary fill -- more colour surface area than
+        # corners.css or edges.css -- so it is the one most likely to
+        # acquire a literal by accident, and is bound by the same invariant.
+        $script:layoutMenuCss = "$PSScriptRoot\..\zebar\caelestia\layoutmenu\layoutmenu.css"
+        # Status-icons pass: statusmenu.css is a sixth structural stylesheet
+        # (the "statusmenu" widget in zpack.json -- the status pill's
+        # dropdown). It paints the most colour surface of any file here:
+        # panel, hover, the secondary --outline detail line and the value
+        # column, so it is the likeliest to acquire a literal by accident.
+        $script:statusMenuCss = "$PSScriptRoot\..\zebar\caelestia\statusmenu\statusmenu.css"
+        # Taskbar-replacement pass: dock.css is the widget that replaces the
+        # Windows taskbar. Its whole point is matching the bar's own
+        # var(--surface), so a literal here would be exactly the bug the
+        # user asked to have fixed.
+        $script:dockCss = "$PSScriptRoot\..\zebar\caelestia\dock\dock.css"
+        # Top-hover-dashboard pass. dashboard.css is the largest structural
+        # stylesheet in the pack and the one at most risk here: it was ported
+        # from mockups/dashboard.html, which legitimately INLINES the palette
+        # (so it opens standalone) and used rgba() literals for its hairline
+        # edges and track fills. The port had to convert every one of those to
+        # color-mix() over a theme var; this test is what stops the mockup's
+        # literals being carried across again on the next design pass.
+        $script:dashboardCss = "$PSScriptRoot\..\zebar\caelestia\dashboard\dashboard.css"
+        # (dashtrigger/trigger.css was named here too, until the dashboard
+        # became a single window that owns its own hot zone and that widget was
+        # deleted. This suite caught the deletion, which is the point of naming
+        # files explicitly rather than globbing a directory.)
     }
 
     It "style.css contains zero colour literals" {
         @(Get-ColorLiterals -Path $script:styleCss).Count | Should -Be 0
+    }
+
+    It "corners.css contains zero colour literals" {
+        @(Get-ColorLiterals -Path $script:cornersCss).Count | Should -Be 0
+    }
+
+    It "edges.css contains zero colour literals" {
+        @(Get-ColorLiterals -Path $script:edgesCss).Count | Should -Be 0
+    }
+
+    It "layoutmenu.css contains zero colour literals" {
+        @(Get-ColorLiterals -Path $script:layoutMenuCss).Count | Should -Be 0
+    }
+
+    It "statusmenu.css contains zero colour literals" {
+        @(Get-ColorLiterals -Path $script:statusMenuCss).Count | Should -Be 0
+    }
+
+    It "dock.css contains zero colour literals" {
+        @(Get-ColorLiterals -Path $script:dockCss).Count | Should -Be 0
+    }
+
+    It "dashboard.css contains zero colour literals" {
+        @(Get-ColorLiterals -Path $script:dashboardCss).Count | Should -Be 0
+    }
+
+    It "fontawesome.css contains zero colour literals" {
+        @(Get-ColorLiterals -Path $script:fontawesomeCss).Count | Should -Be 0
+    }
+
+    It "EVERY structural stylesheet in the pack contains zero colour literals" {
+        <#
+          The checks above name each file explicitly, and that list has already
+          failed once: dockpreview/preview.css was added as a new widget's
+          stylesheet and was never added here, so it sat outside the gate while
+          appearing to be covered by it. An explicit list only protects the
+          files someone remembered to add, which is exactly the wrong property
+          for an invariant that is supposed to hold pack-wide.
+
+          So this DISCOVERS them. Any .css added under zebar/caelestia is
+          checked from the moment it exists, with no test edit required.
+
+          theme.css is the sole exclusion, and legitimately so: it IS the
+          matugen-generated palette every other file's var(--...) tokens point
+          at, so it is supposed to be nothing but colour literals. It has its
+          own non-vacuity check below.
+        #>
+        $packRoot = "$PSScriptRoot\..\zebar\caelestia"
+        $sheets = Get-ChildItem -Path $packRoot -Filter '*.css' -Recurse -File |
+            Where-Object { $_.Name -ne 'theme.css' }
+
+        # Guard against the discovery itself silently finding nothing, which
+        # would make this pass vacuously -- the precise failure mode it exists
+        # to prevent.
+        @($sheets).Count | Should -BeGreaterThan 8
+
+        $offenders = @()
+        foreach ($sheet in $sheets) {
+            $found = @(Get-ColorLiterals -Path $sheet.FullName)
+            if ($found.Count -gt 0) {
+                $offenders += "$($sheet.FullName -replace [regex]::Escape($packRoot), '')" +
+                    " -> $(($found | ForEach-Object { $_.Literal }) -join ', ')"
+            }
+        }
+        $offenders -join "`n" | Should -Be ''
     }
 
     It "is non-vacuous: theme.css (which legitimately hardcodes the matugen palette) returns a nonzero count" {
@@ -56,7 +171,11 @@ Describe "The zebar bar's zero-color-literal invariant (I5)" {
         # pack that is SUPPOSED to have them (it's the matugen-generated
         # palette style.css's var(--...) tokens point at), so if this ever
         # returned 0 it would mean Get-ColorLiterals itself silently broke,
-        # not that theme.css became clean.
-        @(Get-ColorLiterals -Path $script:themeCss).Count | Should -Be 7
+        # not that theme.css became clean. 8, not 7, as of change 1
+        # (lower-cluster restyle): --surface-container-high was added
+        # (matugen/templates/zebar.theme.css) for the hover/press circle
+        # behind actually-clickable lower-bar items (see style.css's
+        # .bar-btn:hover/:active).
+        @(Get-ColorLiterals -Path $script:themeCss).Count | Should -Be 8
     }
 }

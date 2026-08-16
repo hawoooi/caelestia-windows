@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="../bar/theme.css" />
+    <link rel="stylesheet" href="../bar/vendor/fontawesome/fontawesome.css" />
+    <link rel="stylesheet" href="./launcher.css" />
+    <title>Caelestia launcher</title>
+  </head>
+  <body>
+    <!-- Results above, query below: the search box sits at the bottom edge of
+         the panel, nearest the screen edge the panel grows out of, so the
+         caret does not move as the list changes size. -->
+    <div id="panel" class="launcher">
+      <div id="results" class="launcher__results" role="listbox"></div>
+      <div id="empty" class="launcher__empty">No matches</div>
+      <div class="launcher__query">
+        <span class="launcher__search fa-solid" aria-hidden="true">&#xF002;</span>
+        <!-- A real <input>, not a contenteditable: it gets the caret, IME and
+             selection behaviour for free, and this widget can genuinely hold
+             keyboard focus (measured -- see launcher.js). -->
+        <input id="input" class="launcher__input" type="text" autocomplete="off"
+               spellcheck="false" placeholder="Search apps, or > for commands" />
+        <button id="close" class="launcher__close fa-solid" title="Close" aria-label="Close">&#xF00D;</button>
+      </div>
+    </div>
+    <script type="module" src="./launcher.js"></script>
+  </body>
+</html>

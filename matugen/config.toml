@@ -29,3 +29,13 @@ output_path = 'C:\Users\PC\Documents\git\setup\state\staging\theme.css'
 [templates.komorebi]
 input_path = 'C:\Users\PC\Documents\git\setup\matugen\templates\komorebi-colours.json'
 output_path = 'C:\Users\PC\Documents\git\setup\state\staging\komorebi-colours.json'
+
+# Also NOT one of $script:Targets, for the same reason as [templates.komorebi]
+# above: there is no live config FILE to copy or roll back. Windows' accent
+# colours live in the registry, so Apply-Theme's Update-WindowsAccentTheme
+# step reads these hex values and writes HKCU keys instead -- with the previous
+# values snapshotted into state/pre-apply/ first, since a registry write has no
+# equivalent of "copy the old file back".
+[templates.windows]
+input_path = 'C:\Users\PC\Documents\git\setup\matugen\templates\windows-accent.json'
+output_path = 'C:\Users\PC\Documents\git\setup\state\staging\windows-accent.json'

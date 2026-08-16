@@ -152,9 +152,16 @@ function Set-ZebarStartupConfig {
       startupConfigs entry (e.g. the pre-existing gunturdwiap.good-enough
       autostart) and any other top-level field (e.g. $schema) untouched.
 
-      Idempotent: matched by Pack+Widget: calling this again with the same
-      pair replaces that one entry (updating Preset if it differs) rather
-      than appending a duplicate.
+      Idempotent: matched by Pack+Widget+Preset: calling this again with the
+      same triple replaces that one entry rather than appending a
+      duplicate. Widened from Pack+Widget alone (corner-overlays): the
+      "corners" widget (zpack.json) runs the SAME widget name under four
+      DIFFERENT presets (one per screen corner) -- matching on Pack+Widget
+      only would make each subsequent Set-ZebarStartupConfig call for a
+      different preset of the same widget silently evict the previous
+      preset's entry, leaving at most one corner autostarted. Every existing
+      caller (caelestia/bar/default) only ever registers one preset per
+      pack+widget, so this widening changes nothing for them.
     #>
     [CmdletBinding()]
     param(
@@ -178,7 +185,7 @@ function Set-ZebarStartupConfig {
         $obj | Add-Member -NotePropertyName 'startupConfigs' -NotePropertyValue @() -Force
     }
 
-    $others = @($obj.startupConfigs | Where-Object { -not ($_.pack -eq $Pack -and $_.widget -eq $Widget) })
+    $others = @($obj.startupConfigs | Where-Object { -not ($_.pack -eq $Pack -and $_.widget -eq $Widget -and $_.preset -eq $Preset) })
     $entry  = [PSCustomObject]@{ pack = $Pack; widget = $Widget; preset = $Preset }
     $obj.startupConfigs = @($others) + @($entry)
 
@@ -190,12 +197,15 @@ function Set-ZebarStartupConfig {
 
 function Remove-ZebarStartupConfig {
     <#
-      I4's uninstall counterpart to Set-ZebarStartupConfig -- removes only
-      the entry matching Pack+Widget, leaving every other startupConfigs
-      entry (and any other top-level field) untouched. A no-op if the file
-      doesn't exist or doesn't parse, matching Remove-PatchedBlock's
-      already-established "uninstall of something never installed is
-      harmless" contract.
+      I4's uninstall counterpart to Set-ZebarStartupConfig -- removes every
+      entry matching Pack+Widget (deliberately NOT narrowed to a single
+      Preset, unlike Set-ZebarStartupConfig's match key: corner-overlays'
+      "corners" widget registers up to four entries -- one per preset/corner
+      -- under the same Pack+Widget, and uninstall should clear all of them
+      in one call), leaving every other startupConfigs entry (and any other
+      top-level field) untouched. A no-op if the file doesn't exist or
+      doesn't parse, matching Remove-PatchedBlock's already-established
+      "uninstall of something never installed is harmless" contract.
     #>
     [CmdletBinding()]
     param(
@@ -211,6 +221,60 @@ function Remove-ZebarStartupConfig {
     $obj.startupConfigs = @($obj.startupConfigs | Where-Object { -not ($_.pack -eq $Pack -and $_.widget -eq $Widget) })
     $json = $obj | ConvertTo-Json -Depth 6
     [System.IO.File]::WriteAllText($Path, $json, (New-Object System.Text.UTF8Encoding($false)))
+}
+
+function Get-LauncherKeyShortcutPath {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$StartupDir)
+    Join-Path $StartupDir 'Caelestia launcher key.lnk'
+}
+
+function Set-LauncherKeyAutostart {
+    <#
+      Registers tools/launcher-key.exe to start with the session.
+
+      It is the one helper in this pack that must OUTLIVE zebar: it owns a
+      low-level keyboard hook and is what makes the Windows key open the
+      launcher at all. Without this, the hook stops at the first reboot and the
+      Windows key silently does nothing -- not even opening Start, since it is
+      only Start-suppressed while the hook is running, so the failure is
+      invisible rather than loud.
+
+      A Startup-folder shortcut rather than a Run key or a scheduled task: it
+      is the one mechanism the user can see and remove without this repo, which
+      matters for something that hooks the keyboard.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$StartupDir,
+        [Parameter(Mandatory)][string]$ExePath
+    )
+
+    if (-not (Test-Path $ExePath)) {
+        Write-Warning "launcher-key.exe not found at $ExePath -- the Windows key will not open the launcher. Build it with csc.exe (see the header of tools/launcher-key.cs)."
+        return $false
+    }
+    if (-not (Test-Path $StartupDir)) { New-Item -ItemType Directory -Force -Path $StartupDir | Out-Null }
+
+    $link = Get-LauncherKeyShortcutPath -StartupDir $StartupDir
+    # WScript.Shell is the only way to author a .lnk without shipping a binary
+    # blob. Idempotent: re-running rewrites the same shortcut in place.
+    $wsh = New-Object -ComObject WScript.Shell
+    $sc = $wsh.CreateShortcut($link)
+    $sc.TargetPath = $ExePath
+    $sc.WorkingDirectory = Split-Path $ExePath -Parent
+    $sc.Description = 'Opens the Caelestia launcher on the Windows key'
+    $sc.WindowStyle = 7          # minimised; the exe is a winexe and shows nothing anyway
+    $sc.Save()
+    return (Test-Path $link)
+}
+
+function Remove-LauncherKeyAutostart {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$StartupDir)
+    $link = Get-LauncherKeyShortcutPath -StartupDir $StartupDir
+    if (Test-Path $link) { Remove-Item $link -Force }
+    return (-not (Test-Path $link))
 }
 
 function Install-Config {
@@ -247,7 +311,14 @@ function Install-Config {
         [string]$JunctionLink      = "$env:USERPROFILE\.glzr\zebar\caelestia",
         [string]$JunctionTarget    = (Join-Path $script:Root "zebar\caelestia"),
         [string]$BackupRoot        = (Join-Path $script:Root "state\config-backup"),
-        [string]$ZebarSettingsPath = "$env:USERPROFILE\.glzr\zebar\settings.json"
+        [string]$ZebarSettingsPath = "$env:USERPROFILE\.glzr\zebar\settings.json",
+        # The Windows-key hook helper is NOT a Zebar widget, so settings.json's
+        # startupConfigs cannot carry it. It gets a Startup-folder shortcut
+        # instead. Deliberately not launched by zebar either: a shellExec child
+        # of zebar can inherit zebar's listening socket on port 6124, which has
+        # cost this project two debugging sessions.
+        [string]$StartupDir     = [Environment]::GetFolderPath('Startup'),
+        [string]$LauncherKeyExe = (Join-Path $script:Root "zebar\caelestia\tools\launcher-key.exe")
     )
 
     $marker = 'caelestia-shell'
@@ -270,6 +341,99 @@ ctrl + alt + w                : Start-Process powershell -WindowStyle Hidden -Ar
         else            { Set-PatchedBlock  -Path $t.Path -Marker $marker -CommentPrefix $t.Prefix -Content $t.Content }
     }
 
+    # corner-overlays: the "corners" widget (zpack.json) has four presets,
+    # one per screen corner -- each needs its own startupConfigs entry (same
+    # pack+widget, different preset; see Set-ZebarStartupConfig's widened
+    # match key above) or it won't come back after a reboot, exactly the
+    # gap I4 fixed for caelestia/bar itself.
+    $cornerPresets = @('top-left', 'top-right', 'bottom-left', 'bottom-right')
+
+    # Desktop-frame follow-up: the "edges" widget (zpack.json) has presets
+    # for the same one-entry-per-preset requirement as corners above, for
+    # the same reason (same pack+widget, multiple different presets).
+    #
+    # Direct user feedback (frame-correction pass): dropped the two
+    # "bar-link-top"/"bar-link-bottom" stubs -- the bar itself already forms
+    # the frame's left edge, so only top/right/bottom strips are wanted.
+    # This list shrank from five entries to three as a result; the
+    # non-DryRun branch below explicitly PRUNES caelestia/edges'
+    # startupConfigs entries before re-registering the current list, or a
+    # removed preset would linger in ~/.glzr/zebar/settings.json forever
+    # (Set-ZebarStartupConfig only adds/updates a matching
+    # Pack+Widget+Preset triple, it never removes an entry that's no longer
+    # in this list) and Zebar would keep trying to autostart widgets that no
+    # longer exist in zpack.json after every reboot.
+    #
+    # Thinner-frame/equal-gaps pass: "left" re-added, then REMOVED again by
+    # the left-frame-removal pass below -- the bar (52px) is once again the
+    # frame's entire left edge (see zebar/caelestia/edges/edges.css's
+    # :root-adjacent comment), so "edges" is back to exactly top/right/
+    # bottom. The prune-then-re-add pattern below already handles this: it
+    # removes ALL existing caelestia/edges entries (including a stale
+    # "left" left over from the thinner-frame pass) before re-adding
+    # exactly the three names in this list, with no further change needed
+    # here beyond shrinking the list itself.
+    $edgePresets = @('top', 'right', 'bottom')
+
+    # Horizontal-layout-menu pass: the "layoutmenu" widget (zpack.json) is
+    # the bar's layout flyout, living in its own window because a Zebar
+    # widget cannot paint outside its own 52px one (see
+    # zebar/caelestia/layout-channel.js's module comment). It has exactly one
+    # preset and must autostart alongside the bar -- it parks itself at 1x1
+    # and only resizes to menu size while open, so a running-but-unused
+    # instance costs one dead pixel, whereas a MISSING instance means the
+    # bar's layout button silently does nothing at all.
+    $layoutMenuPreset = 'default'
+
+    # Status-icons pass: the "statusmenu" widget is the status pill's
+    # dropdown half (bar.config.json's status.dropdown). Same one-preset,
+    # must-autostart-with-the-bar reasoning as layoutmenu above -- it also
+    # parks at 1x1 until opened, so a running-but-unused instance costs one
+    # dead pixel while a MISSING one makes the pill's chevron do nothing.
+    $statusMenuPreset = 'default'
+
+    # Taskbar-replacement pass: the "dock" widget replaces the Windows
+    # taskbar (open apps only, bottom-left, slide-out on hover). Unlike the
+    # flyouts it is NEVER fully parked -- it keeps a few-pixel hot zone so it
+    # can notice the cursor -- so a missing autostart is immediately obvious
+    # rather than silent: hovering the bottom-left simply does nothing.
+    $dockPreset = 'default'
+
+    # The unified "panels" flyout (system tray, and -- as they land -- volume,
+    # network, quick settings). Same one-preset, must-autostart-with-the-bar
+    # reasoning as layoutmenu/statusmenu above: it parks at 1x1 until a bar
+    # trigger opens it, so a running-but-unused instance costs one dead pixel
+    # while a MISSING one makes the tray button (and the rest) do nothing.
+    $panelsPreset = 'default'
+
+    # Top-hover-dashboard pass. ONE widget: the dashboard window is its own
+    # hot zone -- 16px tall while closed, grown to the full panel on hover.
+    #
+    # It used to be two, with a separate 'dashtrigger' widget owning the hot
+    # zone and messaging the panel. That handoff was the bug: two top_most
+    # windows covering the same 16px strip, with no ordering guarantee between
+    # them, so the panel could receive no mouseenter at all and any stray
+    # event closed it. One window has no handoff to lose.
+    $dashboardPreset = 'default'
+
+    # Dock hover previews: the "dockpreview" widget is the card that shows a
+    # thumbnail of the window behind a dock icon. Same one-preset,
+    # parks-at-1x1, must-autostart-with-the-dock reasoning as layoutmenu and
+    # statusmenu above -- it is entirely passive (the dock decides what it
+    # shows and when it goes), so a running-but-unused instance costs one dead
+    # pixel, while a MISSING one makes hovering a dock icon silently do
+    # nothing at all.
+    $dockPreviewPreset = 'default'
+
+    # The launcher: a search box at the bottom of the screen, opened by the
+    # Windows key via tools/launcher-key.exe. Parks at 1x1 like the other
+    # flyouts, and is opened by an EXTERNAL SetForegroundWindow rather than by
+    # a message -- the window's own setFocus is refused by Zebar's ACL, and
+    # `window.onfocus` in the page is the whole open signal. A missing
+    # autostart is silent in the worst way: the Windows key would be swallowed
+    # by the hook helper and open nothing at all.
+    $launcherPreset = 'default'
+
     if ($DryRun) {
         # I1: the junction/settings.json steps below must ALSO be a no-op
         # under -DryRun, for BOTH the install and the uninstall direction.
@@ -286,9 +450,29 @@ ctrl + alt + w                : Start-Process powershell -WindowStyle Hidden -Ar
         if ($Uninstall) {
             "would remove junction $JunctionLink"
             "would remove startupConfigs entry for caelestia/bar from $ZebarSettingsPath"
+            "would remove startupConfigs entries for caelestia/corners (all presets) from $ZebarSettingsPath"
+            "would remove startupConfigs entries for caelestia/edges (all presets) from $ZebarSettingsPath"
+            "would remove startupConfigs entries for caelestia/layoutmenu (all presets) from $ZebarSettingsPath"
+            "would remove startupConfigs entries for caelestia/statusmenu (all presets) from $ZebarSettingsPath"
+            "would remove startupConfigs entries for caelestia/dock (all presets) from $ZebarSettingsPath"
+            "would remove startupConfigs entries for caelestia/panels (all presets) from $ZebarSettingsPath"
+            "would remove startupConfigs entries for caelestia/dashboard (all presets) from $ZebarSettingsPath"
+            "would remove startupConfigs entries for caelestia/dockpreview (all presets) from $ZebarSettingsPath"
+            "would remove startupConfigs entries for caelestia/launcher (all presets) from $ZebarSettingsPath"
+            "would remove the launcher-key autostart shortcut from $StartupDir"
         } else {
             "would create/verify junction $JunctionLink -> $JunctionTarget"
             "would add startupConfigs entry for caelestia/bar to $ZebarSettingsPath"
+            "would add startupConfigs entries for caelestia/corners ($($cornerPresets -join ', ')) to $ZebarSettingsPath"
+            "would prune and re-add startupConfigs entries for caelestia/edges ($($edgePresets -join ', ')) in $ZebarSettingsPath -- any stale preset (e.g. the removed bar-link-top/bar-link-bottom) is removed first"
+            "would add startupConfigs entry for caelestia/layoutmenu ($layoutMenuPreset) to $ZebarSettingsPath"
+            "would add startupConfigs entry for caelestia/statusmenu ($statusMenuPreset) to $ZebarSettingsPath"
+            "would add startupConfigs entry for caelestia/dock ($dockPreset) to $ZebarSettingsPath"
+            "would add startupConfigs entry for caelestia/panels ($panelsPreset) to $ZebarSettingsPath"
+            "would add startupConfigs entry for caelestia/dashboard ($dashboardPreset) to $ZebarSettingsPath"
+            "would add startupConfigs entry for caelestia/dockpreview ($dockPreviewPreset) to $ZebarSettingsPath"
+            "would add startupConfigs entry for caelestia/launcher ($launcherPreset) to $ZebarSettingsPath"
+            "would add a launcher-key autostart shortcut in $StartupDir -> $LauncherKeyExe"
         }
         return
     }
@@ -298,8 +482,39 @@ ctrl + alt + w                : Start-Process powershell -WindowStyle Hidden -Ar
             Remove-Item $JunctionLink -Force
         }
         Remove-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'bar'
+        Remove-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'corners'
+        Remove-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'edges'
+        Remove-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'layoutmenu'
+        Remove-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'statusmenu'
+        Remove-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'dock'
+        Remove-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'panels'
+        Remove-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'dashboard'
+        Remove-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'dockpreview'
+        Remove-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'launcher'
+        Remove-LauncherKeyAutostart -StartupDir $StartupDir | Out-Null
     } else {
         Set-ManagedJunction -LinkPath $JunctionLink -TargetPath $JunctionTarget | Out-Null
         Set-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'bar' -Preset 'default'
+        foreach ($preset in $cornerPresets) {
+            Set-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'corners' -Preset $preset
+        }
+        # Prune ALL existing caelestia/edges entries first (Remove-ZebarStartupConfig
+        # matches by Pack+Widget only, not Preset -- see its own doc comment),
+        # then re-add exactly $edgePresets. Without this, a preset removed from
+        # $edgePresets (like bar-link-top/bar-link-bottom above) would keep
+        # re-autostarting forever from a stale settings.json entry, since
+        # Set-ZebarStartupConfig alone only ever adds/updates, never removes.
+        Remove-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'edges'
+        foreach ($preset in $edgePresets) {
+            Set-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'edges' -Preset $preset
+        }
+        Set-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'layoutmenu' -Preset $layoutMenuPreset
+        Set-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'statusmenu' -Preset $statusMenuPreset
+        Set-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'dock' -Preset $dockPreset
+        Set-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'panels' -Preset $panelsPreset
+        Set-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'dashboard' -Preset $dashboardPreset
+        Set-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'dockpreview' -Preset $dockPreviewPreset
+        Set-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'launcher' -Preset $launcherPreset
+        Set-LauncherKeyAutostart -StartupDir $StartupDir -ExePath $LauncherKeyExe | Out-Null
     }
 }

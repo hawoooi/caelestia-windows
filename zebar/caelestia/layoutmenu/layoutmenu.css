@@ -1,0 +1,150 @@
+/* Structural stylesheet for the horizontal layout-menu flyout. Like
+   style.css / corners.css / edges.css, this file must contain ZERO colour
+   literals -- every colour comes from ../bar/theme.css (matugen-generated)
+   through a var(--...) token, so the menu re-themes with the wallpaper.
+   Enforced by tests/Get-ColorLiterals.Tests.ps1. */
+
+:root {
+  /* Deliberately re-declared rather than imported: theme.css carries only
+     the palette, and style.css's :root block belongs to a different widget
+     window (there is no shared structural stylesheet in this pack). Values
+     match style.css's so the panel reads as part of the same bar. */
+  --space-sm: 6px;
+  --space-md: 10px;
+  --radius-sm: 8px;
+  --radius-lg: 18px;
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --dur: 300ms;   /* keep in step with menu.js's FADE_MS */
+  --icon-size: 18px;
+  --icon-box: 22px;
+  --slide: 10px;  /* keep in step with menu.js's SLIDE_PX */
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+}
+
+/* The panel is measured (menu.js) to size its own window to it exactly, so
+   its layout size must depend only on its content -- never on the viewport,
+   which is 1x1 while the menu is parked and is what the measurement is
+   taken in. `position: absolute` takes it out of flow and `width:
+   max-content` + non-wrapping items (below) make it size purely to its
+   contents. Anything here that let the viewport constrain it (a percentage
+   width, flex-wrap, a max-width) would silently produce a window sized to
+   a 1px-wide layout. */
+.layout-menu {
+  position: absolute;
+  top: 0;
+  left: var(--slide);
+  width: max-content;
+  display: flex;
+  /* Direct user feedback: "I want it to be like a vertical list with icons",
+     with a taskbar jump-list as the reference. Note this is the panel's
+     INTERNAL axis and has nothing to do with where the panel appears -- the
+     menu still flies out sideways, into its own window beside the bar,
+     which is the part that needed a second widget to be possible at all.
+     The first cut laid the four choices out in one horizontal row of
+     icon-over-label chips; this stacks them instead, one row per layout,
+     icon left and label right (see .layout-menu__item). */
+  flex-direction: column;
+  /* stretch, not center: every row then takes the panel's full content
+     width, so the hover/active fill is a full-width band like a real menu
+     row rather than a pill shrink-wrapped around each label's own length. */
+  align-items: stretch;
+  gap: 2px;
+  padding: var(--space-sm);
+  background: var(--surface-container);
+  border-radius: var(--radius-lg);
+  color: var(--on-surface);
+  font-family: "0xProto Nerd Font", monospace;
+  font-size: 16px;
+
+  /* Hidden until menu.js has sized and positioned the window. The slide
+     runs rightwards, away from the bar, into the --slide slack reserved at
+     the window's left edge -- see menu.js's SLIDE_PX. */
+  opacity: 0;
+  transform: translateX(calc(-1 * var(--slide)));
+  transition: opacity var(--dur) var(--ease), transform var(--dur) var(--ease);
+}
+
+body.open .layout-menu {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+/* One row per layout: icon left, label right, left-aligned -- the jump-list
+   shape the user pointed at. `white-space: nowrap` is load-bearing for the
+   measurement described on `.layout-menu` above: a wrapping label would
+   make the panel's width depend on the viewport, and the panel is measured
+   inside a 1x1 window. */
+.layout-menu__item {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  text-align: left;
+  border: none;
+  /* CONCENTRIC with the panel, not an independent value (direct user
+     feedback: "border radius mismatch on layout style dropdown"). A rounded
+     box nested inside another only looks right when the inner radius is the
+     outer radius minus the gap between them -- here the panel's
+     --radius-lg (18px) minus its own --space-sm padding (6px) = 12px. The
+     old --radius-sm (8px) was picked in isolation and left the highlighted
+     row's corner visibly tighter than the panel corner wrapping it, with an
+     uneven sliver of panel showing through at the first and last rows.
+     Expressed as a calc, not a hardcoded 12px, so it stays correct if
+     either token is ever retuned. */
+  border-radius: calc(var(--radius-lg) - var(--space-sm));
+  background: transparent;
+  color: var(--on-surface-variant);
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+
+/* `.fa-solid` (../bar/vendor/fontawesome/fontawesome.css) supplies
+   font-family/weight/style for the glyph. Only the size is set here -- the
+   same discipline style.css's `.bar-btn` had to learn the hard way, where a
+   `font:` shorthand silently reset font-family back to the inherited Nerd
+   Font and half the icons kept rendering (Nerd Font embeds Font Awesome v4
+   at the low codepoints) while the FA6-only ones tofu'd. Never put a `font`
+   shorthand on an element that carries `.fa-solid`. */
+.layout-menu__glyph {
+  font-size: var(--icon-size);
+  line-height: 1;
+  /* Fixed-width centring box so all four labels start at the same x no
+     matter how wide each glyph's own advance is -- diagram-project and
+     table-cells are visibly different widths, and a ragged label column is
+     exactly what a list layout makes obvious. */
+  flex: 0 0 var(--icon-box);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.layout-menu__label {
+  font-size: 14px;
+  line-height: 1;
+}
+
+.layout-menu__item:hover {
+  background: var(--surface-container-high);
+  color: var(--on-surface);
+}
+
+/* Solid fill for the current layout -- the same "filled, not just outlined"
+   language `.workspace--focused` and the old in-bar menu both used, so a
+   transient hover (which only ever uses --surface-container-high) can never
+   be mistaken for it. */
+.layout-menu__item--active,
+.layout-menu__item--active:hover {
+  background: var(--primary);
+  color: var(--on-primary);
+}

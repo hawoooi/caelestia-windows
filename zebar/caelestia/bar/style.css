@@ -1,15 +1,47 @@
 :root {
-  --space-sm: 4px;  --space-md: 8px;  --space-lg: 14px;
+  /* Bar-polish item 1: 12px read as tiny on a 2560x1440 display -- bumped to
+     16px and every spacing/pill token nudged up to match, while staying
+     inside the fixed 52px strip width (--bar-w, unchanged -- see the
+     dead-zone note below on why that stays put). Judged visually via
+     screenshot, not by reasoning -- see docs/zebar-bar.md / bar-polish
+     report for the before/after. */
+  --space-sm: 6px;  --space-md: 10px;  --space-lg: 16px;
   --pad-lg: 12px;
   --radius-sm: 8px; --radius-lg: 18px; --radius-full: 999px;
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
   --dur: 300ms;
   --bar-w: 52px;
-  /* Native taskbar (Shell_TrayWnd) sits at y=1392-1440 on this machine, full
-     width, above zOrder: "normal" windows -- it occludes and intercepts
-     clicks on anything docked below it. Nudge the bottom of the strip up by
-     roughly the taskbar height so the last entry (power) stays clickable. */
-  --taskbar-h: 48px;
+  /* Change 1 (lower-cluster restyle): glyphs were reading ~14px against a
+     16px base font -- bumped to a fixed, explicit 18px so wifi/volume/
+     vesktop/power/layout-toggle glyphs all share one deliberate size
+     regardless of a given glyph's own font metrics. --icon-box is the
+     passive (non-clickable) glyph's centring box (status-icons, vesktop);
+     --hit-size is the larger circular hover/press target used ONLY by
+     elements with a real click handler (power, layout-toggle) -- see the
+     .bar-btn rule below for why that distinction matters. */
+  --icon-size: 18px;
+  --icon-box: 28px;
+  --hit-size: 32px;
+  /* feat/corner-overlays follow-up (direct user feedback: "the bottom part
+     of the left bar isn't fully aligned to the bottom"): this used to be
+     48px, reserving room at the bottom of #bar's padding on the theory that
+     Shell_TrayWnd (the native taskbar) sits full-width above zOrder:
+     "normal" windows and would otherwise occlude/intercept clicks on the
+     last entry (power). That theory no longer matches this machine: the
+     taskbar is in auto-hide mode, and its real rect
+     ((0,1438)-(2560,1486) on a 1440px-tall screen) only ever has 2px on
+     screen -- 48px was being reserved for something that isn't there,
+     leaving the bottom group floating ~48px above the bar's own bottom
+     padding instead of sitting flush the way the top group sits flush
+     against --pad-lg. Dropped to 0px rather than deleted outright: the
+     variable is still read by #bar's padding shorthand below, as a single,
+     named lever to restore a reserve without re-deriving the calc if the
+     taskbar is ever un-hidden on this machine (auto-hide is a user-toggled
+     Windows setting, not a fixed property of this environment). See
+     docs/zebar-bar.md for the full account, including the accepted
+     trade-off (the power button now sits in the 2px strip an auto-hidden
+     taskbar reveals on hover). */
+  --taskbar-h: 0px;
 }
 
 html, body { margin: 0; padding: 0; height: 100%; background: transparent; overflow: hidden; }
@@ -37,35 +69,318 @@ body { width: 52px; }
 body:not(.drawer-open) { pointer-events: none; }
 body:not(.drawer-open) #bar { pointer-events: auto; }
 
+/* Fullscreen auto-hide (see ./bar.js and ../fullscreen.js): toggled on
+   <body> by the shared poller when a real fullscreen window is detected.
+   Hides the bar's painted content only -- the 52px window keeps existing
+   and keeps its dockToEdge work-area reservation; see docs/zebar-bar.md
+   for why a content-only hide is the accepted trade-off here. */
+body.fullscreen-hidden #bar { display: none; }
+
 #bar {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: var(--space-md);
   height: 100%;
+  /* Bottom padding mirrors the top (--pad-lg) now that --taskbar-h is 0 --
+     see that variable's own comment above for why the old
+     taskbar-height reserve was dropped. Kept as a calc (not a bare
+     var(--pad-lg) on both sides) so the lever stays wired for a future
+     --taskbar-h bump instead of needing this rule rewritten too. */
   padding: var(--pad-lg) 0 calc(var(--pad-lg) + var(--taskbar-h));
   box-sizing: border-box;
   background: var(--surface);
   color: var(--on-surface);
   font-family: "0xProto Nerd Font", monospace;
-  font-size: 12px;
+  font-size: 16px;
 }
 
 .entry { display: flex; flex-direction: column; align-items: center; }
 .entry--spacer { flex: 1 1 auto; }
 
+/* Task 3 (Font Awesome icons): the logo previously had no dedicated rule
+   at all -- it rendered at #bar's inherited 16px monospace size, since a
+   raw Unicode diamond needs no icon-font sizing to look right. Now that
+   it's a Font Awesome glyph (entries/logo.js, `fa-solid`), it gets the
+   same --icon-size every other icon in this bar uses, so it doesn't look
+   mismatched against the icons below it.
+
+   Padding-match (direct user feedback: "make the icon on the top have the
+   same padding as the power button icon on the bottom"): the power button
+   (entries/power.js) draws its glyph inside `.bar-btn`'s --hit-size box,
+   so the --icon-size glyph sits centred with (--hit-size - --icon-size)/2
+   of breathing room on every side. The logo now uses the SAME --hit-size
+   centring box so its glyph carries identical padding, keeping the top and
+   bottom marks visually symmetric. It deliberately does NOT take the
+   `.bar-btn` class or any of its hover/press/cursor affordance -- the logo
+   has no click handler, and this file's own rule (see `.bar-btn`) is that
+   the clickable affordance only ever reaches elements that are actually
+   wired. This borrows only the box geometry, not the interactivity. */
+.logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--hit-size);
+  height: var(--hit-size);
+  /* Optical size bump (+2px). Measured live: at the shared --icon-size (18px)
+     the ghost glyph renders the SAME height (18px) as the power/layout glyphs
+     but a narrower silhouette (14px wide vs 18px), so it read a touch smaller
+     despite being nominally equal. 20px balances its visual mass against the
+     other bar icons without actually making it taller than they are by much. */
+  font-size: calc(var(--icon-size) + 2px);
+  line-height: 1;
+}
+
 .workspace {
-  width: 26px; height: 26px;
+  width: 30px; height: 30px;
   border: none; border-radius: var(--radius-sm);
   background: transparent; color: var(--on-surface-variant);
   font: inherit; cursor: pointer;
 }
 .workspace--focused { background: var(--primary); color: var(--on-primary); }
-.clock { line-height: 1.1; text-align: center; }
-.status-icons { display: flex; flex-direction: column; gap: var(--space-sm); }
-.power { background: transparent; border: none; color: var(--on-surface-variant); cursor: pointer; }
 
-.media, .active-window {
+/* Change 1: clock keeps its stacked HH-over-MM form but gets tabular/lining
+   figures (digits share one fixed width, so "23"->"22" never jitters the
+   column) and more visual weight (600) than the icons beneath it (which
+   stay at the default 400), per the brief's explicit ask. */
+/* `.clock-btn` is the element itself now that clicking it opens the clock
+   panel (entries/clock.js). It is a real <button>, so it needs the browser's
+   default button chrome stripped -- but NOT via a `font:` shorthand, which
+   would reset the family and weight this rule and #bar set (the mistake
+   `.bar-btn` had to be rescued from). Only the properties actually needing a
+   reset are listed.
+
+   It deliberately does not take `.bar-btn`: that class is a circular
+   icon-sized hit target, and this is a two-line block of digits. It gets the
+   same hover language at its own shape instead -- which it has now earned,
+   per this file's rule that anything that looks interactive must be, and its
+   converse. */
+.clock-btn {
+  border: none;
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background var(--dur) var(--ease);
+}
+.clock-btn:hover { background: var(--surface-container); }
+.clock-btn:active { background: var(--surface-container-high); }
+
+.clock {
+  line-height: 1.15;
+  text-align: center;
+  font-size: 0.95em;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+/* Change 1 (lower-cluster restyle): Caelestia groups related lower-bar
+   items onto ONE continuous elevated surface, not one boxed chip per icon
+   -- the user explicitly rejected the "yasb-style separate chips" reading
+   twice. `.status-cluster` is that one shared pill: statusIcons (wifi,
+   volume) and vesktop are rendered as two nested entries INSIDE it (see
+   entries/statusCluster.js, which composes the existing, still separately
+   registered/unit-tested statusIcons.js and vesktop.js factories rather
+   than duplicating their logic) so they read as one grouped surface.
+   `power` deliberately stays OUTSIDE this container, per the brief -- its
+   own separate circular button at the very bottom. */
+.status-cluster {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-md) var(--space-sm);
+  background: var(--surface-container);
+  /* Direct user feedback: "change the background color of these elements so
+     it is more like a rounded rectangle instead of a circular pill".
+     --radius-full made this a capsule with fully-round ends; --radius-lg
+     keeps it a recognisable rounded rectangle, matching the flyout panels
+     and the dock. */
+  border-radius: var(--radius-lg);
+}
+
+/* statusIcons previously rendered the wifi/volume PUA glyphs and the
+   battery percentage as plain, unstyled divs -- no shared size, no
+   vertical rhythm, no centring. `__glyph` fixes the icon glyphs to a
+   shared square box (consistent size + centring regardless of the
+   individual glyph's natural metrics, now at --icon-size/--icon-box rather
+   than the original undersized 24px/inherited-16px); `__battery` is
+   deliberately smaller text rather than another icon-sized box, since it's
+   a 2-3 character percentage, not a single glyph. */
+.status-icons {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-sm);
+}
+.status-icons__glyph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--icon-box);
+  height: var(--icon-box);
+  font-size: var(--icon-size);
+  line-height: 1;
+}
+/* A pinned glyph that opens a panel (statusCluster's PANEL_FOR: network,
+   volume) is a real button, so reset the button chrome. NOT font-family --
+   `.fa-solid` owns that, and a `font:` shorthand here would silently reset it
+   (the hard-won .bar-btn lesson). The active tint marks the open panel. */
+.status-icons__glyph--btn {
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  color: inherit;
+  transition: color var(--dur) var(--ease);
+}
+.status-icons__glyph--btn:hover { color: var(--on-surface); }
+.status-icons__glyph--btn.is-active { color: var(--primary); }
+.status-icons__battery {
+  font-size: 0.7em;
+  line-height: 1;
+  text-align: center;
+}
+
+/* The dropdown affordance at the foot of the pill (direct user feedback:
+   "implement option for icons to get pinned to this bar or live inside a
+   dropdown"). Rendered ONLY when status.dropdown in bar.config.json is
+   non-empty -- see entries/statusCluster.js for why an overflow chevron
+   that opens an empty panel would violate this file's own "anything that
+   looks interactive must be interactive" rule.
+
+   It reuses `.bar-btn` for the hover/press affordance but shrinks the hit
+   circle: at the full --hit-size it dominated the pill it belongs to,
+   reading as a separate button parked underneath rather than the pill's own
+   trailing control. The glyph is a step smaller than --icon-size for the
+   same reason -- a chevron is a hint, not a peer of the status icons above
+   it. */
+.status-more {
+  width: var(--icon-box);
+  height: var(--icon-box);
+  font-size: calc(var(--icon-size) - 6px);
+}
+
+/* vesktop's own box now matches statusIcons' glyph sizing so the two read
+   as one consistent rhythm inside the shared .status-cluster pill (it used
+   to be an unstyled div, sized by nothing but its own text). Unpinged, its
+   `el.style.display = 'none'` (entries/vesktop.js) removes it from the
+   cluster's flex layout entirely -- no empty gap reserved for it.
+
+   Task 3 (Font Awesome icons): this used to be a single text node (just
+   the unread count, no icon). It's now two children -- a Discord mark
+   (`.vesktop__icon`, `fa-brands`) and the count (`.vesktop__count`, plain
+   text, same smaller-text treatment `.status-icons__battery` already
+   uses).
+
+   feat/corner-overlays follow-up (direct user feedback, screenshot showed
+   the glyph and count crowding each other side by side against the 52px
+   bar's edges -- "i think this discord icon could be laid vertically if it
+   helps"): flipped from `flex-direction: row` to `column`, glyph above
+   count, both centred on the bar's own (vertical) axis. `gap` stays
+   `--space-sm` unchanged -- it's already the same token `.status-cluster`
+   and `.status-icons` use for their own internal rhythm between stacked
+   rows, so vesktop's stack reads as part of the same rhythm rather than a
+   one-off spacing value. `min-height: var(--icon-box)` (a leftover from
+   the row layout, where it made the box a square matching
+   `.status-icons__glyph`) is dropped -- stacked content is naturally
+   taller than one icon-box row, and forcing it back down to --icon-box
+   would just get overridden by content anyway. `min-width: var(--icon-box)`
+   stays: it keeps this column exactly as wide as `.status-icons__glyph`'s
+   own box, so both entries occupy the same horizontal footprint inside the
+   pill regardless of which is momentarily wider (unpinged vesktop is
+   `display: none` and contributes nothing). */
+.vesktop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  min-width: var(--icon-box);
+  line-height: 1;
+}
+.vesktop__icon {
+  font-size: var(--icon-size);
+  line-height: 1;
+}
+.vesktop__count {
+  font-size: 0.7em;
+  line-height: 1;
+}
+.vesktop--pinged { color: var(--primary); font-weight: 700; }
+
+/* Change 1 / change 3: the ONE shared clickable-affordance style in this
+   file. Applied ONLY to elements with a real click handler --
+   entries/power.js (confirm() dialog) and entries/layoutToggle.js
+   (change-layout, change 3) -- never to statusIcons/vesktop, which have no
+   click handler at all. The user has complained before that bar buttons do
+   nothing on click; giving a hover/press affordance to something inert
+   would be the same lie in the other direction, so nothing here reaches an
+   element that isn't actually wired. */
+.bar-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--hit-size);
+  height: var(--hit-size);
+  border: none;
+  /* Same feedback as .status-cluster above: the hover/press affordance is a
+     rounded rectangle now, not a circle, so every interactive surface across
+     the bar, the dock and the flyouts shares one shape language. */
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--on-surface-variant);
+  /* Font Awesome fix (Task 1, feat/corner-overlays follow-up): this used to
+     be `font: inherit;` (a shorthand reset of EVERY font sub-property,
+     including font-family/font-weight, to whatever the immediate parent
+     computes) followed by a font-size override. Both of this class's real
+     consumers (power.js, layoutToggle.js) always pair `bar-btn` with
+     `fa-solid`, and `.fa-solid` (fontawesome.css) has the SAME specificity
+     (one class selector) -- a tie the shorthand won on source order alone
+     (style.css loads after fontawesome.css), silently resetting
+     font-family back to #bar's inherited "0xProto Nerd Font" and
+     font-weight back to 400. Confirmed live via CDP against the running
+     widget: getComputedStyle(.layout-toggle).fontFamily read
+     '"0xProto Nerd Font", monospace' with this rule in place, not
+     '"Font Awesome 6 Free"'. Every codepoint this bar uses through
+     `fa-solid`/`fa-brands` needed the FA6 webfont, not a Nerd-Font PUA
+     fallback that happens to share SOME (not all) of the same codepoints
+     with FA4 -- see fontawesome.css's own doc comment. The fix is to not
+     touch font-family/font-weight/font-style/font-variant/line-height here
+     at all -- `.fa-solid`/`.fa-brands` already supplies all of those --
+     and keep only the font-size override this class actually needs. */
+  font-size: var(--icon-size);
+  cursor: pointer;
+  transition: background var(--dur) var(--ease), transform var(--dur) var(--ease);
+}
+.bar-btn:hover { background: var(--surface-container-high); }
+.bar-btn:active { background: var(--surface-container-high); transform: scale(0.92); }
+
+/* layoutToggle (direct user feedback: "can we make the switch button a menu
+   instead of blindly toggling as it messes up my windows" -- cycling
+   BSP -> Columns -> Rows -> Grid meant reaching a distant layout retiled
+   every real window at each intermediate step).
+
+   The menu's own rules used to live here: `.layout-toggle-wrap` (a
+   positioning context) plus a `.layout-menu` panel that was
+   `position: absolute; bottom: 100%`, i.e. expanding UPWARD inside the
+   bar's own 52px-wide window. Upward was never the design anyone wanted --
+   it was the only direction available, because a Zebar widget cannot paint
+   outside its own window and 52px is far too narrow for text labels.
+
+   Direct user feedback again: "can you change the layout changer button so
+   that it opens horizontally to the side with text stating which mode is
+   which instead of vertically?" That needs pixels outside this window, so
+   the menu moved to its own widget (../../layoutmenu/, styled by
+   layoutmenu.css) driven over ../../layout-channel.js. Every rule that
+   styled the old in-bar panel was deleted rather than left dormant -- this
+   entry renders a single `.layout-toggle.bar-btn.fa-solid` button now, with
+   no wrapper and no menu DOM, so `.bar-btn` above is the only rule it
+   needs. See docs/zebar-bar.md, "The horizontal layout menu". */
+
+.media {
   writing-mode: vertical-rl;
   text-orientation: mixed;
   max-height: 240px;
@@ -76,6 +391,76 @@ body:not(.drawer-open) #bar { pointer-events: auto; }
 }
 
 .media { view-transition-name: media-pill; cursor: pointer; }
+
+/* Focused-app icon + name (feat/corner-overlays follow-up, direct user
+   ask: "the application's icon next to its name"). `.active-window` is now
+   a small container, not the rotated text element itself -- `.entry`
+   (added to every entry's root by entries/render.js) already supplies
+   `display: flex; flex-direction: column; align-items: center;`, which is
+   exactly "icon above name, both centred" for free; only the inter-child
+   gap is added here. This container carries NO writing-mode of its own, so
+   nothing inside it rotates unless a rule explicitly opts in (only
+   `.active-window__name` below does) -- the icon (real extracted PNG or
+   the Font Awesome fallback glyph) stays upright regardless of the name's
+   vertical-rl flow beneath it. The two flex spacers either side of
+   `activeWindow` in bar.config.json still centre this whole pair as one
+   unit in the vacant run between the top and bottom groups -- unaffected,
+   since neither spacer nor #bar's own centring cares how many DOM nodes
+   this one entry contains, only its total rendered size. */
+.active-window {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+/* Fixed square box, matching every other passive icon in this bar
+   (.status-icons__glyph, .vesktop__icon's own footprint) so the pair reads
+   as part of the same rhythm rather than a bespoke size. Holds exactly one
+   of __icon-img / __icon-fallback visible at a time (JS toggles `display`
+   -- entries/activeWindow.js's showImage()/showFallback()); the other
+   always carries `display: none` from JS, never removed from the DOM, so
+   swapping between a resolved icon and the fallback glyph never reflows
+   this box's own size. */
+.active-window__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--icon-box);
+  height: var(--icon-box);
+  flex: 0 0 auto;
+}
+
+/* Extracted at 32-48px native resolution by tools/app-icon.exe (see that
+   file's own doc comment) and scaled DOWN to --icon-size here -- deliberately
+   not inlined at 1:1 native size, so it matches every other glyph's visual
+   weight in the strip instead of looming larger than the fallback/status
+   icons beside it. object-fit: contain rather than cover/fill: a PNG icon
+   extracted via Icon.ExtractAssociatedIcon is already square, but this
+   guards against a future extraction path (e.g. a non-square source icon)
+   distorting the aspect ratio instead of letterboxing it. */
+.active-window__icon-img {
+  width: var(--icon-size);
+  height: var(--icon-size);
+  object-fit: contain;
+  display: none; /* JS-toggled on once a real icon resolves */
+}
+
+.active-window__icon-fallback {
+  font-size: var(--icon-size);
+  line-height: 1;
+  color: var(--on-surface-variant);
+}
+
+.active-window__name {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  max-height: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--on-surface-variant);
+}
 
 .media-panel {
   display: none;
@@ -115,7 +500,27 @@ body:not(.drawer-open) #bar { pointer-events: auto; }
   border: none;
   border-radius: var(--radius-sm);
   padding: var(--space-sm) 0;
-  font: inherit;
+  /* Font Awesome fix (Task 1, feat/corner-overlays follow-up): this was
+     `font: inherit;` -- worse than `.bar-btn`'s equivalent bug (see that
+     rule's own comment), because `button` (a type selector) makes this
+     selector's specificity (0,1,1) strictly HIGHER than `.fa-solid`'s
+     (0,1,0), so it always won regardless of stylesheet order, not just on
+     a source-order tiebreak. And because these buttons live in
+     `.media-panel`, which is appended to `document.body` (a sibling of
+     `#bar`, not a descendant -- see entries/media.js's own comment on why),
+     `inherit` didn't even land on "0xProto Nerd Font" the way `.bar-btn`'s
+     did -- it fell all the way to the browser's own default UA font stack
+     (confirmed live via CDP: getComputedStyle on these buttons read
+     `system-ui, "Segoe UI", Roboto, ...`, not any font this pack ships).
+     Every prevBtn/playBtn/nextBtn codepoint (U+F048/U+F04B/U+F04C/U+F051)
+     would have rendered as tofu the moment the drawer became reachable by a
+     real click -- not caught by prior QA only because the drawer isn't
+     wired up to a real click yet (see docs/zebar-bar.md's "Known-incomplete:
+     the media drawer"). Fix: drop the shorthand entirely and let
+     `.fa-solid` (already on these buttons, entries/media.js) supply
+     font-family/font-weight/font-style/font-variant/line-height -- keep
+     only the font-size override this rule actually needs. */
+  font-size: var(--icon-size);
   cursor: pointer;
 }
 .media-panel__time { color: var(--on-surface-variant); font-size: 11px; }
@@ -127,10 +532,3 @@ body:not(.drawer-open) #bar { pointer-events: auto; }
   animation-duration: var(--dur);
   animation-timing-function: var(--ease);
 }
-
-/* Task 7 left the vesktop ping chip with no accent (no red token exists in
-   theme.css, which is out of this task's scope -- it's matugen-generated
-   and not in the Task 8 file list). `var(--primary)` is the only accent
-   token available without expanding scope; not literally red, but gives
-   the pinged chip a themed, non-default color as yasb's version had. */
-.vesktop--pinged { color: var(--primary); font-weight: bold; }

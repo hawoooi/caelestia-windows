@@ -354,6 +354,20 @@ function New-PreApplySnapshot {
     if (Test-Path $KomorebiJsonPath) {
         Copy-Item $KomorebiJsonPath (Join-Path $PreApplyDir 'komorebi.json') -Force
     }
+
+    # Windows' accent colours live in the REGISTRY, so there is no live file
+    # whose old bytes survive until they are overwritten -- the mechanism every
+    # other target here relies on. This JSON snapshot is therefore the only way
+    # back to the pre-apply taskbar colours, which matters more than usual
+    # because those are a user setting this pipeline did not create.
+    # Fail-soft: a snapshot that cannot be taken must not abort an apply.
+    try {
+        $accent = Get-WindowsAccentSnapshot
+        $json = $accent | ConvertTo-Json -Depth 5
+        [System.IO.File]::WriteAllText((Join-Path $PreApplyDir 'windows-accent.json'), $json, (New-Object System.Text.UTF8Encoding($false)))
+    } catch {
+        Write-Warning "Could not snapshot the Windows accent registry values: $($_.Exception.Message). The apply continues, but there will be no pre-apply record of the previous taskbar colours."
+    }
 }
 
 function Restore-PreApplySnapshot {
@@ -590,12 +604,54 @@ function Restart-ZebarWidgets {
       called out) exits almost immediately with a nonzero code. Captured
       via -PassThru and checked after StartupWaitMs, surfacing that failure
       as a warning instead of the previous silent no-op.
+      Task 3 (real incident, feat/corner-overlays follow-up): a
+      fullscreen-detect.exe instance (fullscreen.js's shellExec poll,
+      ../tools/fullscreen-detect.cs) outlived its parent zebar process and
+      inherited zebar's own LISTENING SOCKET on port 6124 -- every
+      subsequent zebar start then failed to bind that port, the bar
+      rendered nothing, and TWO separate agents burned roughly an hour
+      misdiagnosing it as a WebView2 fault before the real cause (an
+      orphaned helper process holding a socket, not the browser engine) was
+      found. See docs/zebar-bar.md's troubleshooting section for the full
+      account. This function now defends against a recurrence in two steps,
+      both AFTER killing the old zebar.exe process above and BEFORE
+      starting any widget back up:
+
+      1. Reap any surviving fullscreen-detect.exe OR app-icon.exe (the
+         focused-app-icon extraction helper added alongside this comment,
+         ../tools/app-icon.cs, entries/activeWindow.js) -- neither has any
+         reason to outlive the zebar process that spawned it, so any
+         instance still alive at this point is, by definition, an orphan.
+         app-icon.exe is shellExec'd the exact same way
+         fullscreen-detect.exe is, so it carries the identical
+         handle-inheritance risk and gets the identical reap, not a
+         separate bespoke check.
+      2. Check whether port 6124 is STILL held after that reap. If it is
+         (e.g. by something other than fullscreen-detect.exe/app-icon.exe,
+         or a reap that failed to actually free the handle), warn with the
+         holding PID and process name -- so a future recurrence is a clear,
+         actionable warning instead of the bar silently rendering nothing
+         with nothing in errors.log to explain why.
+
+      Both steps are fail-soft: `Get-NetTCPConnection` (part of the
+      Windows-builtin NetTCPIP module, not something this repo controls)
+      not being available, or the reap itself failing, only downgrades to a
+      warning -- never aborts the restart, since a successful theme apply
+      must never be blocked by best-effort diagnostics for an unrelated
+      process.
     #>
     [CmdletBinding()]
     param(
         [string]$ZebarExe     = $script:ZebarExe,
         [string]$SettingsPath = (Join-Path $env:USERPROFILE ".glzr\zebar\settings.json"),
-        [int]$StartupWaitMs   = 500
+        [int]$StartupWaitMs   = 500,
+        [int]$AssetServerPort = 6124,
+        # How long to wait for the asset-server port to actually come free
+        # after killing zebar, before giving up and reporting a stuck holder.
+        # A listening socket does not always vanish the instant its process
+        # does, and starting the widgets while it is still held renders the
+        # entire desktop blank.
+        [int]$PortWaitMs      = 5000
     )
 
     if (-not (Test-Path $ZebarExe)) {
@@ -618,6 +674,74 @@ function Restart-ZebarWidgets {
     Get-Process zebar -ErrorAction SilentlyContinue | Stop-Process -Force
     Start-Sleep -Milliseconds $StartupWaitMs
 
+    # Step 1: reap any surviving fullscreen-detect.exe OR app-icon.exe (see
+    # this function's own comment above) before starting anything back up,
+    # so a leftover from the zebar process just killed can never hold port
+    # 6124 hostage for the widgets about to start. app-icon.exe
+    # (../tools/app-icon.cs, entries/activeWindow.js's icon extraction) is a
+    # shellExec'd child process spawned the exact same way
+    # fullscreen-detect.exe is -- it inherits the same CreateProcess
+    # handle-inheritance risk, so it gets the same reap, not a separate
+    # bespoke check.
+    # app-list.exe is the launcher's Start Menu enumerator -- another
+    # shellExec-ed child, so the same handle-inheritance risk and the same
+    # reap. launcher-key.exe is deliberately NOT in this list: it is the
+    # Windows-key hotkey daemon, it is started outside zebar (so it never
+    # inherits zebar's socket), and it has to survive a widget restart or the
+    # Windows key stops opening anything.
+    $orphans = Get-Process fullscreen-detect, app-icon, audio-mixer, net-stats, window-list, vesktop-unread, media-art, window-preview, app-list -ErrorAction SilentlyContinue
+    if ($orphans) {
+        $orphanIds = ($orphans | ForEach-Object { "$($_.ProcessName) (PID $($_.Id))" }) -join ', '
+        Write-Warning "Reaping $(@($orphans).Count) surviving fullscreen-detect.exe/app-icon.exe/audio-mixer.exe/net-stats.exe/window-list.exe/vesktop-unread.exe/media-art.exe/window-preview.exe process(es) ($orphanIds) before restarting zebar widgets -- see docs/zebar-bar.md's port-$AssetServerPort troubleshooting entry. This is expected occasionally (a poll outliving its parent zebar), not itself a sign of a new bug."
+        $orphans | Stop-Process -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Milliseconds 200
+    }
+
+    # Step 2: WAIT for the asset-server port to actually be free, rather than
+    # noting that it isn't and starting anyway.
+    #
+    # The previous version only warned. That is worth almost nothing in
+    # practice: a warning scrolls past, the widgets start, every one of them
+    # fails to bind, and the whole desktop -- bar, frame bands, corners, dock
+    # -- renders nothing. Reported as "reloading the zebar bar doesn't work
+    # somehow? and it just removes the bar", and the warning had been printed
+    # correctly on the way past.
+    #
+    # A listening socket does not always disappear the instant its process is
+    # killed, and the fixed 500ms sleep above is a guess, not a guarantee. This
+    # polls instead, so the common case (the socket needs another beat) simply
+    # works, and only a genuinely stuck holder is reported.
+    #
+    # The incident this was written for: the port was held by a PID that no
+    # longer existed, and killing the CURRENT zebar released it -- the running
+    # zebar had inherited a dead predecessor's listener and could never bind.
+    # So a dead-PID holder is not necessarily unrecoverable, which is exactly
+    # why waiting is worth doing before giving up.
+    $portFreed = $true
+    try {
+        $deadline = (Get-Date).AddMilliseconds($PortWaitMs)
+        $portHolder = $null
+        do {
+            $portHolder = Get-NetTCPConnection -LocalPort $AssetServerPort -ErrorAction SilentlyContinue |
+                Where-Object { $_.State -eq 'Listen' } | Select-Object -First 1
+            if (-not $portHolder) { break }
+            Start-Sleep -Milliseconds 200
+        } while ((Get-Date) -lt $deadline)
+
+        if ($portHolder) {
+            $portFreed = $false
+            $holderProc = Get-Process -Id $portHolder.OwningProcess -ErrorAction SilentlyContinue
+            $holderDesc = if ($holderProc) {
+                "$($holderProc.ProcessName) (PID $($portHolder.OwningProcess))"
+            } else {
+                "PID $($portHolder.OwningProcess) (process no longer exists -- a stale/inherited socket handle, the same shape of bug fullscreen-detect.exe hit)"
+            }
+            Write-Warning "Port $AssetServerPort is STILL held by $holderDesc after $PortWaitMs ms and after reaping known orphans. Every widget started below will fail to bind (`"Bind(Os { code: 10048, kind: AddrInUse ... }`" in state\zebar-logs) and the DESKTOP WILL RENDER NOTHING -- not just the bar. Kill that process, confirm `Get-NetTCPConnection -LocalPort $AssetServerPort` returns nothing, then run this again."
+        }
+    } catch {
+        Write-Warning "Could not check whether port $AssetServerPort is already held (Get-NetTCPConnection failed: $_) -- continuing the restart anyway."
+    }
+
     # Zebar logs EVERY provider emission (cpu, memory, network, ...) to stdout at
     # INFO level, several times a second. `-WindowStyle Hidden` does NOT detach a
     # console app's stdout -- it inherits the caller's console -- so without
@@ -630,10 +754,21 @@ function Restart-ZebarWidgets {
     foreach ($c in $toStart) {
         $preset = if ($c.preset) { $c.preset } else { 'default' }
 
-        # One log pair per widget: PowerShell 5.1 throws if stdout and stderr
-        # are redirected to the same path, and two widgets sharing one file
-        # would interleave.
-        $slug    = (($c.pack + '-' + $c.widget) -replace '[^\w.\-]', '_')
+        # One log pair per RUNNING PROCESS, not per widget name: PowerShell
+        # 5.1 throws if stdout and stderr are redirected to the same path,
+        # and two processes sharing one file would interleave -- or, worse,
+        # the second Start-Process could fail outright trying to open a log
+        # file the first (still-running, since start-widget-preset blocks)
+        # process still holds open for writing. This used to be
+        # pack+widget only, which was fine while every widget only ever had
+        # one autostarted preset -- but corner-overlays' "corners" widget
+        # registers four startupConfigs entries under the SAME pack+widget
+        # (one per preset/corner; see Set-ZebarStartupConfig), so
+        # pack+widget alone collides across all four and only the first
+        # corner's process would ever get a writable log handle. Preset is
+        # now part of the slug so every distinct (pack, widget, preset)
+        # triple gets its own log pair.
+        $slug    = (($c.pack + '-' + $c.widget + '-' + $preset) -replace '[^\w.\-]', '_')
         $outLog  = Join-Path $logDir "$slug.out.log"
         $errLog  = Join-Path $logDir "$slug.err.log"
 
@@ -843,11 +978,379 @@ function Set-KomorebiBorderColours {
     }
 }
 
+# --- Windows accent / taskbar theming ------------------------------------
+#
+# Every value Update-WindowsAccentTheme writes, in one place, so the snapshot
+# (New-PreApplySnapshot) and the write cover exactly the same set and cannot
+# drift apart. All HKCU: no elevation, nothing outside this user account.
+$script:AccentKeys = @(
+    @{ Path = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Accent'
+       Names = @('AccentPalette', 'AccentColorMenu', 'StartColorMenu') }
+    @{ Path = 'HKCU:\Software\Microsoft\Windows\DWM'
+       Names = @('AccentColor', 'ColorizationColor', 'ColorizationAfterglow', 'ColorPrevalence') }
+    @{ Path = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize'
+       Names = @('ColorPrevalence') }
+)
+
+function ConvertTo-AccentRgb {
+    <#
+      ConvertFrom-HexColor THROWS on a malformed colour (it is the komorebi
+      path's converter, where a bad value should be loud). Everything in this
+      section is fail-soft instead, so this wraps it and returns $null.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Hex)
+    try { return ConvertFrom-HexColor -Hex $Hex } catch { return $null }
+}
+
+function ConvertTo-AbgrDword {
+    <#
+      Windows stores an accent colour as a DWORD in ABGR order (0xAABBGGRR) --
+      red in the LOW byte. Confirmed by decoding this machine's own existing
+      values before writing any: AccentColorMenu read 0xFFD7D700, which is
+      RGB(0,215,215), the teal that was actually on screen.
+
+      NOT the same order as ColorizationColor two keys away, which is ARGB --
+      see ConvertTo-ArgbDword. Getting them the same way round swaps red and
+      blue, which produces a colour that is merely wrong rather than obviously
+      broken, so the two converters stay separate and separately tested.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Hex, [byte]$Alpha = 0xFF)
+    $rgb = ConvertTo-AccentRgb -Hex $Hex
+    if ($null -eq $rgb) { return $null }
+    return [uint32](([uint32]$Alpha -shl 24) -bor ([uint32]$rgb.B -shl 16) -bor ([uint32]$rgb.G -shl 8) -bor [uint32]$rgb.R)
+}
+
+function ConvertTo-ArgbDword {
+    <#
+      DWM's ColorizationColor/ColorizationAfterglow use ARGB (0xAARRGGBB) --
+      the conventional order, and the opposite of the Accent* keys. Confirmed
+      the same way: ColorizationColor read 0xC400D7D7, i.e. alpha 196 over
+      RGB(0,215,215) -- the same teal, stored the other way round.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Hex, [byte]$Alpha = 0xFF)
+    $rgb = ConvertTo-AccentRgb -Hex $Hex
+    if ($null -eq $rgb) { return $null }
+    return [uint32](([uint32]$Alpha -shl 24) -bor ([uint32]$rgb.R -shl 16) -bor ([uint32]$rgb.G -shl 8) -bor [uint32]$rgb.B)
+}
+
+function Get-AccentShade {
+    <#
+      Blends a colour toward white ($Amount > 0) or black ($Amount < 0). The
+      AccentPalette below is a ramp of one hue from light to dark, and Windows
+      picks different entries for different surfaces -- a single flat colour
+      repeated eight times leaves every shaded element the same tone as its
+      own background.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Rgb, [Parameter(Mandatory)][double]$Amount)
+
+    $channel = {
+        param($c)
+        if ($Amount -ge 0) { return [byte][math]::Round($c + (255 - $c) * $Amount) }
+        return [byte][math]::Round($c * (1 + $Amount))
+    }
+    return [PSCustomObject]@{
+        R = (& $channel $Rgb.R)
+        G = (& $channel $Rgb.G)
+        B = (& $channel $Rgb.B)
+    }
+}
+
+function New-AccentPalette {
+    <#
+      The 32-byte AccentPalette value: 8 colours, 4 bytes each, stored R,G,B,A
+      (little-endian ABGR). Verified against this machine's existing value
+      before writing anything: its entry 4 decoded to RGB(0,113,113), and
+      StartColorMenu read 0xFF717100 = RGB(0,113,113) -- the same colour. That
+      is what confirmed both the byte order AND that entry 4 is the shade
+      Windows paints the Start/taskbar surface with.
+
+      Entries 0-2 are lighter than the source, 3 is the source, 4-7 get
+      progressively darker. Alpha is 0 throughout, matching what Windows
+      writes itself.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Hex)
+
+    $rgb = ConvertTo-AccentRgb -Hex $Hex
+    if ($null -eq $rgb) { return $null }
+
+    $amounts = @(0.70, 0.45, 0.20, 0.0, -0.25, -0.45, -0.65, -0.80)
+    $bytes = New-Object byte[] 32
+    for ($i = 0; $i -lt 8; $i++) {
+        $shade = Get-AccentShade -Rgb $rgb -Amount $amounts[$i]
+        $o = $i * 4
+        $bytes[$o]     = $shade.R
+        $bytes[$o + 1] = $shade.G
+        $bytes[$o + 2] = $shade.B
+        $bytes[$o + 3] = 0
+    }
+    return ,$bytes
+}
+
+function Get-WindowsAccentSnapshot {
+    <#
+      Reads every value Update-WindowsAccentTheme is about to overwrite.
+      A registry write has no equivalent of "the old bytes are still on disk
+      until they are replaced", which every file target in this pipeline
+      relies on -- so this snapshot is the ONLY recovery path for the accent
+      colours, and it is written into state/pre-apply/ alongside them.
+
+      Binary values are stored as a hex string so the snapshot round-trips
+      through JSON.
+    #>
+    [CmdletBinding()]
+    param()
+    $snapshot = [ordered]@{}
+    foreach ($spec in $script:AccentKeys) {
+        $props = Get-ItemProperty -Path $spec.Path -ErrorAction SilentlyContinue
+        foreach ($name in $spec.Names) {
+            $value = $null
+            if ($props -and ($props.PSObject.Properties.Name -contains $name)) { $value = $props.$name }
+            if ($value -is [byte[]]) { $value = ($value | ForEach-Object { $_.ToString('x2') }) -join '' }
+            $snapshot["$($spec.Path)|$name"] = $value
+        }
+    }
+    return $snapshot
+}
+
+function Publish-ColorSettingChange {
+    <#
+      Tells the shell to re-read its colour settings so the taskbar recolours
+      without an explorer restart. Restarting explorer would work too, but it
+      is user-hostile -- every File Explorer window closes and the taskbar
+      blanks -- and this runs on every wallpaper change.
+
+      WM_SETTINGCHANGE with "ImmersiveColorSet" is the documented signal for
+      exactly this. SendMessageTimeout rather than SendMessage: one hung
+      top-level window would otherwise block the entire theme apply
+      indefinitely, and SMTO_ABORTIFHUNG plus a short timeout bounds it.
+    #>
+    [CmdletBinding()]
+    param([int]$TimeoutMs = 1000)
+
+    try {
+        if (-not ('CaelestiaColorBroadcast' -as [type])) {
+            Add-Type -Namespace '' -Name 'CaelestiaColorBroadcast' -MemberDefinition @'
+[DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+public static extern System.IntPtr SendMessageTimeout(
+    System.IntPtr hWnd, uint Msg, System.IntPtr wParam, string lParam,
+    uint fuFlags, uint uTimeout, out System.UIntPtr lpdwResult);
+'@ -ErrorAction Stop
+        }
+        $HWND_BROADCAST   = [IntPtr]0xFFFF
+        $WM_SETTINGCHANGE = 0x001A
+        $SMTO_ABORTIFHUNG = 0x0002
+        $result = [UIntPtr]::Zero
+        foreach ($topic in @('ImmersiveColorSet', 'WindowsThemeElement')) {
+            [void][CaelestiaColorBroadcast]::SendMessageTimeout(
+                $HWND_BROADCAST, $WM_SETTINGCHANGE, [IntPtr]::Zero, $topic,
+                $SMTO_ABORTIFHUNG, [uint32]$TimeoutMs, [ref]$result)
+        }
+    } catch {
+        Write-Warning "Could not broadcast the colour-settings change ($($_.Exception.Message)) -- the registry values were written, but the shell may not repaint until the next sign-in."
+    }
+}
+
+function Set-WindowsTaskbarVisible {
+    <#
+      Shows or hides the real Windows taskbar, by calling ShowWindow on the
+      shell's own top-level windows.
+
+      Direct user request: the taskbar's Start button and tray should be gone,
+      replaced by the dock widget (zebar/caelestia/dock/). Recolouring cannot
+      do that -- Windows 11 has no setting for removing either -- and leaving
+      the real taskbar in place actively broke the replacement: it is in
+      auto-hide mode, so hovering the bottom edge revealed IT, on top of the
+      dock that was trying to slide out of the same corner.
+
+      Hides both Shell_TrayWnd (the primary taskbar) and every
+      Shell_SecondaryTrayWnd (one per additional monitor).
+
+      **This does not survive an explorer restart.** ShowWindow is a runtime
+      state, not a setting -- explorer.exe recreates its windows shown, so a
+      crash, a restart, or signing out brings the taskbar back. That is the
+      honest trade: the alternative is a third-party shell mod
+      (ExplorerPatcher/StartAllBack), which is a real install this repo has no
+      business making on its own. Apply-Theme re-applies it on every run, which
+      covers the common case, and `Set-WindowsTaskbarVisible -Visible` puts it
+      back immediately if it is ever wanted.
+
+      Fail-soft like every other desktop-touching step here: a missing window
+      or a failed call warns and never breaks an apply.
+    #>
+    [CmdletBinding()]
+    param([switch]$Visible)
+
+    try {
+        if (-not ('CaelestiaTaskbar' -as [type])) {
+            Add-Type -Namespace '' -Name 'CaelestiaTaskbar' -MemberDefinition @'
+[DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+public static extern System.IntPtr FindWindow(string lpClassName, string lpWindowName);
+[DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+public static extern System.IntPtr FindWindowEx(System.IntPtr parent, System.IntPtr childAfter, string cls, string win);
+[DllImport("user32.dll")]
+public static extern bool ShowWindow(System.IntPtr hWnd, int nCmdShow);
+'@ -ErrorAction Stop
+        }
+    } catch {
+        Write-Warning "Could not load the taskbar-visibility helper ($($_.Exception.Message)) -- the Windows taskbar was left as it is."
+        return
+    }
+
+    $SW_HIDE = 0
+    $SW_SHOW = 5
+    $cmd = if ($Visible) { $SW_SHOW } else { $SW_HIDE }
+    $touched = 0
+
+    try {
+        $primary = [CaelestiaTaskbar]::FindWindow('Shell_TrayWnd', $null)
+        if ($primary -ne [IntPtr]::Zero) {
+            [void][CaelestiaTaskbar]::ShowWindow($primary, $cmd)
+            $touched++
+        }
+
+        # One secondary taskbar per extra monitor. Enumerated rather than
+        # assumed to be a single window, since FindWindow only ever returns the
+        # first match of a class.
+        $secondary = [IntPtr]::Zero
+        while ($true) {
+            $secondary = [CaelestiaTaskbar]::FindWindowEx([IntPtr]::Zero, $secondary, 'Shell_SecondaryTrayWnd', $null)
+            if ($secondary -eq [IntPtr]::Zero) { break }
+            [void][CaelestiaTaskbar]::ShowWindow($secondary, $cmd)
+            $touched++
+        }
+    } catch {
+        Write-Warning "Could not change the Windows taskbar's visibility ($($_.Exception.Message))."
+        return
+    }
+
+    if ($touched -eq 0) {
+        Write-Warning "No Shell_TrayWnd window was found -- the Windows taskbar's visibility was not changed."
+        return
+    }
+    $state = if ($Visible) { 'shown' } else { 'hidden' }
+    Write-Host "Windows taskbar $state ($touched window(s)). Not persistent -- explorer restores it on restart."
+}
+
+function Update-WindowsAccentTheme {
+    <#
+      Themes the Windows taskbar, Start menu and title bars from this run's
+      palette. Direct user request: "now try to retheme the taskbar".
+
+      Windows exposes no supported API for this. The accent colour is a user
+      setting, and the only programmatic route is the same HKCU keys the
+      Settings app writes, followed by a WM_SETTINGCHANGE broadcast.
+
+      The mapping deliberately splits ACCENT from SURFACE, which is what lets
+      the taskbar match the bar without flattening every highlight in Windows:
+
+        AccentPalette / AccentColorMenu / DWM AccentColor -> primary
+            the vivid colour, used for selection, focus and hover throughout
+            the shell. Keeping this on the accent is what stops the retheme
+            turning the whole UI monochrome.
+        StartColorMenu -> surface_container
+            the shade Windows paints the Start/taskbar SURFACE with (proved by
+            decoding this machine's own values -- see New-AccentPalette), so
+            this is the one that actually makes the taskbar match the bar.
+        ColorizationColor / Afterglow -> surface_container_high
+            window title bars, one step lighter so a focused title bar reads
+            against the frame -- the same reasoning as the komorebi border
+            mapping, and deliberately consistent with it.
+
+      ColorPrevalence is turned ON (it was 0 on this machine), because without
+      it Windows ignores the accent for Start and the taskbar entirely and this
+      whole step would silently do nothing visible.
+
+      Entirely fail-soft, exactly like Update-KomorebiBorderTheme: any failure
+      warns and leaves the rest of the apply alone. A theming run must never
+      fail because a registry key moved between Windows builds.
+    #>
+    [CmdletBinding()]
+    param([string]$StagedPath = (Join-Path $script:Staging 'windows-accent.json'))
+
+    if (-not (Test-Path $StagedPath)) {
+        Write-Warning "windows-accent.json was not rendered to $StagedPath -- taskbar colours not themed this run."
+        return
+    }
+
+    try {
+        $colors = [System.IO.File]::ReadAllText($StagedPath) | ConvertFrom-Json
+    } catch {
+        Write-Warning "Could not parse $StagedPath ($($_.Exception.Message)) -- taskbar colours not themed this run."
+        return
+    }
+    if (-not $colors -or -not $colors.accent -or -not $colors.taskbar) {
+        Write-Warning "$StagedPath is missing its accent/taskbar fields -- taskbar colours not themed this run."
+        return
+    }
+
+    $titlebarHex = $colors.taskbar
+    if ($colors.titlebar) { $titlebarHex = $colors.titlebar }
+
+    $palette       = New-AccentPalette   -Hex $colors.accent
+    $accentDword   = ConvertTo-AbgrDword -Hex $colors.accent
+    $taskbarDword  = ConvertTo-AbgrDword -Hex $colors.taskbar
+    $titlebarDword = ConvertTo-ArgbDword -Hex $titlebarHex -Alpha 0xC4
+
+    if ($null -eq $palette -or $null -eq $accentDword -or $null -eq $taskbarDword -or $null -eq $titlebarDword) {
+        Write-Warning "Could not convert the staged accent colours (accent='$($colors.accent)', taskbar='$($colors.taskbar)') -- taskbar colours not themed this run."
+        return
+    }
+
+    $writes = @(
+        @{ Path = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Accent';   Name = 'AccentPalette';         Value = $palette;       Type = 'Binary' }
+        @{ Path = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Accent';   Name = 'AccentColorMenu';       Value = $accentDword;   Type = 'DWord' }
+        @{ Path = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Accent';   Name = 'StartColorMenu';        Value = $taskbarDword;  Type = 'DWord' }
+        @{ Path = 'HKCU:\Software\Microsoft\Windows\DWM';                              Name = 'AccentColor';           Value = $accentDword;   Type = 'DWord' }
+        @{ Path = 'HKCU:\Software\Microsoft\Windows\DWM';                              Name = 'ColorizationColor';     Value = $titlebarDword; Type = 'DWord' }
+        @{ Path = 'HKCU:\Software\Microsoft\Windows\DWM';                              Name = 'ColorizationAfterglow'; Value = $titlebarDword; Type = 'DWord' }
+        @{ Path = 'HKCU:\Software\Microsoft\Windows\DWM';                              Name = 'ColorPrevalence';       Value = 1;              Type = 'DWord' }
+        @{ Path = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize'; Name = 'ColorPrevalence';      Value = 1;              Type = 'DWord' }
+    )
+
+    $failed = 0
+    foreach ($w in $writes) {
+        try {
+            if (-not (Test-Path $w.Path)) { New-Item -Path $w.Path -Force | Out-Null }
+            New-ItemProperty -Path $w.Path -Name $w.Name -Value $w.Value -PropertyType $w.Type -Force -ErrorAction Stop | Out-Null
+        } catch {
+            $failed++
+            Write-Warning "Could not write $($w.Path)\$($w.Name): $($_.Exception.Message)"
+        }
+    }
+
+    if ($failed -eq $writes.Count) {
+        Write-Warning "No Windows accent value could be written -- taskbar colours unchanged."
+        return
+    }
+
+    Publish-ColorSettingChange
+    Write-Host "Windows accent themed: accent $($colors.accent), taskbar surface $($colors.taskbar)."
+}
+
 function Update-KomorebiBorderTheme {
     <#
-      Ties the border-colour role mapping (single->primary, stack->
-      tertiary, monocle->secondary, unfocused->outline, floating->error --
-      see matugen/templates/komorebi-colours.json, rendered by matugen
+      Ties the border-colour role mapping (single->surface_container_high,
+      stack->surface_container, monocle->surface_container_high,
+      unfocused->surface, floating->outline -- direct user feedback,
+      "style the window border colors after the background like you did for
+      the other widgets": the borders used to come from the ACCENT roles
+      (primary/tertiary/secondary/error), which put a loud accent ring
+      immediately inside the desktop frame's own var(--surface) bands and
+      read as a clashing second frame rather than part of one. They now come
+      from the SURFACE family, the same tones the bar, corners and edge
+      strips paint, so a window border continues the frame instead of
+      fighting it. The focused window keeps surface_container_high -- one
+      step lighter than everything around it -- so "which window is active"
+      is still legible without an accent; that focus cue was the one thing
+      explicitly kept when the change was chosen. `floating` stays on
+      outline, the only deliberately louder role left, because a floating
+      window is genuinely exceptional and worth spotting.
+      See matugen/templates/komorebi-colours.json, rendered by matugen
       alongside every other template but deliberately NOT one of
       $script:Targets: it has no live config of its own to copy/validate/
       roll back, it only exists to hand this function hex values without
@@ -1130,6 +1633,27 @@ function Apply-Theme {
         Update-KomorebiBorderTheme
     } catch {
         Write-Warning "Update-KomorebiBorderTheme threw unexpectedly: $($_.Exception.Message). Border colours were not themed this run, but the rest of the apply succeeded."
+    }
+
+    # Theme the Windows taskbar/Start/title bars from the same palette. Same
+    # fail-soft contract and the same defence-in-depth try/catch as the border
+    # step above -- a registry key moving between Windows builds must never
+    # fail an otherwise-good theme apply.
+    try {
+        Update-WindowsAccentTheme
+    } catch {
+        Write-Warning "Update-WindowsAccentTheme threw unexpectedly: $($_.Exception.Message). Taskbar colours were not themed this run, but the rest of the apply succeeded."
+    }
+
+    # Keep the real taskbar hidden -- the dock widget replaces it, and leaving
+    # it in place breaks the replacement outright: it is on auto-hide, so
+    # hovering the bottom edge reveals IT over the dock trying to slide out of
+    # the same corner. ShowWindow is runtime state, not a setting, so explorer
+    # restores it on restart; re-applying here covers the common case.
+    try {
+        Set-WindowsTaskbarVisible
+    } catch {
+        Write-Warning "Set-WindowsTaskbarVisible threw unexpectedly: $($_.Exception.Message). The Windows taskbar may still be visible."
     }
 
     return [PSCustomObject]@{ Success = $true; Failed = @() }

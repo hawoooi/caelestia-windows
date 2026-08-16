@@ -1,0 +1,710 @@
+/* The top hover dashboard. Ported from mockups/dashboard.html, which is the
+   design record and carries the full rationale for this layout: tiles in a
+   grid with the panel's own background as the gap (the same grammar komorebi
+   uses between windows), every numeral in the bar's own mono face, one accent
+   per pane on the single thing that is "now", and the prompt line as the
+   signature element.
+
+   TWO THINGS CHANGED IN THE PORT, both non-negotiable here:
+
+   1. The palette is no longer inlined. The mockup mirrored theme.css so it
+      would open standalone; this file links it, and contains ZERO colour
+      literals -- var(--...), color-mix() over those vars, and transparent
+      only. Enforced by tests/Get-ColorLiterals.Tests.ps1, which names this
+      file explicitly. The translucent tokens the design depends on (the
+      hairline edge that fixes the flatness of a dark palette, the track fill)
+      are color-mix over var(--outline) rather than the rgba() literals the
+      mockup used.
+
+   2. The panel fills its window and slides, rather than sitting centred on a
+      staged page. See dashboard.js for why the window it fills is a separate
+      widget from the one that opens it. */
+
+:root {
+  /* The palette arrives from theme.css (matugen). Nothing is redeclared here.
+
+     These four are DERIVED from it rather than being new colours: a hairline
+     and a track need the outline colour at low alpha, which is the one thing
+     a flat var() reference cannot express. color-mix keeps them tied to the
+     wallpaper-derived palette, so they retheme with everything else. */
+  --edge: color-mix(in srgb, var(--outline) 13%, transparent);
+  --edge-strong: color-mix(in srgb, var(--outline) 22%, transparent);
+  --accent-soft: color-mix(in srgb, var(--primary) 10%, transparent);
+  --track: color-mix(in srgb, var(--outline) 18%, transparent);
+  --spark: color-mix(in srgb, var(--outline) 55%, transparent);
+
+  /* One gap, used between tiles AND as the base of every internal rhythm --
+     the komorebi-padding idea. */
+  --gap: 10px;
+  --pad: 15px;
+
+  --r-panel: 24px;
+  --r-tile: 14px;
+  --r-inner: 10px;
+  --r-full: 999px;
+
+  --ui: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --data: "0xProto Nerd Font", ui-monospace, "Cascadia Mono", Consolas, monospace;
+
+  /* Motion. Matches the dock's slide so the two hover surfaces feel like one
+     mechanism. */
+  --slide-ms: 160ms;
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0; padding: 0;
+  width: 100%; height: 100%;
+  font-family: var(--ui);
+  /* Transparent: the panel below paints the only visible surface, and the
+     region above/around it must show the desktop while the panel is sliding. */
+  background: transparent;
+  color: var(--on-surface);
+  overflow: hidden;
+}
+
+/* The panel hangs from the top edge and slides down out of it. Transform
+   only -- never a window resize, and never a window move. Moving or resizing
+   a WebView2 window invalidates the hover state under a stationary cursor,
+   which is what made the dock oscillate open/closed; see dashboard.js. */
+/* Height comes from --panel-h (set by dashboard.js), NOT from the window.
+   The window is only 16px tall while closed, so a percentage transform would
+   move the panel 16px and leave it on screen. */
+.stage {
+  width: 100%; height: var(--panel-h, 500px);
+  display: flex; justify-content: center; align-items: flex-start;
+  transform: translateY(-100%);
+  transition: transform var(--slide-ms) var(--ease);
+  will-change: transform;
+}
+body.is-open .stage { transform: translateY(0); }
+
+/* --------------------------------------------------------------- the panel */
+.panel {
+  /* The panel is narrower than its window: the margins either side hold the
+     arches (see below), which have to paint outside the panel's own box. */
+  width: var(--panel-w, 1140px);
+  position: relative;
+  background: var(--surface);
+  border-bottom-left-radius: var(--r-panel);
+  border-bottom-right-radius: var(--r-panel);
+  padding: 0 var(--gap) var(--gap);
+  /* NO box-shadow. There was one -- 0 20px 60px, carried over from the mockup,
+     where the panel sat on a staged page and needed lifting off it.
+
+     It had never once been visible here: the window used to be exactly the
+     panel width, so the shadow was clipped away entirely. Widening the window
+     by an arch on each side exposed a 16px slice of a 60px blur, and a
+     hard-edged slice of a shadow does not read as a shadow -- it reads as a
+     translucent border down both sides, which is how it was reported.
+
+     Removed rather than tuned. Nothing else in this pack casts a shadow: the
+     bar, the dock and the frame bands are all flat var(--surface), and the
+     panel separates from the wallpaper by being that same surface with the
+     arches tying it into the frame. */
+}
+
+/* ----------------------------------------------------------------- the tabs */
+.tabs { display: flex; justify-content: center; gap: 2px; border-bottom: 1px solid var(--edge); }
+
+.tab {
+  appearance: none; border: 0; background: transparent;
+  color: var(--on-surface-variant);
+  font-family: var(--ui);
+  font-size: 11px; font-weight: 500;
+  text-transform: uppercase; letter-spacing: 0.12em;
+  padding: 13px 24px 11px;
+  display: flex; align-items: center; gap: 9px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: color 150ms ease, border-color 150ms ease;
+}
+.tab i { font-size: 14px; line-height: 1; }
+.tab:hover { color: var(--on-surface); }
+.tab[aria-selected="true"] { color: var(--primary); border-bottom-color: var(--primary); }
+/* Keyboard focus only. A plain outline stayed visible after a CLICK in Chrome,
+   which drew a bright box around the last-pressed tab -- most of what made
+   draft two look unfinished. */
+.tab:focus { outline: none; }
+.tab:focus-visible { box-shadow: inset 0 0 0 2px var(--primary); border-radius: var(--r-inner); }
+
+.pane { display: none; padding-top: var(--gap); }
+.pane[data-active] { display: block; }
+
+/* ----------------------------------------------------------------- the tile */
+.tile {
+  background: var(--surface-container);
+  border: 1px solid var(--edge);
+  border-radius: var(--r-tile);
+  padding: var(--pad);
+}
+
+/* Every tile is named. One uppercase micro-label turns a grid of boxes into an
+   instrument panel, and it is the cheapest structure available. */
+.label {
+  font-size: 10.5px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.14em;
+  color: var(--outline);
+  margin-bottom: 10px;
+}
+
+/* Every numeral in the panel is mono and tabular -- the bar's own face. */
+.num { font-family: var(--data); font-variant-numeric: tabular-nums; }
+
+/* ------------------------------------------------------- SIGNATURE: prompt */
+/* The machine describing itself in its own vernacular. Replaces the
+   reference's avatar-and-rows card, and absorbs the weather, which is ambient
+   status exactly like uptime. */
+.prompt {
+  display: flex; align-items: center; flex-wrap: wrap;
+  gap: 0 10px;
+  font-family: var(--data);
+  font-size: 12.5px;
+  padding: 10px var(--pad);
+  background: var(--surface-container);
+  border: 1px solid var(--edge);
+  border-radius: var(--r-tile);
+  margin-bottom: var(--gap);
+  white-space: nowrap;
+}
+.prompt__host { color: var(--primary); }
+.prompt__sep  { color: var(--edge-strong); }
+.prompt__k    { color: var(--outline); }
+.prompt__v    { color: var(--on-surface); }
+
+/* --------------------------------------------------------------- dashboard */
+/* Direct user feedback: "i feel like there are wasted space. Try to either
+   fit in more buttons/macros and information or reduce the sizing." -- both.
+   The scale came down a step, and the height the calendar and now-playing
+   tiles set is now filled by THREE tiles in the left column instead of two
+   stretched ones. */
+/* Direct user feedback: "i think the player and calendar has alot of wasted
+   space, notably, the calendar. we could cut off the calendar and replace it
+   with something else since i don't even use it. for now just system stats".
+
+   So the calendar is gone entirely -- not shrunk, not moved to another tab --
+   and its column, the widest one, now holds the system panel. That is the
+   right trade: a month grid is six rows of mostly-dead cells for a date the
+   clock tile already states in full, while every row of the system panel is a
+   number that changes while you are looking at it. */
+.dash {
+  display: grid;
+  grid-template-columns: 208px minmax(0, 1fr) 236px;
+  grid-template-rows: auto 1fr;
+  gap: var(--gap);
+}
+.dash__time    { grid-column: 1; grid-row: 1; }
+.dash__actions { grid-column: 1; grid-row: 2; }
+.dash__mix     { grid-column: 2; grid-row: 1 / span 2; }
+.dash__media   { grid-column: 3; grid-row: 1 / span 2; }
+
+/* time -- one of three tiles in the column now, so it sits at its natural
+   height rather than being stretched and centred over air. */
+.time__body { margin-top: 2px; }
+/* 62px mono overflowed the 250px column and clipped the seconds. The seconds
+   are secondary anyway, so they drop to a small superscript-ish figure --
+   which also lets the minutes stay large. */
+.time__clock { font-size: 40px; font-weight: 600; line-height: 1; letter-spacing: -0.01em; }
+.time__secs  { color: var(--outline); font-size: 18px; font-weight: 400; margin-left: 3px; }
+.time__date  { margin-top: 8px; font-size: 12px; color: var(--on-surface-variant); font-family: var(--data); }
+
+/* calendar */
+/* The calendar spans all three rows of the left column, so the table FILLS
+   its tile rather than floating centred with air above and below. A table
+   given a height distributes it across its rows, which is exactly the wanted
+   behaviour -- the weeks breathe instead of the tile being padded out. */
+.dash__cal { display: flex; flex-direction: column; }
+.cal { width: 100%; height: 100%; border-collapse: collapse; }
+/* Direct user feedback: "for the calendar, we can try to make it a little
+   smaller, with numbers starting with 0 for numbers smaller than 10 for
+   consistent spacing". Both done -- the zero-padding is in dashboard.js's
+   renderCalendar, since it is content rather than style. The padded numerals
+   are all two glyphs wide, which is what makes a smaller size legible: every
+   column now has identical optical weight instead of alternating between one
+   and two digits. */
+.cal th {
+  font-size: 9.5px; font-weight: 600; color: var(--outline);
+  text-transform: uppercase; letter-spacing: 0.1em;
+  padding-bottom: 8px;
+}
+.cal td {
+  text-align: center; padding: 4px 0;
+  font-family: var(--data); font-variant-numeric: tabular-nums;
+  font-size: 11.5px; color: var(--on-surface-variant);
+}
+.cal td.is-muted { color: var(--outline); opacity: 0.45; }
+/* THE one accent on this pane. */
+.cal td.is-today span {
+  min-width: 22px;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border-radius: var(--r-inner);
+  background: var(--primary); color: var(--on-primary); font-weight: 600;
+}
+
+/* levels -- horizontal rows, not vertical bars. Vertical sliders forced a
+   narrow column that never sat well beside the calendar, and a labelled row
+   says which channel it is without a legend. */
+/* Direct user feedback: "try to incorperate wifi up/down speed and
+   cpu/gpu/ram into the dashboard instead if sound volume and those meaningless
+   bars".
+
+   Volume is gone from here -- it already lives in the bar's own pill and its
+   panel, so it was duplicated, and it is not a machine-load reading like the
+   others. In its place: live network throughput as NUMBERS (a rate has no
+   ceiling, so a bar cannot express one -- that is what made the old ones
+   meaningless), and cpu/gpu/ram as three percentages, which do have a ceiling
+   and so keep a bar. */
+/* Promoted from a narrow side-tile to the widest column, so each reading now
+   gets a bar AND the raw figure behind the percentage -- "68%" alone does not
+   tell you whether that is 11GB or 22GB. */
+
+/* The raw figure sits under the bar rather than beside it: a fourth column
+   would squeeze the bar, and the bar is what makes the row scannable. */
+/* The three loads are labelled in words rather than glyphs: "GPU" is not a
+   thing Font Awesome has an unambiguous icon for, and CPU/RAM/GPU as text is
+   read faster than three similar-looking chips anyway. */
+.mix__row i { color: var(--outline); font-size: 12px; text-align: center; }
+
+/* quick actions -- REAL ones this setup already has, not filler. The first
+   two are the exact scripts bound in ~/.config/whkdrc (alt+w, ctrl+alt+w);
+   the rest are things the pack or the WM can already do. A macro row is the
+   right use of reclaimed space on a panel you summon and dismiss in seconds. */
+/* Direct user feedback: "I dont like the look of these icon and texts".
+
+   The old shape was a 3x2 grid of bordered squares with the icon stacked over
+   an uppercase caption -- six outlined boxes inside a tile that already has a
+   border, which read as a nested grid of nothing, and the tiny all-caps
+   captions had to be squeezed to fit the column.
+
+   These are icon-LEFT, label-right rows instead: the same shape the layout
+   menu uses, which is the one the user asked for by name ("a vertical list
+   with icons"). No per-item border -- the hover fill is the affordance, so
+   nothing is drawn until it is pointed at. Sentence case at a readable size,
+   because a six-character caption in 9px uppercase is a label you decode
+   rather than read. Two columns keep it to three rows. */
+/* Direct user feedback: "this menu looks ugly".
+
+   The fault was not the rows, it was the space around them. This tile sits in
+   grid row 2 of a column whose height is set by the SYSTEM panel beside it, so
+   it stretches -- and six small buttons in a 2x3 grid occupied the top third
+   and left the remaining two thirds visibly empty. Six things floating in a
+   tall box read as unfinished no matter how the six are styled.
+
+   So the rows now FILL the tile: one column, each row flexing to an equal
+   share of whatever height the tile has. That turns dead space into row
+   height, gives every action a full-width hover target instead of a half-width
+   one, and makes this read as a menu -- the same vertical icon-left list the
+   layout flyout uses, which is the shape asked for by name ("a vertical list
+   with icons"). No content was added to fill space; the existing content was
+   allowed to occupy it. */
+.dash__actions { display: flex; flex-direction: column; }
+.acts { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.act {
+  appearance: none; border: 0;
+  flex: 1;
+  background: transparent; color: var(--on-surface-variant);
+  border-radius: var(--r-inner);
+  padding: 0 11px;
+  display: flex; align-items: center; gap: 12px;
+  font-family: var(--ui); font-size: 12.5px; font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease;
+}
+/* Fixed-width icon cell so every label starts on the same x, whatever the
+   glyph's own width. */
+.act i { font-size: 14px; width: 17px; text-align: center; color: var(--outline); transition: color 140ms ease; }
+.act:hover { background: var(--surface-container-high); color: var(--on-surface); }
+.act:hover i { color: var(--primary); }
+.act:focus { outline: none; }
+.act:focus-visible { box-shadow: inset 0 0 0 2px var(--primary); }
+
+/* now playing */
+.np { display: flex; flex-direction: column; }
+/* Direct user feedback: the player "has alot of wasted space". The art was a
+   full-width square -- 244px of cover for a tile whose job is to say what is
+   playing -- with the text crammed under it. It is now a fixed, smaller square
+   and the reclaimed height goes to the track text and controls. */
+.np__title  { margin-top: 14px; text-align: center; font-size: 14px; font-weight: 600; color: var(--on-surface); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The progress was Media-tab-only before, which left this tile with a gap
+   under the controls. It is the single most useful thing to add here. */
+
+.iconbtn {
+  appearance: none; border: 0; background: transparent;
+  color: var(--on-surface-variant); font-size: 13px; cursor: pointer;
+  width: 32px; height: 32px; border-radius: var(--r-inner);
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: background 150ms ease, color 150ms ease;
+}
+.iconbtn:hover { background: var(--surface-container-high); color: var(--on-surface); }
+.iconbtn:focus { outline: none; }
+.iconbtn:focus-visible { box-shadow: inset 0 0 0 2px var(--primary); }
+
+/* --------------------------------------------------------------- media tab */
+/* Direct user feedback: "save some space for bongo cat". A third column,
+   sized so the art and the cat balance either side of the controls. */
+.media { display: grid; grid-template-columns: 240px minmax(0, 1fr) 196px; gap: var(--gap); }
+.media__art {
+  width: 240px; height: 240px;
+  border-radius: var(--r-tile);
+  object-fit: cover;
+  background: var(--surface-container-high);
+  border: 1px solid var(--edge);
+}
+.media__panel { display: flex; flex-direction: column; justify-content: center; }
+.media__title  { font-size: 22px; font-weight: 600; line-height: 1.2; }
+
+/* The cat gets its own tile, so it reads as a deliberate companion rather
+   than an image floating in leftover space. Placeholder until the asset
+   arrives -- it is labelled rather than blank so it is obviously reserved. */
+.bongo { display: flex; align-items: center; justify-content: center; padding: 0; }
+.bongo img { width: 100%; height: auto; display: block; }
+.bongo__ph {
+  width: 100%; height: 100%;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--outline); font-size: 10px;
+  text-transform: uppercase; letter-spacing: 0.12em;
+}
+.media__album  { margin-top: 6px; font-size: 14px; color: var(--on-surface-variant); }
+.media__artist { margin-top: 2px;  font-size: 14px; color: var(--outline); }
+
+.scrub { margin-top: 26px; }
+.scrub__track { height: 4px; border-radius: var(--r-full); background: var(--track); position: relative; }
+.scrub__fill { position: absolute; inset: 0 auto 0 0; border-radius: var(--r-full); background: var(--primary); }
+.scrub__times { display: flex; justify-content: space-between; margin-top: 8px; font-family: var(--data); font-size: 11.5px; color: var(--outline); }
+
+.media__controls { display: flex; align-items: center; gap: 10px; margin-top: 22px; }
+/* THE one accent on this pane. */
+.media__play {
+  width: 46px; height: 46px; border-radius: var(--r-full);
+  background: var(--primary); color: var(--on-primary);
+  font-size: 15px; border: 0; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.media__play:focus { outline: none; }
+.media__play:focus-visible { box-shadow: 0 0 0 3px var(--surface), 0 0 0 5px var(--primary); }
+.media__source {
+  margin-left: auto;
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em;
+  color: var(--outline);
+}
+.media__source i { font-size: 13px; }
+
+/* ------------------------------------------------------------ performance */
+/* Thin arcs, mono readouts, and the secondary figure as a labelled row inside
+   the tile -- draft two floated it beside the ring where it looked orphaned. */
+.perf { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gap); }
+/* The gauges alone left the lower half of this pane empty. These are the
+   figures a gauge cannot show: rates and totals. */
+.perf__strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--gap); margin-top: var(--gap); }
+.stat { display: flex; flex-direction: column; gap: 4px; }
+.stat__v { font-family: var(--data); font-variant-numeric: tabular-nums; font-size: 17px; font-weight: 600; }
+.stat__k { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.12em; color: var(--outline); }
+/* Ring BESIDE its readings rather than above them. Stacking label / ring /
+   footer is what made each tile so tall for so little information. */
+.perf__tile { display: flex; flex-direction: row; align-items: center; gap: var(--pad); }
+.perf__body { flex: 1; min-width: 0; }
+/* Direct user feedback: "this could be a lot more compact". The ring was
+   carrying far more height than the figure inside it needed. */
+.gauge { position: relative; width: 112px; height: 112px; display: grid; place-items: center; flex: 0 0 auto; }
+.gauge svg { position: absolute; inset: 0; transform: rotate(-90deg); }
+.gauge__bg  { fill: none; stroke: var(--track); stroke-width: 5; stroke-linecap: round; }
+.gauge__val { fill: none; stroke: var(--on-surface-variant); stroke-width: 5; stroke-linecap: round; }
+.gauge__num { font-family: var(--data); font-variant-numeric: tabular-nums; font-size: 20px; font-weight: 600; }
+.perf__foot {
+  width: 100%; margin-top: 9px; padding-top: 9px;
+  border-top: 1px solid var(--edge);
+  display: flex; align-items: baseline; justify-content: space-between;
+}
+.perf__foot span { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--outline); }
+.perf__foot b { font-family: var(--data); font-size: 14px; font-weight: 600; color: var(--on-surface-variant); }
+
+/* ------------------------------------------------------------- workspaces */
+.ws { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gap); }
+.ws__cell {
+  background: var(--surface-container);
+  border: 1px solid var(--edge);
+  border-radius: var(--r-tile);
+  padding: 12px var(--pad);
+  min-height: 72px;
+  display: flex; flex-direction: column; gap: 12px;
+  cursor: pointer; text-align: left; font-family: inherit; color: inherit;
+  transition: background 150ms ease, border-color 150ms ease;
+}
+.ws__cell:hover { background: var(--surface-container-high); }
+/* THE one accent on this pane. */
+.ws__cell[data-focused] { border-color: var(--primary); background: var(--accent-soft); }
+.ws__cell:focus { outline: none; }
+.ws__cell:focus-visible { box-shadow: inset 0 0 0 2px var(--primary); }
+.ws__n { font-family: var(--data); font-size: 11px; color: var(--outline); letter-spacing: 0.1em; }
+.ws__cell[data-focused] .ws__n { color: var(--primary); }
+.ws__apps { display: flex; gap: 6px; flex-wrap: wrap; }
+.ws__app {
+  width: 26px; height: 26px; border-radius: 7px;
+  background: var(--surface-container-high);
+  display: grid; place-items: center;
+  font-family: var(--data); font-size: 11px; color: var(--on-surface-variant);
+}
+.ws__empty { font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--edge-strong); }
+
+/* The blanket `@media (prefers-reduced-motion: reduce) { * { transition: none
+   !important } }` that used to sit here has been REMOVED, and that is a
+   deliberate decision rather than an oversight.
+
+   It came across from the standalone mockup, where it was the right default.
+   In the widget it silently killed every transition in the panel -- the slide,
+   the tab underline, every hover fill -- because this machine has Windows'
+   "Show animations" turned off, which WebView2 reports as reduced-motion. The
+   symptom was reported as "ui cut off without animations", and the cause was
+   invisible: the CSS was correct, the vars resolved, and getComputedStyle
+   simply returned `transition: none`.
+
+   It goes rather than being narrowed because the rest of this pack does not
+   honour the setting either -- the dock slides, the flyouts fade -- so the
+   dashboard was the one component out of step with the desktop it belongs to,
+   and the user asked for it to match. If reduced motion is ever wanted here,
+   it belongs across the whole pack at once, not in this one file. */
+
+
+/* --------------------------------------------------------------- states */
+
+/* Fullscreen. Direct user requirement covering every hover widget at once:
+   "the bottom custom taskbar hover shouldn't activate when i am in
+   fullscreen. this goes with any other hover-activation widgets." The trigger
+   widget stops opening it; this is the second half, so a panel that happens
+   to be open when a video goes fullscreen gets out of the way. */
+body.fullscreen-hidden .stage { transform: translateY(-100%); }
+
+/* A tile with nothing to show says so, rather than rendering an empty box
+   that reads as a rendering fault. */
+.tile__none {
+  color: var(--outline);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+/* Media art has no fixed source here -- it arrives from the media provider,
+   or not at all. When not, the frame stays (the layout must not jump) with
+   the placeholder glyph centred in it. */
+.art--empty {
+  display: flex; align-items: center; justify-content: center;
+  background: var(--surface-container-high);
+  color: var(--outline);
+}
+.art--empty i { font-size: 30px; }
+
+.act[disabled] { opacity: 0.4; cursor: default; }
+.act[disabled]:hover { background: transparent; color: var(--on-surface-variant); border-color: var(--edge); }
+
+/* A quick action awaiting its second click to confirm. Only the destructive
+   ones use this. */
+.act.is-arming { color: var(--primary); border-color: var(--primary); }
+
+
+
+/* ============================================================ SYSTEM (v2)
+
+   Ported from mockups/dashboard-v2.html. One metric is one row -- name,
+   value, sparkline, detail -- replacing the full-width bar each reading used
+   to get.
+
+   The bar had to go because it spent its entire width restating the numeral
+   beside it. The sparkline spends the same width on something the numeral
+   cannot say: whether this reading is a spike or a plateau. It is only honest
+   to draw it because the panel now samples continuously in the background
+   rather than starting from nothing on every open. */
+.metric {
+  display: grid;
+  grid-template-columns: 42px 54px minmax(0, 1fr);
+  align-items: center;
+  column-gap: 12px;
+  padding: 10px 0 11px;
+}
+.metric + .metric { border-top: 1px solid var(--edge); }
+
+.metric__k {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.1em;
+  color: var(--outline); text-transform: uppercase;
+}
+.metric__v {
+  font-family: var(--data); font-variant-numeric: tabular-nums;
+  font-size: 19px; font-weight: 600; color: var(--on-surface);
+  text-align: right;
+}
+.metric__v small { font-size: 11px; color: var(--outline); font-weight: 500; margin-left: 1px; }
+
+.metric__spark { position: relative; height: 26px; }
+.metric__spark svg { width: 100%; height: 100%; display: block; overflow: visible; }
+/* vector-effect is load-bearing, not decoration.
+   The sparkline is drawn in a 100x26 viewBox and stretched to its column with
+   preserveAspectRatio="none" -- about 4.4x horizontally, 1x vertically. Stroke
+   width is measured PERPENDICULAR to the line, so under that non-uniform scale
+   a flat segment rendered at 1.5px and a steep one at ~6.6px: spikes came out
+   fat and plateaus hairline, in the same line. Reported as "why are some lines
+   thicker".
+   non-scaling-stroke pins the width in device pixels regardless of the
+   transform. The alternative -- computing the path in real pixel coordinates --
+   would mean measuring the element, and this panel must never measure its own
+   layout: the window is a 16px strip until it opens. */
+.spark__line {
+  fill: none; stroke: var(--spark);
+  stroke-width: 1.5; vector-effect: non-scaling-stroke;
+  stroke-linejoin: round; stroke-linecap: round;
+}
+/* Unfilled by default: filling all four made four solid blocks competing for
+   attention. The fill is part of the accent below. */
+.spark__area { fill: none; stroke: none; }
+
+/* The detail sits under the sparkline in the same column, so the numerals
+   keep one vertical rhythm instead of scattering across the row. */
+.metric__detail {
+  grid-column: 3;
+  font-family: var(--data); font-variant-numeric: tabular-nums;
+  font-size: 10.5px; color: var(--outline);
+  margin-top: 4px;
+}
+
+/* THE one accent on this pane, and it is earned rather than assigned: it
+   follows whichever metric is currently busiest. */
+.metric.is-hot .metric__v { color: var(--primary); }
+.metric.is-hot .spark__line { stroke: var(--primary); }
+.metric.is-hot .spark__area { fill: color-mix(in srgb, var(--primary) 14%, transparent); }
+
+/* network -- the two directions side by side, same row grammar. Rates keep
+   numbers rather than bars: throughput has no ceiling for a bar to be a
+   fraction of. */
+.net {
+  display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap);
+  margin-top: 12px; padding-top: 13px; border-top: 1px solid var(--edge);
+}
+.net__cell { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; column-gap: 10px; }
+.net__k {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 9px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.1em; color: var(--outline);
+  grid-column: 1 / span 2;
+  margin-bottom: 3px;
+}
+.net__v {
+  font-family: var(--data); font-variant-numeric: tabular-nums;
+  font-size: 21px; font-weight: 600; color: var(--on-surface); white-space: nowrap;
+}
+.net__v small { font-size: 10px; color: var(--outline); font-weight: 500; margin-left: 2px; }
+.net__spark { height: 26px; }
+.net__spark svg { width: 100%; height: 100%; display: block; }
+
+/* ======================================================= NOW PLAYING (v2) */
+.np { display: flex; flex-direction: column; }
+.np__art {
+  width: 100%; aspect-ratio: 1;
+  border-radius: var(--r-tile);
+  background: var(--surface-container-high);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--outline); font-size: 30px;
+  overflow: hidden;
+  background-size: cover; background-position: center;
+}
+.np__title  { margin-top: 14px; font-size: 14px; font-weight: 600; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.np__artist { margin-top: 3px; font-size: 12px; color: var(--on-surface-variant); text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.np__scrub { margin-top: 14px; }
+.np__track { height: 3px; border-radius: var(--r-full); background: var(--track); overflow: hidden; }
+.np__fill { height: 100%; background: var(--primary); border-radius: var(--r-full); }
+.np__times { display: flex; justify-content: space-between; margin-top: 6px; font-family: var(--data); font-size: 10.5px; color: var(--outline); }
+.np__controls { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 12px; }
+
+/* Silence should not cost a whole column: a full-width art square holding a
+   music glyph over the words "Nothing playing" was most of this tile. */
+.np.is-idle { justify-content: center; align-items: center; text-align: center; }
+.np.is-idle .np__art { width: 56px; aspect-ratio: 1; font-size: 18px; }
+.np.is-idle .np__title { margin-top: 10px; color: var(--outline); font-weight: 500; font-size: 12.5px; }
+.np.is-idle .np__artist,
+.np.is-idle .np__scrub { display: none; }
+.np.is-idle .np__controls { margin-top: 10px; opacity: 0.5; }
+
+
+/* ================================================================ ARCHES
+
+   Inverse-arc fillets at the panel's top corners, so it reads as carved out of
+   the frame's top band rather than pasted on top of it. Same concave corner
+   and same radius as the four screen corners (corners/corners.css), and the
+   same technique: a HARD-STOPPED radial gradient, transparent inside the
+   radius and surface outside it. A border-radius cannot do this -- it rounds
+   a shape's own corner convexly, and what is wanted here is the negative.
+
+   Geometry, for the left arch. It occupies the square immediately left of the
+   panel's top-left corner. Its top edge continues the frame band, its right
+   edge continues the panel, and the quarter-disc at its BOTTOM-LEFT is cut
+   away to show the desktop. So the circle is centred on that bottom-left
+   corner: inside it transparent, outside it surface.
+
+   THEY DO NOT SLIDE, and that is the correction. They used to be children of
+   .panel, which inherits .stage's transform -- so they travelled the panel's
+   whole height and, sitting at its TOP corners, arrived dead last: the panel
+   was fully open before the arches appeared, which read as them popping in
+   afterwards. Direct user feedback: "the arch slideout animation isn't good
+   when it slides out last ... it should slide out along with the window and
+   lock in place the moment it slides out completely, also remember that it
+   can't slide with the rounded corner".
+
+   An arch is a JUNCTION, not a moving part: it is the fillet where the frame's
+   top band meets the panel's side. That junction is at the top of the screen
+   for the entire slide, so the arches are anchored to the window's top edge
+   and never move at all. They are simply present from the first frame and in
+   their final place at the last -- which is what "locks in place" means here,
+   and it also settles the concave-corner problem, because a hard-stopped
+   radial gradient cannot be translated without the arc visibly sweeping.
+
+   They live on BODY, not on .stage and not on .panel. A transformed ancestor
+   becomes the containing block for position:fixed descendants, so pseudo-
+   elements of .stage would still have been carried by its translate -- the
+   fix would have looked applied and changed nothing. body is the nearest
+   ancestor with no transform on it. */
+body::before,
+body::after {
+  content: '';
+  position: fixed;
+  /* Nothing to fillet while the panel is parked off-screen. */
+  opacity: 0;
+  /* Spans the BAND AS WELL as the radius, exactly like the screen corners --
+     they are 16x24 (radius + band), not 16x16. A box only radius-tall has
+     78% of its area eaten by the transparent quarter-disc, leaving a 2px
+     crescent that is invisible on screen. Measured that mistake before
+     fixing it: the pseudo-element was present, positioned and painting, and
+     still showed nothing. */
+  top: 0;
+  width: var(--arch-w, 16px);
+  height: calc(var(--frame-band, 8px) + var(--arch-w, 16px));
+  pointer-events: none;
+}
+
+/* Positioned from the WINDOW edges, not the panel: the panel is centred in a
+   window that is an arch wider on each side, so the arch squares are exactly
+   the outermost --arch-w of that window. */
+body::before {
+  left: 0;
+  background: radial-gradient(
+    circle var(--arch-w, 16px) at bottom left,
+    transparent 0 var(--arch-w, 16px),
+    var(--surface) var(--arch-w, 16px)
+  );
+}
+
+body::after {
+  right: 0;
+  background: radial-gradient(
+    circle var(--arch-w, 16px) at bottom right,
+    transparent 0 var(--arch-w, 16px),
+    var(--surface) var(--arch-w, 16px)
+  );
+}
+
+/* Present for the whole slide, gone the moment the panel is away. No
+   transition on the way in: the arch has to be there from the first frame,
+   which is the entire point of the change. */
+body.is-open::before,
+body.is-open::after { opacity: 1; }

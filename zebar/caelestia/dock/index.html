@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="../bar/theme.css" />
+    <link rel="stylesheet" href="../bar/vendor/fontawesome/fontawesome.css" />
+    <link rel="stylesheet" href="./dock.css" />
+    <title>Caelestia dock</title>
+  </head>
+  <body>
+    <!-- The hover trigger, pinned to the bottom of the window and only as tall
+         as TRIGGER_H. Separate from #dock so the dock's SIZE and its
+         ACTIVATION RANGE are independent -- see dock.js. -->
+    <div id="trigger" class="dock-trigger"></div>
+    <!-- The fillet where the bar's right edge meets the dock's top edge. A
+         CHILD of #dock, so it inherits the slide transform and travels with the
+         row -- direct user feedback, "i want it to slide out on top of the
+         taskbar along with the taskbar". See dock.css. -->
+    <div id="dock" class="dock"><div id="arch" class="dock-arch"></div></div>
+    <script type="module" src="./dock.js"></script>
+  </body>
+</html>

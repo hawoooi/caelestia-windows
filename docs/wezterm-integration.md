@@ -169,3 +169,115 @@ signal; the exit code alone is not.
 $out = & "C:\Program Files\WezTerm\wezterm.exe" --config-file "$env:USERPROFILE\.wezterm.lua" show-keys
 $out -match 'toggle-titlebar'   # $true only if the full config actually executed
 ```
+
+## 6. The PowerShell profile — the other untracked file in this path
+
+`C:\Users\PC\Documents\WindowsPowerShell\Microsoft.PowerShell_profile.ps1`. Untracked for the same
+reason `~/.wezterm.lua` is: the home directory is not a git repo.
+
+**Why it exists.** starship was a fully working theming target that nothing ever displayed. The
+binary was installed (1.20.1, `C:\Program Files\starship\bin\starship.exe`, on PATH), the config at
+`~/.config/starship.toml` was valid and was being regenerated from the wallpaper palette by every
+`Apply-Theme` run — and there was **no profile at any of the four `$PROFILE` paths**, so
+`starship init` never ran and the prompt was plain PowerShell. Reported as "starship isn't on".
+
+Worth knowing for diagnosis: `starship prompt` renders the themed prompt on demand, so the config
+being correct proves nothing about whether the shell is using it. The two failure modes look
+identical from the config side. Check `Test-Path $PROFILE` (all four variants — `$PROFILE |
+Get-Member -MemberType NoteProperty`) before touching the theme.
+
+**Shape.** WezTerm launches `powershell.exe -NoLogo` (`config.default_prog`, no `-NoProfile`), so
+this file loads. It initialises starship only for an interactive prompt, gated on the command line
+not carrying `-Command`/`-File`/`-EncodedCommand`: `powershell.exe -File foo.ps1` also runs in
+`ConsoleHost`, and would otherwise pay a starship process spawn per invocation to build a prompt
+nobody sees. This repo's own scripts pass `-NoProfile` and never reach it, but not every caller
+does. The gate fails in the harmless direction — a misread session gets a plain prompt.
+
+It also pins `$env:STARSHIP_CONFIG` explicitly rather than relying on starship's default lookup, so
+the prompt uses the file `Apply-Theme` actually writes.
+
+**Verified end to end**, not just by rendering the config: `'prompt' | powershell.exe -NoLogo`
+drives a real profile load with `-Command` absent, so the interactive branch genuinely runs, and
+the output carries the themed SGR sequences. Written with the repo's usual no-BOM convention (byte
+check: `23 20 50`, not `EF BB BF`).
+
+**Glyphs.** The config uses Nerd Font powerline separators and icons; WezTerm's font is
+`CartographCF Nerd Font`, so they render. A non-Nerd font here would show tofu, not a theming bug.
+
+## 7. `starship config` opens an editor — never run it
+
+It launches `$EDITOR` and blocks until the editor closes. Run against a machine with no `EDITOR`
+set, it opened Notepad on the user's desktop and hung the session until the command timed out.
+Use `starship prompt` / `starship explain` (both read-only and both print) or just read
+`~/.config/starship.toml` directly. `EDITOR`, `VISUAL` and `git core.editor` are now all set to
+`"C:\Program Files\Sublime Text\subl.exe" -w` — the `-w` matters, or the calling tool sees an
+instant exit and an unedited file.
+
+## 8. The starship template: glyphs must be `\uXXXX` escapes, and the font is Nerd Fonts **v2**
+
+`matugen/templates/starship.toml` is the Catppuccin Powerline preset with the Catppuccin palette
+swapped for matugen roles. Two things about it are easy to get wrong and both were, once.
+
+**Raw private-use characters do not survive.** The previous version pasted the glyphs in literally,
+and every character in the BMP private-use area (U+E000–U+F8FF) was gone by the time anyone looked:
+the powerline separators had become empty `[]`, and the Windows, git-branch, clock and language
+icons had vanished. Only the 4-byte Material Design glyphs and one U+2588 FULL BLOCK survived —
+which is exactly why the prompt rendered as hard colour blocks with nothing between them. Reported
+as "this looks too blocky"; the blocks were never the problem, the *missing transitions* were.
+
+Every glyph is now a `\uXXXX` escape, which is plain ASCII and cannot be stripped that way. TOML
+makes this workable: **basic** strings (`"..."`, `"""..."""`) support `\uXXXX`, **literal** strings
+(`'...'`) do not. Two consequences:
+
+- Anything carrying a glyph must be a basic string. `[time]`'s `format` was converted for this.
+- Inside a basic string only `\b \t \n \f \r \" \ \uXXXX \UXXXXXXXX` are legal, so `\(` is a parse
+  error. `[python]`'s format needs `\(` and `\)`, so it stays a **literal** string — it carries no
+  glyph of its own, so it loses nothing.
+
+`scripts/../tmp/escape.mjs`-style conversion is mechanical, but it must refuse to run if any
+literal string contains a non-ASCII character, or the escape lands somewhere it will be read as six
+characters.
+
+**The font is a Nerd Fonts v2 build**, and the upstream preset assumes v3. `CartographCF Nerd Font`
+(`~/.wezterm.lua`) puts Material Design Icons at U+F500–U+FD46; v3 puts them at U+F0001–U+F1AF0. So
+the preset's OS symbols (U+F0548 for Ubuntu and friends), its Documents/Music/Developer directory
+substitutions, and its `cmd_duration` icon are all **absent here** and would render as tofu. Those
+were replaced with Font Awesome 4 codepoints (U+F000–U+F2E0), which both v2 and v3 carry.
+
+Check a codepoint against the font's own `cmap` before using it — and then **render it and look**,
+because presence proves nothing about what it draws. `U+F6E2` is the Font Awesome 6 ghost the bar
+uses (`bar/entries/logo.js`) and it *is* in this font's cmap — where it draws the **Dropbox** logo,
+because that codepoint falls inside v2's Material Design block.
+
+**The ghost is U+F79F** (`nf-mdi-ghost`), so the prompt wears the same mark as the bar's top logo.
+It was found by rendering the whole U+F500–U+FD46 range as a contact sheet and reading the
+alphabetical order: it sits between `gender-transgender` (U+F79E) and `gift` (U+F7A0).
+
+**Verifying the prompt.** `starship prompt` emits SGR truecolour sequences; reading them as text
+cannot distinguish a rendered separator from a missing one. `tmp/RenderPrompt.ps1` parses
+`38;2;r;g;b` / `48;2;r;g;b` and paints each run in the terminal's own font, producing an image of
+what the terminal would actually show. Two PowerShell traps it hit, both silent:
+
+- `` `e `` is PowerShell **6+**. On 5.1 the SGR regex matches nothing and the whole prompt arrives
+  as one unstyled run — indistinguishable from starship emitting no colour. Use `[char]27`.
+- PowerShell variable names are **case-insensitive**, so a loop-local `$w` overwrote the image
+  width `$W`. The bitmap came out 18px wide, which also looks like "starship emitted nothing".
+
+## 9. Powerline separators cannot render here, and the cursor is static
+
+Two more untracked-file facts, both from direct user feedback.
+
+**`config.cell_width = 0.9` and powerline glyphs are incompatible.** Powerline separators
+(U+E0B0–U+E0B6) are drawn to fill exactly one cell edge to edge. The tightened advance squeezes
+them into 90% of that, and they clip into a doubled-chevron artifact — reported as "why is there
+weird shapes on the arrows". The only real fix is `cell_width = 1.0`, which re-spaces every
+character in the terminal to repair six glyphs; the tightening is deliberate ("Cartograph's natural
+advance reads as too spread out"). So the starship prompt dropped backgrounds and separators
+entirely and puts its colour in the text instead. **Do not reintroduce powerline separators without
+changing `cell_width` first** — they will look broken, and it will read as a font problem rather
+than a metrics one.
+
+**The cursor is `SteadyBar`, and `cursor_blink_rate = 0`.** "The blinking cursor is distracting."
+Both lines are needed, not just the style: a program can switch the cursor at runtime with a
+DECSCUSR escape (PSReadLine does this in Vi mode, as do many TUIs), which would put the blink back
+under a `Steady*` default. `cursor_blink_rate = 0` disables blinking whatever style is selected.

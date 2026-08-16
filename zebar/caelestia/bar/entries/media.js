@@ -4,7 +4,7 @@ import { toggleDrawer } from '../drawer.js';
 export function mediaLabel(media) {
   const s = media?.currentSession;
   if (!s || !s.title) return '';
-  const base = s.artist ? `${s.title} — ${s.artist}` : s.title;
+  const base = s.artist ? `${s.title} \u2014 ${s.artist}` : s.title;
   return s.isPlaying ? base : `(Paused) ${base}`;
 }
 
@@ -48,15 +48,26 @@ register('media', () => {
   artist.className = 'media-panel__artist';
   const transport = document.createElement('div');
   transport.className = 'media-panel__transport';
+  // Task 3 (Font Awesome icons): these were raw Unicode media-control
+  // symbols (BMP characters, survived typed raw -- see logo.js's own
+  // note). Now Font Awesome Free 6.x Solid icons, rendered through the
+  // locally vendored webfont via the `fa-solid` class: \uF048
+  // (backward-step, "Backward Step"), \uF04B (play, "Play") / \uF04C
+  // (pause, "Pause") -- toggled per playback state in renderPanel() below,
+  // same as the old \u23EF toggle-glyph approach -- and \uF051
+  // (forward-step, "Forward Step").
   const prevBtn = document.createElement('button');
   prevBtn.type = 'button';
-  prevBtn.textContent = '⏮';
+  prevBtn.className = 'fa-solid';
+  prevBtn.textContent = '\uF048';
   const playBtn = document.createElement('button');
   playBtn.type = 'button';
-  playBtn.textContent = '⏯';
+  playBtn.className = 'fa-solid';
+  playBtn.textContent = '\uF04B';
   const nextBtn = document.createElement('button');
   nextBtn.type = 'button';
-  nextBtn.textContent = '⏭';
+  nextBtn.className = 'fa-solid';
+  nextBtn.textContent = '\uF051';
   transport.append(prevBtn, playBtn, nextBtn);
   const time = document.createElement('div');
   time.className = 'media-panel__time';
@@ -92,7 +103,7 @@ register('media', () => {
     }
     title.textContent = s.title || '';
     artist.textContent = s.artist || '';
-    playBtn.textContent = s.isPlaying ? '⏸' : '▶';
+    playBtn.textContent = s.isPlaying ? '\uF04C' : '\uF04B';
     const total = typeof s.endTime === 'number' && typeof s.startTime === 'number'
       ? s.endTime - s.startTime
       : undefined;

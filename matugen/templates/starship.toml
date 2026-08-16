@@ -1,162 +1,207 @@
+# starship prompt.
+#
+# Started as the Catppuccin Powerline preset
+# (https://starship.rs/presets/catppuccin-powerline) with the Catppuccin
+# palette swapped for this wallpaper's matugen roles. The powerline half was
+# then removed, on direct user feedback, and it is worth recording why so it is
+# not "restored" later.
+#
+# **The separators could not render correctly on this terminal.** Powerline
+# glyphs (U+E0B0 and friends) are drawn to fill exactly one cell, edge to edge.
+# `~/.wezterm.lua` sets `config.cell_width = 0.9` -- a deliberate tightening,
+# because "Cartograph's natural advance reads as too spread out" -- so every
+# separator is squeezed into 90% of the width it was designed for and clips
+# into a doubled-chevron artifact. Reported as "why is there weird shapes on
+# the arrows". The only real fix is cell_width = 1.0, which would re-space
+# every character in the terminal to repair six glyphs. Not worth it.
+#
+# So: **no backgrounds and no separators.** Colour lives in the TEXT. That also
+# settles the original complaint that started this ("this looks too blocky"),
+# and it removes the preset's habit of drawing empty coloured slivers for
+# language modules that have nothing to report.
+#
+# EVERY GLYPH IS A \uXXXX ESCAPE, DELIBERATELY. An earlier version pasted them
+# in raw and every character in the BMP private-use area (U+E000-U+F8FF) was
+# silently stripped -- the separators became empty `[]` and the icons vanished
+# entirely. An escape is plain ASCII and cannot be lost that way. TOML detail
+# that forces: BASIC strings ("...") support \uXXXX, LITERAL strings ('...') do
+# not, and inside a basic string `\(` is a parse error -- so [python]'s format
+# stays literal (it needs \( and \), and carries no glyph of its own).
+#
+# Codepoints are chosen for the font this terminal actually uses,
+# `CartographCF Nerd Font`, which is a **Nerd Fonts v2** build. v2 puts
+# Material Design Icons at U+F500-U+FD46 where v3 puts them at
+# U+F0001-U+F1AF0, so the upstream preset's icons are absent here. Every
+# codepoint below was checked against the font's own cmap, and the ones that
+# matter were rendered and looked at -- presence in a cmap says nothing about
+# what a glyph draws.
+
 format = """
-[]({{colors.error.default.hex}})\
 $os\
 $username\
-[█](bg:{{colors.primary.default.hex}} fg:{{colors.error.default.hex}})\
 $directory\
-[](bg:{{colors.tertiary.default.hex}} fg:{{colors.primary.default.hex}})\
 $git_branch\
 $git_status\
-[](fg:{{colors.tertiary.default.hex}} bg:{{colors.secondary.default.hex}})\
 $c\
 $rust\
 $golang\
 $nodejs\
+$bun\
 $php\
 $java\
 $kotlin\
 $haskell\
 $python\
-[](fg:{{colors.secondary.default.hex}} bg:{{colors.primary_fixed.default.hex}})\
 $conda\
-[](fg:{{colors.primary_fixed.default.hex}} bg:{{colors.tertiary_fixed.default.hex}})\
 $time\
-[ ](fg:{{colors.tertiary_fixed.default.hex}})\
 $cmd_duration\
 $line_break\
 $character"""
 
 [os]
 disabled = false
-style = "bg:{{colors.error.default.hex}} fg:{{colors.on_error.default.hex}}"
+style = "fg:{{colors.error.default.hex}}"
+format = "[$symbol]($style)"
 
 [os.symbols]
-Windows = ""
-Ubuntu = "󰕈"
-SUSE = ""
-Raspbian = "󰐿"
-Mint = "󰣭"
-Macos = "󰀵"
-Manjaro = ""
-Linux = "󰌽"
-Gentoo = "󰣨"
-Fedora = "󰣛"
-Alpine = ""
-Amazon = ""
-Android = ""
-Arch = "󰣇"
-Artix = "󰣇"
-CentOS = ""
-Debian = "󰣚"
-Redhat = "󱄛"
-RedHatEnterprise = "󱄛"
+# A GHOST, matching the left bar's own top logo, so the prompt and the bar
+# carry the same signature.
+#
+# NOT the bar's codepoint. The bar uses Font Awesome Free 6 Solid's U+F6E2
+# (bar/entries/logo.js); that codepoint IS in this font's cmap, where it draws
+# the DROPBOX logo, because it falls inside Nerd Fonts v2's Material Design
+# block. The real ghost is U+F79F (nf-mdi-ghost), found by rendering the whole
+# U+F500-U+FD46 range as a contact sheet and reading the alphabetical order --
+# it sits between gender-transgender (U+F79E) and gift (U+F7A0).
+#
+# Only Windows is defined. The preset's other OS symbols use Nerd Fonts v3
+# codepoints that are absent from this font, so carrying them would be a list
+# of guaranteed tofu for machines this config will never run on.
+Windows = "\uF79F"
 
 [username]
 show_always = true
-style_user = "bg:{{colors.error.default.hex}} fg:{{colors.on_error.default.hex}}"
-style_root = "bg:{{colors.error.default.hex}} fg:{{colors.on_error.default.hex}}"
-format = '[ $user]($style)'
+style_user = "fg:{{colors.error.default.hex}}"
+style_root = "fg:{{colors.error.default.hex}}"
+format = '[ $user ]($style)'
 
 [directory]
-style = "bg:{{colors.primary.default.hex}} fg:{{colors.on_primary.default.hex}}"
+# The FULL path, on direct user feedback ("print the full path").
+#
+# `truncation_length = 0` disables the 3-component truncation, and
+# `truncate_to_repo = false` stops starship shortening the path to the git
+# repository root -- which is the setting that actually matters here, since
+# this prompt is usually inside one. `home_symbol` keeps ~ rather than spelling
+# out C:\Users\PC, which is shorter without hiding anything.
+style = "fg:{{colors.primary.default.hex}}"
 format = "[ $path ]($style)"
-truncation_length = 3
-truncation_symbol = "…/"
+truncation_length = 0
+truncate_to_repo = false
+home_symbol = "~"
 
-[directory.substitutions]
-"Documents" = " "
-"Downloads" = " "
-"Music" = "󰝚 "
-"Pictures" = " "
-"Developer" = "󰲋 "
+# NO [directory.substitutions] -- direct user feedback, "no icons on the path".
+# The folder icons replaced the words Documents / Downloads / Music / Pictures,
+# which made a full path read as a row of pictograms.
 
 [git_branch]
-symbol = ""
-style = "bg:{{colors.tertiary.default.hex}}"
-format = '[[ $symbol $branch ](fg:{{colors.on_tertiary.default.hex}} bg:{{colors.tertiary.default.hex}})]($style)'
+symbol = "\uF418"
+style = "fg:{{colors.tertiary.default.hex}}"
+format = '[$symbol $branch ]($style)'
 
 [git_status]
-style = "bg:{{colors.tertiary.default.hex}}"
-format = '[[($all_status$ahead_behind )](fg:{{colors.on_tertiary.default.hex}} bg:{{colors.tertiary.default.hex}})]($style)'
+style = "fg:{{colors.tertiary.default.hex}}"
+format = '[($all_status$ahead_behind )]($style)'
 
 [nodejs]
-symbol = ""
-style = "bg:{{colors.secondary.default.hex}}"
-format = '[[ $symbol( $version) ](fg:{{colors.on_secondary.default.hex}} bg:{{colors.secondary.default.hex}})]($style)'
+symbol = "\uE718"
+style = "fg:{{colors.secondary.default.hex}}"
+format = '[$symbol( $version) ]($style)'
+
+[bun]
+symbol = "\uE76F"
+style = "fg:{{colors.secondary.default.hex}}"
+format = '[$symbol( $version) ]($style)'
 
 [c]
-symbol = " "
-style = "bg:{{colors.secondary.default.hex}}"
-format = '[[ $symbol( $version) ](fg:{{colors.on_secondary.default.hex}} bg:{{colors.secondary.default.hex}})]($style)'
+symbol = "\uE61E"
+style = "fg:{{colors.secondary.default.hex}}"
+format = '[$symbol( $version) ]($style)'
 
 [rust]
-symbol = ""
-style = "bg:{{colors.secondary.default.hex}}"
-format = '[[ $symbol( $version) ](fg:{{colors.on_secondary.default.hex}} bg:{{colors.secondary.default.hex}})]($style)'
+symbol = "\uE7A8"
+style = "fg:{{colors.secondary.default.hex}}"
+format = '[$symbol( $version) ]($style)'
 
 [golang]
-symbol = ""
-style = "bg:{{colors.secondary.default.hex}}"
-format = '[[ $symbol( $version) ](fg:{{colors.on_secondary.default.hex}} bg:{{colors.secondary.default.hex}})]($style)'
+symbol = "\uE627"
+style = "fg:{{colors.secondary.default.hex}}"
+format = '[$symbol( $version) ]($style)'
 
 [php]
-symbol = ""
-style = "bg:{{colors.secondary.default.hex}}"
-format = '[[ $symbol( $version) ](fg:{{colors.on_secondary.default.hex}} bg:{{colors.secondary.default.hex}})]($style)'
+symbol = "\uE608"
+style = "fg:{{colors.secondary.default.hex}}"
+format = '[$symbol( $version) ]($style)'
 
 [java]
-symbol = " "
-style = "bg:{{colors.secondary.default.hex}}"
-format = '[[ $symbol( $version) ](fg:{{colors.on_secondary.default.hex}} bg:{{colors.secondary.default.hex}})]($style)'
+symbol = "\uE256"
+style = "fg:{{colors.secondary.default.hex}}"
+format = '[$symbol( $version) ]($style)'
 
 [kotlin]
-symbol = ""
-style = "bg:{{colors.secondary.default.hex}}"
-format = '[[ $symbol( $version) ](fg:{{colors.on_secondary.default.hex}} bg:{{colors.secondary.default.hex}})]($style)'
+# The preset's U+E634 is absent from this font (checked against its cmap), so
+# the generic Font Awesome "code" glyph stands in rather than a tofu box.
+symbol = "\uF121"
+style = "fg:{{colors.secondary.default.hex}}"
+format = '[$symbol( $version) ]($style)'
 
 [haskell]
-symbol = ""
-style = "bg:{{colors.secondary.default.hex}}"
-format = '[[ $symbol( $version) ](fg:{{colors.on_secondary.default.hex}} bg:{{colors.secondary.default.hex}})]($style)'
+symbol = "\uE61F"
+style = "fg:{{colors.secondary.default.hex}}"
+format = '[$symbol( $version) ]($style)'
 
 [python]
-symbol = ""
-style = "bg:{{colors.secondary.default.hex}}"
-format = '[[ $symbol( $version)(\(#$virtualenv\)) ](fg:{{colors.on_secondary.default.hex}} bg:{{colors.secondary.default.hex}})]($style)'
+# LITERAL string on purpose: it needs `\(` and `\)`, which a basic string would
+# reject as invalid escapes. It carries no glyph of its own, so it loses
+# nothing by staying literal.
+symbol = "\uE606"
+style = "fg:{{colors.secondary.default.hex}}"
+format = '[$symbol( $version)(\(#$virtualenv\)) ]($style)'
 
 [docker_context]
-symbol = ""
-style = "bg:{{colors.primary_fixed.default.hex}}"
-format = '[[ $symbol( $context) ](fg:{{colors.on_primary_fixed.default.hex}} bg:{{colors.primary_fixed.default.hex}})]($style)'
+symbol = "\uF308"
+style = "fg:{{colors.primary_fixed.default.hex}}"
+format = '[$symbol( $context) ]($style)'
 
 [conda]
-symbol = "  "
-style = "fg:{{colors.on_primary_fixed.default.hex}} bg:{{colors.primary_fixed.default.hex}}"
-format = '[$symbol$environment ]($style)'
+symbol = "\uF10C"
+style = "fg:{{colors.primary_fixed.default.hex}}"
+format = '[$symbol $environment ]($style)'
 ignore_base = false
 
 [time]
+# No clock glyph -- direct user feedback, "we can remove the time icon as
+# well". A bare HH:MM in a dimmer colour reads as a timestamp on its own.
 disabled = false
 time_format = "%R"
-style = "bg:{{colors.tertiary_fixed.default.hex}}"
-format = '[[  $time ](fg:{{colors.on_tertiary_fixed.default.hex}} bg:{{colors.tertiary_fixed.default.hex}})]($style)'
+style = "fg:{{colors.tertiary_fixed.default.hex}}"
+format = '[$time ]($style)'
 
 [line_break]
 disabled = true
 
 [character]
 disabled = false
-success_symbol = '[❯](bold fg:{{colors.secondary.default.hex}})'
-error_symbol = '[❯](bold fg:{{colors.error.default.hex}})'
-vimcmd_symbol = '[❮](bold fg:{{colors.secondary.default.hex}})'
-vimcmd_replace_one_symbol = '[❮](bold fg:{{colors.tertiary_fixed.default.hex}})'
-vimcmd_replace_symbol = '[❮](bold fg:{{colors.tertiary_fixed.default.hex}})'
-vimcmd_visual_symbol = '[❮](bold fg:{{colors.tertiary.default.hex}})'
+success_symbol = "[\u276F](bold fg:{{colors.secondary.default.hex}})"
+error_symbol = "[\u276F](bold fg:{{colors.error.default.hex}})"
+vimcmd_symbol = "[\u276E](bold fg:{{colors.secondary.default.hex}})"
+vimcmd_replace_one_symbol = "[\u276E](bold fg:{{colors.tertiary_fixed.default.hex}})"
+vimcmd_replace_symbol = "[\u276E](bold fg:{{colors.tertiary_fixed.default.hex}})"
+vimcmd_visual_symbol = "[\u276E](bold fg:{{colors.tertiary.default.hex}})"
 
 [cmd_duration]
 show_milliseconds = true
-format = " in $duration "
-style = "bg:{{colors.tertiary_fixed.default.hex}}"
+format = "took $duration "
+style = "fg:{{colors.tertiary_fixed.default.hex}}"
 disabled = false
 show_notifications = true
 min_time_to_notify = 45000

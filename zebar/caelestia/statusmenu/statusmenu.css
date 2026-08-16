@@ -1,0 +1,126 @@
+/* Structural stylesheet for the status dropdown. Like style.css /
+   corners.css / edges.css / layoutmenu.css, this file must contain ZERO
+   colour literals -- every colour comes from ../bar/theme.css through a
+   var(--...) token. Enforced by tests/Get-ColorLiterals.Tests.ps1. */
+
+:root {
+  --space-sm: 6px;
+  --space-md: 10px;
+  --space-lg: 16px;
+  --radius-lg: 18px;
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --dur: 300ms;   /* keep in step with menu.js's FADE_MS */
+  --icon-size: 18px;
+  --icon-box: 22px;
+  --slide: 10px;  /* keep in step with flyout-placement.js's SLIDE_PX */
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+}
+
+/* Measured inside a 1x1 window to size that window to it (menu.js), so its
+   layout size must depend only on its content: `position: absolute`,
+   `width: max-content`, and non-wrapping rows. See layoutmenu.css's fuller
+   note on why a percentage width or flex-wrap here would silently produce a
+   window sized to a 1px-wide layout. */
+.status-menu {
+  position: absolute;
+  top: 0;
+  left: var(--slide);
+  width: max-content;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  padding: var(--space-sm);
+  background: var(--surface-container);
+  border-radius: var(--radius-lg);
+  color: var(--on-surface);
+  font-family: "0xProto Nerd Font", monospace;
+  font-size: 16px;
+
+  opacity: 0;
+  transform: translateX(calc(-1 * var(--slide)));
+  transition: opacity var(--dur) var(--ease), transform var(--dur) var(--ease);
+}
+
+body.open .status-menu {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+/* icon | label+detail | value, with the value pushed to the right edge so
+   the numbers form a column instead of ragging after labels of different
+   lengths. Concentric with the panel: --radius-lg minus the panel's own
+   --space-sm padding, the same rule the layout menu's rows follow after the
+   radius mismatch that was reported there. */
+.status-menu__item {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: calc(var(--radius-lg) - var(--space-sm));
+  color: var(--on-surface-variant);
+  white-space: nowrap;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+
+.status-menu__item:hover {
+  background: var(--surface-container-high);
+  color: var(--on-surface);
+}
+
+/* Fixed-width centring box so every label starts at the same x regardless of
+   each glyph's own advance width -- a ragged icon column is exactly what a
+   vertical list makes obvious. Only font-SIZE is set: `.fa-solid` supplies
+   family/weight/style, and a `font:` shorthand here would silently reset
+   them (see .bar-btn's hard-won comment in style.css). */
+.status-menu__glyph {
+  flex: 0 0 var(--icon-box);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--icon-size);
+  line-height: 1;
+}
+
+.status-menu__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.status-menu__label {
+  font-size: 14px;
+  line-height: 1;
+}
+
+/* The secondary line (device name, mount point, thread count). Collapsed
+   entirely when empty rather than left as an empty box, so rows without a
+   detail keep the same visual rhythm as rows with one. */
+.status-menu__detail {
+  font-size: 11px;
+  line-height: 1;
+  color: var(--outline);
+}
+
+.status-menu__detail--empty {
+  display: none;
+}
+
+/* margin-left: auto is what right-aligns the value column; the panel is
+   max-content wide, so this makes the panel exactly as wide as its widest
+   label+value pair and keeps every value flush to that edge. */
+.status-menu__value {
+  margin-left: auto;
+  padding-left: var(--space-lg);
+  font-size: 14px;
+  line-height: 1;
+  color: var(--on-surface);
+}
