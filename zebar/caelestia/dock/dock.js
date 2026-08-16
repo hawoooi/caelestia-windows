@@ -36,6 +36,9 @@ import {
 } from '../dock-items.js';
 import { appName, fetchIcon } from '../bar/entries/activeWindow.js';
 import { startFullscreenWatch } from '../fullscreen.js';
+import {
+  DOCK_PREVIEW_CMD_KEY, DOCK_PREVIEW_ACK_KEY, createChannel,
+} from '../widget-channel.js';
 
 // How much of the dock's footprint lies in territory that was ALREADY dead:
 // the frame's 8px bottom band plus the 8px wallpaper gap above it. Only
@@ -87,6 +90,26 @@ export const CLOSE_DELAY_MS = 120;
 // has actually played. Shortened from 260ms with the timings above -- a dock
 // is a flick target, not a transition to admire.
 export const SLIDE_MS = 140;
+
+// --- the hover preview card ------------------------------------------------
+//
+// The card itself lives in the `dockpreview` widget -- see its module comment
+// for why it has to be a separate window, which is NOT the usual "the bar is
+// too narrow" reason. Everything the dock owns is here: when to ask for a
+// card, and when to take it away. The dock's own window never changes shape.
+
+// A dwell before asking for a card. Each capture is a ~100ms process spawn, so
+// sliding along a row of icons must not fire one per icon passed over. Longer
+// than the dock's own 120ms close grace on purpose: opening the dock and
+// flicking straight to the app you wanted should not leave a trail of
+// screenshots behind it.
+export const PREVIEW_DELAY_MS = 320;
+
+// Grace after leaving an icon before the card goes. Crossing the 4px gap
+// between two icons must not make it flicker -- the next icon's mouseenter
+// cancels this, so in practice it only fires when the pointer has genuinely
+// left the row.
+export const PREVIEW_CLOSE_MS = 140;
 
 // The left bar's width. The dock starts just right of it so the two read as
 // one L-shaped surface meeting at the bottom-left corner, rather than the dock
@@ -166,9 +189,18 @@ function startWindowPoll() {
   windowTimer = setInterval(refreshWindows, WINDOW_POLL_MS);
 }
 
-let rendered = new Map();     // exe key -> { root, img, badge, hwnd }
+let rendered = new Map();     // exe key -> { root, img, badge, hwnd, winTitle }
 let lastSignature = null;
 let latestItems = [];
+
+// Drives the preview card. Assigned by init(), so it is null for the brief
+// window in which items can already be rendered but the channel does not yet
+// exist -- hovering then simply shows no card rather than throwing out of an
+// event handler. Deliberately a module-scope binding rather than a property
+// hung on `window`: the previous attempt at this bridged the same scope gap
+// with globals, which works but makes the dock's wiring reachable (and
+// breakable) from any other script on the page.
+let preview = null;
 
 // Both sources feed one render. Called from the komorebi provider tick AND
 // from the window-list poll, so whichever updates first is reflected.
@@ -180,6 +212,7 @@ function render() {
 function renderItems(items) {
   const signature = dockSignature(items);
   if (signature === lastSignature) return false;
+  debugLog(`render ${signature}`);
   lastSignature = signature;
 
   const live = new Set(items.map((i) => i.key));
@@ -194,6 +227,10 @@ function renderItems(items) {
       root.type = 'button';
       root.className = 'dock__item';
       root.dataset.exe = item.exe;
+      // The identity the preview driver works in. Read back off the DOM by the
+      // `:hover` re-check and the mousemove repair path, both of which start
+      // from an element rather than from a closure.
+      root.dataset.key = item.key;
 
       const img = document.createElement('img');
       img.className = 'dock__icon';
@@ -204,8 +241,13 @@ function renderItems(items) {
 
       root.append(img, badge);
       root.addEventListener('click', () => focus(rendered.get(item.key)?.hwnd ?? item.hwnd));
+      // Hover drives the preview card. These fire on the ITEM, not the window,
+      // so crossing the gap between two icons is a leave followed immediately
+      // by an enter -- which the driver's close grace absorbs.
+      root.addEventListener('mouseenter', () => { if (preview) preview.enter(item.key); });
+      root.addEventListener('mouseleave', () => { if (preview) preview.leave(); });
       dock.append(root);
-      refs = { root, img, badge, hwnd: item.hwnd };
+      refs = { root, img, badge, hwnd: item.hwnd, winTitle: '' };
       rendered.set(item.key, refs);
 
       // One app-icon.exe at a time, cached per exe -- see loadIcon above.
@@ -217,7 +259,17 @@ function renderItems(items) {
 
     refs.hwnd = item.hwnd;
     const label = appName(item.exe);
-    refs.root.title = item.count > 1 ? `${label} (${item.count} windows)` : label;
+    // The REAL window title, for the preview card's header. Distinct from the
+    // tooltip below, which is the app name and a window count -- the card is
+    // showing one specific window, so it names that window.
+    refs.winTitle = (Array.isArray(item.titles) && item.titles[0]) || '';
+    refs.label = label;
+    // No `title` attribute, deliberately. It used to carry the app name and a
+    // window count as a native tooltip; the preview card now says the same
+    // thing better, and Windows drew both at once -- the card above the icon
+    // and a small grey tooltip below it, naming the same app twice.
+    refs.root.setAttribute('aria-label',
+      item.count > 1 ? `${label} (${item.count} windows)` : label);
     refs.root.classList.toggle('dock__item--focused', item.focused);
     refs.root.classList.toggle('dock__item--minimized', item.minimized);
     refs.badge.textContent = item.count > 1 ? String(item.count) : '';
@@ -320,6 +372,129 @@ async function init() {
   // swallowed. No polling, no coordinate guards, no settle windows.
   let closeTimer = null;
 
+  // --- driving the preview card --------------------------------------------
+  //
+  // One-way: the dock posts, the card listens. The card never runs anything
+  // itself beyond the capture, and never decides when to appear -- which is
+  // what lets it skip a fullscreen poll of its own, since the gate below is
+  // the same one that already governs whether the dock opens at all.
+  const previewChannel = createChannel(localStorage, window, {
+    sendKey: DOCK_PREVIEW_CMD_KEY,
+    receiveKey: DOCK_PREVIEW_ACK_KEY,
+  });
+
+  preview = (() => {
+    let dwellTimer = null;
+    let dwellKey = null;           // which icon the pending dwell is counting for
+    let closeCardTimer = null;
+    let shown = null;              // the key whose card is up, or null
+
+    const cancelDwell = () => {
+      if (dwellTimer !== null) { clearTimeout(dwellTimer); dwellTimer = null; }
+    };
+    const cancelClose = () => {
+      if (closeCardTimer !== null) { clearTimeout(closeCardTimer); closeCardTimer = null; }
+    };
+
+    function post(key) {
+      const refs = rendered.get(key);
+      if (!refs || !isSafeHandle(refs.hwnd)) return;
+      const rect = refs.root.getBoundingClientRect();
+      previewChannel.post({
+        open: true,
+        hwnd: refs.hwnd,
+        title: refs.winTitle || refs.label || '',
+        app: refs.label || '',
+        // The icon travels WITH the message rather than being re-extracted on
+        // the other side. The dock already has it in memory, and the standing
+        // rule in this pack is that a process spawn has to justify itself --
+        // a few KB through localStorage, overwriting one key, does not need
+        // app-icon.exe run a second time in a second widget.
+        icon: refs.img.src || '',
+        // Screen coordinates, physical pixels. The window's own x is fixed at
+        // the bar's right edge (placeWindow), so the item's position inside it
+        // is the only variable part.
+        anchorX: Math.round(monitor.x + px(BAR_W) + (rect.x + rect.width / 2) * scale),
+        dockTop: monitor.y + monitor.height - px(DOCK_H),
+        // The card clamps to the DOCK's left edge rather than the screen's, so
+        // hovering the first icon does not slide it over the top of the bar.
+        dockLeft: monitor.x + px(BAR_W),
+      });
+      shown = key;
+      debugLog(`preview open ${key}`);
+    }
+
+    return {
+      // Safe to call repeatedly for the same icon -- `mousemove` below does
+      // exactly that. An already-running dwell for the same key is left alone
+      // rather than restarted, so a jittering hand cannot hold the countdown
+      // at zero forever.
+      enter(key) {
+        cancelClose();
+        // Same gate as slideIn, and for the same reason: a card is a hover
+        // activation, so it must be genuinely inert in fullscreen rather than
+        // merely invisible.
+        if (fullscreen || document.body.classList.contains('fullscreen-hidden')) return;
+        if (!open) return;
+        if (shown === key) return;                       // already showing this one
+        if (dwellKey === key && dwellTimer !== null) return;   // already counting down
+        cancelDwell();
+        debugLog(`preview arm ${key}`);
+        dwellKey = key;
+        dwellTimer = setTimeout(() => { dwellTimer = null; post(key); }, PREVIEW_DELAY_MS);
+      },
+
+      // Leaving an icon does NOT cancel the pending dwell, and that is the
+      // whole point of this shape.
+      //
+      // Measured on this machine: with the pointer provably stationary on an
+      // icon (GetCursorPos checked), the item fired `mouseenter` and then
+      // `mouseleave` 12ms later, and no further `mouseenter` ever arrived --
+      // because none can, while the cursor does not move. Cancelling the dwell
+      // there stranded the card permanently. This pack has hit fabricated
+      // `mouseleave` before (see the dashboard's own close path), and the
+      // lesson is the same: a leave is a HINT, and the decision it feeds has to
+      // verify before acting.
+      //
+      // So the close is scheduled instead, and re-checks `:hover` when it
+      // fires. Still on an icon -> the leave was noise, re-arm. Genuinely gone
+      // -> dismiss, which is also what cancels the dwell.
+      leave() {
+        debugLog(`preview leave shown=${shown} dwell=${dwellKey}`);
+        cancelClose();
+        closeCardTimer = setTimeout(() => {
+          closeCardTimer = null;
+          const still = dock.querySelector('.dock__item:hover');
+          if (still && still.dataset.key) {
+            debugLog('preview leave was spurious');
+            this.enter(still.dataset.key);
+            return;
+          }
+          this.dismiss();
+        }, PREVIEW_CLOSE_MS);
+      },
+
+      dismiss() {
+        cancelDwell();
+        cancelClose();
+        if (shown === null) return;
+        debugLog(`preview dismiss ${shown}`);
+        shown = null;
+        previewChannel.post({ open: false });
+      },
+    };
+  })();
+
+  // The repair path for a hover state that events alone got wrong. `mouseenter`
+  // fires once, on the crossing; if that crossing is missed or immediately
+  // undone, nothing else will ever announce which icon the pointer is on.
+  // `mousemove` announces it continuously, for free, with no poll and no new
+  // process -- so the first real movement after a bad crossing puts it right.
+  dock.addEventListener('mousemove', (e) => {
+    const el = e.target && e.target.closest ? e.target.closest('.dock__item') : null;
+    if (el && el.dataset.key) preview.enter(el.dataset.key);
+  });
+
   function slideIn() {
     // Direct user feedback: "the bottom custom taskbar hover shouldn't
     // activate when i am in fullscreen. this goes with any other
@@ -358,6 +533,9 @@ async function init() {
       debugLog('close');
       document.body.classList.remove('open');
       stopWindowPoll();
+      // A card cannot outlive the dock it belongs to -- it is anchored to an
+      // icon that is no longer on screen.
+      preview.dismiss();
     }, CLOSE_DELAY_MS);
   }
 
@@ -368,8 +546,10 @@ async function init() {
   document.body.addEventListener('mouseleave', slideOut);
 
   // A click on an item focuses another window, which moves the cursor's
-  // effective target away; collapse rather than sitting there open.
-  dock.addEventListener('click', slideOut);
+  // effective target away; collapse rather than sitting there open. The card
+  // goes immediately rather than waiting out the dock's own close grace --
+  // the click already answered the question the preview was asking.
+  dock.addEventListener('click', () => { preview.dismiss(); slideOut(); });
 
   providers.onOutput(() => {
     render();
@@ -394,6 +574,10 @@ async function init() {
       document.body.classList.remove('open');
       stopWindowPoll();
     }
+    // Unconditional, not inside the `open` branch above: a card can be up
+    // while the dock is mid-close, and something going fullscreen must take
+    // it away either way.
+    if (isFullscreen) preview.dismiss();
   });
 }
 

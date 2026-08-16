@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="../bar/theme.css" />
+    <link rel="stylesheet" href="./preview.css" />
+    <title>Caelestia dock preview</title>
+  </head>
+  <body>
+    <!-- The card is the window's only content and is sized in CSS, not by its
+         content: the window is resized to match it, so a card that measured
+         differently per item would make the window jump between icons. -->
+    <div id="card" class="preview">
+      <div class="preview__head">
+        <img id="icon" class="preview__icon" alt="" />
+        <span id="title" class="preview__title"></span>
+      </div>
+      <div class="preview__shot">
+        <img id="shot" class="preview__img" alt="" />
+        <span id="empty" class="preview__empty">No preview available</span>
+      </div>
+    </div>
+    <script type="module" src="./preview.js"></script>
+  </body>
+</html>

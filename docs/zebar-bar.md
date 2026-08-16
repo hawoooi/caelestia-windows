@@ -2644,3 +2644,121 @@ as "WebView2 is broken" if you do not check:
 
 Neither was caught by any test, because both are load-time wiring rather than logic. Checking that
 `#bar` actually has children after a restart is the cheap probe that would have caught both.
+
+## Dock hover previews (`dockpreview` widget)
+
+Hovering a dock icon shows a card above the dock with that window's title, its icon, and a live
+thumbnail of its contents — the thing the real Windows taskbar does. Direct user request ("is this
+hovering feature doable" / "can we try to build this"), followed by "can we make the window size
+dynamic".
+
+### The first attempt failed, and why
+
+The obvious implementation is to grow the dock's own window and draw the card inside it. That was
+built, and reverted. Growing the dock's window is the one thing `dock.js`'s own `placeWindow`
+comment says it must never do: three separate rounds of hover bugs all traced to the same cause,
+that **any** geometry change invalidates WebView2's hover state under a stationary cursor. The card
+grew, the dock lost hover, and it collapsed the card it had just opened. Progress markers showed
+`showPreview` running to completion — resize included — with the window still ending at 56px and no
+exception thrown, so the failure was silent from the inside.
+
+Two process mistakes are worth recording alongside it. The integration was written before its
+riskiest assumption was tested, in a file whose comments already said that assumption was false;
+and part of the debugging ran against a zebar in the port-6124 orphan state, producing a "the
+resize hangs" reading that was impaired IPC rather than code.
+
+### The measurement that came before this version
+
+The passive-card design assumes something different and weaker: that a **separate** `top_most`
+window resizing into place above the dock is harmless. That was measured before any of this was
+written.
+
+The first two attempts at measuring it reported failures, and both were the harness:
+
+1. The initial run "passed" only because the dock happened to be empty (komorebi and whkd were both
+   dead, so `dockItems` produced nothing); the second run failed, and a control arm showed the
+   control failing too — 3/5 — which meant the card could not be the cause.
+2. Instrumenting `GetCursorPos` alongside each hover sample showed why: **the real user was moving
+   the mouse.** Samples taken while the cursor had wandered off the dock were being recorded as
+   "the dock lost hover".
+
+With trials that verify cursor integrity and discard contaminated ones, the answer was clean:
+**5/5 control and 5/5 treatment, zero hover loss.** That is what this design rests on.
+
+### A second harness trap, worth knowing before touching this again
+
+`SetCursorPos` teleports. WebView2's hit testing does not reliably produce `mouseenter` from a
+teleport — measured directly, alternating both styles against the same target:
+
+| cursor movement | preview opened |
+|---|---|
+| glide (24 steps, 8ms apart) | 4/5 clean trials |
+| jump (single `SetCursorPos`) | **0/5** clean trials |
+
+Every intermittent "the preview does not open" reading in this pass came from jumping. **Any future
+hover test here must glide**, and must discard trials where `GetCursorPos` has drifted — otherwise
+it is measuring the harness.
+
+### Shape
+
+- **`dockpreview`** is its own widget (`zebar/caelestia/dockpreview/`), `top_most`,
+  `dockToEdge` disabled, parked at 1x1 while closed — the same reasoning as `layoutmenu` and
+  `statusmenu`: a transparent Zebar window swallows clicks across its whole footprint.
+- It is entirely **passive**. It is never hovered and never decides anything: the dock posts
+  `{ open, hwnd, title, app, icon, anchorX, dockTop, dockLeft }` over
+  `widget-channel.js`'s `DOCK_PREVIEW_CMD_KEY`, and the card renders it.
+- **No fullscreen poll of its own**, deliberately. The pack already spawns `fullscreen-detect.exe`
+  ~10x/second across nine widgets. The card only appears when the dock asks, and the dock already
+  refuses to open in fullscreen — one gate, in the widget that owns the gesture.
+- The icon travels **with the message** rather than being re-extracted. A few KB overwriting one
+  `localStorage` key beats running `app-icon.exe` a second time in a second widget.
+- `tools/window-preview.exe` does the capture (`PrintWindow` + `PW_RENDERFULLCONTENT`), and treats
+  an all-flat result as a failure — some Windows 11 windows render solid black through that path,
+  and a black rectangle labelled "preview" is worse than no preview.
+
+### Dynamic sizing
+
+The first version used a fixed 16:9 box with the image `contain`ed inside. On a tiling desktop that
+is wrong most of the time: half the windows are tall splits, which rendered as a thin strip
+floating in a wide letterbox. `previewBox` (in `flyout-placement.js`) now fits the card to the
+captured window's own aspect ratio, bounded at 360x260 and 200x110 so a very wide window cannot
+collapse to a sliver and a very tall one cannot outgrow the space above the dock.
+
+The card **remembers each window's pixel dimensions separately from its thumbnail**, because the
+thumbnail cache expires (contents change) while the dimensions rarely do — so a re-hover after the
+image has gone stale still opens at the right shape instead of snapping from 16:9.
+
+`PREVIEW_WIDTH` in `window-preview.js` and `PREVIEW_MAX_W` in `flyout-placement.js` are a matched
+pair. Raising the card's max width without raising the capture width just makes wide thumbnails
+blurry, which reads as a capture bug rather than a sizing one.
+
+### `mouseleave` still cannot be taken at face value
+
+Measured here, with `GetCursorPos` confirming the pointer was stationary on an icon: the item fired
+`mouseenter` and then `mouseleave` **12ms later**, and no further `mouseenter` ever arrived —
+because none can, while the cursor does not move. Cancelling the dwell on that leave stranded the
+card permanently.
+
+So `leave()` does **not** cancel the dwell. It schedules a close that re-checks
+`.dock__item:hover` when it fires: still on an icon means the leave was noise and it re-arms;
+genuinely gone means dismiss, which is what cancels the dwell. A `mousemove` listener on `.dock`
+is the second repair path — `mouseenter` fires once on a crossing, `mousemove` reports the current
+icon continuously, for free, so the first real movement after a bad crossing puts it right.
+`enter()` is idempotent for this reason: an already-running dwell for the same icon is left alone
+rather than restarted, so a jittering hand cannot hold the countdown at zero.
+
+### Two smaller fixes from looking at it
+
+- The card clamps to the **dock's** left edge, not the screen's (`leftLimit`). Clamped to the
+  screen it painted over the left bar, which read as one surface sliding under another.
+- The dock's items no longer carry a native `title` tooltip. Windows drew both at once — the card
+  above the icon and a grey tooltip below it, naming the same app twice. The label moved to
+  `aria-label`.
+
+### Verification
+
+`node --test` 298 passing (+18 for `previewPlacement`/`previewBox`, on top of the 12 for
+`window-preview.js`); Pester 186 passing, including the zero-colour-literal check on
+`dockpreview/preview.css`. Live: cards opened for 3/3 dock icons with real thumbnails and correct
+titles, sized to each window's aspect ratio, and the window parked back to 1x1 after leaving the
+dock. Screenshotted rather than only read from state.

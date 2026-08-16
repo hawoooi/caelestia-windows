@@ -400,6 +400,48 @@
                                     ]
                     },
                     {
+                        "name":  "dockpreview",
+                        "htmlPath":  "./dockpreview/index.html",
+                        "zOrder":  "top_most",
+                        "shownInTaskbar":  false,
+                        "focused":  false,
+                        "resizable":  true,
+                        "transparent":  true,
+                        "includeFiles":  [
+                                             "*"
+                                         ],
+                        "caching":  {
+                                        "defaultDuration":  0,
+                                        "rules":  [
+
+                                                  ]
+                                    },
+                        "privileges":  {
+                                           "shellCommands":  [
+                                                                 {
+                                                                     "program":  "C:\\Users\\PC\\Documents\\git\\setup\\zebar\\caelestia\\tools\\window-preview.exe",
+                                                                     "argsRegex":  "^\\d{1,19} \\d{1,4}$"
+                                                                 }
+                                                             ]
+                                       },
+                        "presets":  [
+                                        {
+                                            "name":  "default",
+                                            "anchor":  "top_left",
+                                            "offsetX":  "0px",
+                                            "offsetY":  "0px",
+                                            "width":  "1px",
+                                            "height":  "1px",
+                                            "monitorSelection":  {
+                                                                     "type":  "all"
+                                                                 },
+                                            "dockToEdge":  {
+                                                               "enabled":  false
+                                                           }
+                                        }
+                                    ]
+                    },
+                    {
                         "name":  "dashboard",
                         "htmlPath":  "./dashboard/index.html",
                         "zOrder":  "top_most",

@@ -22,7 +22,7 @@ building it — read it before changing anything here.
 | WezTerm | `C:\Program Files\WezTerm\wezterm.exe` — config at `~/.wezterm.lua`, **not under version control** (home directory is not a git repo); the pipeline's two required edits there are recorded in `docs/wezterm-integration.md` because of this |
 | starship | config at `~/.config/starship.toml` |
 | Wallpaper Engine | `C:\Program Files (x86)\Steam\steamapps\common\wallpaper_engine\` — `wallpaper32.exe` or `wallpaper64.exe` (whichever is the live process; both exist on disk, this machine runs `wallpaper32.exe`) |
-| Zebar (v3.3.1) | `C:\Program Files\glzr.io\Zebar\zebar.exe` — a vertical Caelestia-style bar docked left, and (since yasb's retirement) the **only** bar on the desktop. Pack source tracked at `zebar/caelestia/`, served to Zebar via a junction at `~/.glzr/zebar/caelestia`. The pack now declares **five** widgets -- `bar`, `corners`, `edges`, `layoutmenu`, `statusmenu` -- each needing its own `startupConfigs` entry per preset (`Install-Config` writes them all). Full detail: `docs/zebar-bar.md`. |
+| Zebar (v3.3.1) | `C:\Program Files\glzr.io\Zebar\zebar.exe` — a vertical Caelestia-style bar docked left, and (since yasb's retirement) the **only** bar on the desktop. Pack source tracked at `zebar/caelestia/`, served to Zebar via a junction at `~/.glzr/zebar/caelestia`. The pack declares **nine** widgets -- `bar`, `corners`, `edges`, `layoutmenu`, `statusmenu`, `panels`, `dock`, `dockpreview`, `dashboard` -- each needing its own `startupConfigs` entry per preset (`Install-Config` writes them all). Full detail: `docs/zebar-bar.md`. |
 | komorebi + whkd | `~/komorebi.json`, `~/.config/whkdrc` — the tiling WM driving the desktop (GlazeWM was replaced during this project's pre-flight; see `~/.config/yasb/CLAUDE.md`). Since the borders/yasb-retirement task, komorebi.json also carries `border: true`, `border_style: "Rounded"`, `border_width: 4`, `border_offset: 1`, `default_workspace_padding`/`default_container_padding` of **8/8**, a `global_work_area_offset` of `{left:-8, top:0, right:-8, bottom:0}`, and a themed `border_colours` object -- see "Window borders and gaps" and "The desktop frame" below. |
 | Pester | 6.0.1 and 3.4.0 are both installed; **all tests in this repo are Pester 5+ syntax** (`Should -Be`, not `Should Be`) — `Import-Module Pester -MinimumVersion 5.0.0` before running the suite, or 3.4.0 loads by default and every test errors on syntax it doesn't recognize |
 
@@ -302,6 +302,18 @@ Notable details:
   purpose, per trap 2.
 - **Every stylesheet must contain zero colour literals** -- `var(--…)` and `transparent` only,
   enforced by a Pester test. Colours arrive only through matugen-generated `theme.css`.
+
+- **The dock's hover preview is a PASSIVE second widget** (`dockpreview`), not a taller dock. The
+  dock's own window must never change shape -- growing it was tried and reverted (trap 2's cousin;
+  `docs/zebar-bar.md`'s "Dock hover previews" has the full account). That a *separate* `top_most`
+  window resizing above the dock is harmless was **measured** first: 5/5 treatment and 5/5 control
+  trials, cursor integrity checked. **Two harness traps live here and both produced convincing
+  false failures:** the real user moving the mouse mid-measurement, and `SetCursorPos` teleports
+  (glide 4/5 vs jump 0/5 for the same target). Any hover test here must glide the cursor in steps
+  and discard trials where `GetCursorPos` has drifted, or it is measuring itself. Related:
+  `mouseleave` was observed firing 12ms after `mouseenter` with the pointer provably stationary,
+  and no `mouseenter` can follow while the cursor does not move -- so the close decision re-checks
+  `:hover` and a `mousemove` listener re-arms, rather than trusting the leave.
 
 ## Pipeline flow
 

@@ -11,9 +11,15 @@
 export const WINDOW_PREVIEW_PATH =
   'C:\\Users\\PC\\Documents\\git\\setup\\zebar\\caelestia\\tools\\window-preview.exe';
 
-// Wide enough to read at the card's size, small enough that the base64 stays
-// well under 100KB. Measured: a 2560x1440 window at 320px comes back ~58-77KB.
-export const PREVIEW_WIDTH = 340;
+// Matches PREVIEW_MAX_W in flyout-placement.js -- the widest the card will ever
+// draw a thumbnail -- so a landscape window is never upscaled on display. The
+// two are a pair: raising the card's max width without raising this just makes
+// every wide thumbnail blurry, which reads as a capture problem rather than a
+// sizing one.
+//
+// Small enough that the base64 stays manageable. Measured on this machine: a
+// 2560x1440 window comes back 85-230KB depending on how busy the window is.
+export const PREVIEW_WIDTH = 360;
 
 export function previewCommand(hwnd, width = PREVIEW_WIDTH) {
   return { program: WINDOW_PREVIEW_PATH, args: [String(hwnd), String(width)] };

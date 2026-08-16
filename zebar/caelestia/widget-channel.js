@@ -59,6 +59,20 @@ export const PANELS_ACK_KEY = 'caelestia.panels.ack';
 // dashboard/dashboard.js.
 export const DASH_CMD_KEY = 'caelestia.dashboard.cmd';
 export const DASH_ACK_KEY = 'caelestia.dashboard.ack';
+// The dock's hover preview card. ONE-WAY, like the dashboard pair above: the
+// dock decides what is shown and when it goes away, and the card only listens.
+//
+// The card is a separate widget for a reason that is NOT the usual "the window
+// is too narrow" one. The dock's window could physically be grown to hold a
+// card -- that was tried, and reverted. Growing the dock's own window is the
+// one thing three rounds of hover bugs proved it must never do (see dock.js's
+// placeWindow). A passive second window has no such constraint, and that it is
+// harmless was MEASURED before this was built rather than argued: with the
+// cursor held on a dock item, a separate top_most window resized into place
+// above the dock across 5 clean trials, against 5 control trials with no
+// window at all, and the dock kept hover in all 10.
+export const DOCK_PREVIEW_CMD_KEY = 'caelestia.dockPreview.cmd';
+export const DOCK_PREVIEW_ACK_KEY = 'caelestia.dockPreview.ack';
 
 // `storage` events do NOT fire when setItem writes a value byte-identical
 // to the one already stored (HTML spec: the event is only fired when the

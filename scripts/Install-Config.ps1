@@ -355,6 +355,15 @@ ctrl + alt + w                : Start-Process powershell -WindowStyle Hidden -Ar
     # event closed it. One window has no handoff to lose.
     $dashboardPreset = 'default'
 
+    # Dock hover previews: the "dockpreview" widget is the card that shows a
+    # thumbnail of the window behind a dock icon. Same one-preset,
+    # parks-at-1x1, must-autostart-with-the-dock reasoning as layoutmenu and
+    # statusmenu above -- it is entirely passive (the dock decides what it
+    # shows and when it goes), so a running-but-unused instance costs one dead
+    # pixel, while a MISSING one makes hovering a dock icon silently do
+    # nothing at all.
+    $dockPreviewPreset = 'default'
+
     if ($DryRun) {
         # I1: the junction/settings.json steps below must ALSO be a no-op
         # under -DryRun, for BOTH the install and the uninstall direction.
@@ -378,6 +387,7 @@ ctrl + alt + w                : Start-Process powershell -WindowStyle Hidden -Ar
             "would remove startupConfigs entries for caelestia/dock (all presets) from $ZebarSettingsPath"
             "would remove startupConfigs entries for caelestia/panels (all presets) from $ZebarSettingsPath"
             "would remove startupConfigs entries for caelestia/dashboard (all presets) from $ZebarSettingsPath"
+            "would remove startupConfigs entries for caelestia/dockpreview (all presets) from $ZebarSettingsPath"
         } else {
             "would create/verify junction $JunctionLink -> $JunctionTarget"
             "would add startupConfigs entry for caelestia/bar to $ZebarSettingsPath"
@@ -388,6 +398,7 @@ ctrl + alt + w                : Start-Process powershell -WindowStyle Hidden -Ar
             "would add startupConfigs entry for caelestia/dock ($dockPreset) to $ZebarSettingsPath"
             "would add startupConfigs entry for caelestia/panels ($panelsPreset) to $ZebarSettingsPath"
             "would add startupConfigs entry for caelestia/dashboard ($dashboardPreset) to $ZebarSettingsPath"
+            "would add startupConfigs entry for caelestia/dockpreview ($dockPreviewPreset) to $ZebarSettingsPath"
         }
         return
     }
@@ -404,6 +415,7 @@ ctrl + alt + w                : Start-Process powershell -WindowStyle Hidden -Ar
         Remove-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'dock'
         Remove-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'panels'
         Remove-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'dashboard'
+        Remove-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'dockpreview'
     } else {
         Set-ManagedJunction -LinkPath $JunctionLink -TargetPath $JunctionTarget | Out-Null
         Set-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'bar' -Preset 'default'
@@ -425,5 +437,6 @@ ctrl + alt + w                : Start-Process powershell -WindowStyle Hidden -Ar
         Set-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'dock' -Preset $dockPreset
         Set-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'panels' -Preset $panelsPreset
         Set-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'dashboard' -Preset $dashboardPreset
+        Set-ZebarStartupConfig -Path $ZebarSettingsPath -Pack 'caelestia' -Widget 'dockpreview' -Preset $dockPreviewPreset
     }
 }
