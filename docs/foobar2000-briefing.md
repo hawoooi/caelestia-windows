@@ -575,6 +575,54 @@ bitmap as above. Do not reach for a codepoint without probing it first: a wrong
 codepoint in a Nerd Font usually renders *some other icon* rather than tofu,
 which is worse.
 
+## A frameless window IS possible -- via UI Wizard, not Columns UI
+
+**A previous claim in this file's spirit was wrong and is corrected here:** the
+borderless window with our own minimise/maximise/close is not blocked. Columns UI
+genuinely has no "hide caption" setting and SMP cannot subclass the window, but
+that was never the route. Georgia-ReBORN does it with a COMPONENT.
+
+**`foo_ui_wizard` -- UI Wizard**, github.com/The-Wizardium/UI-Wizard. It is the
+maintained successor to `foo_ui_hacks` (which is x86-only and unmaintained) and
+was written specifically to support Georgia-ReBORN's x64 transition, so it is the
+right one for the x64 SMP fork this project uses. It exposes a COM/ActiveX object
+that Spider Monkey Panel can drive directly:
+
+```js
+const UIWizard = new ActiveXObject('UIWizard');
+UIWizard.FrameStyle = 3;                  // 0 Default, 1 Small Caption, 2 No Caption, 3 No Border
+UIWizard.MoveStyle  = 0;                  // 0 Caption only, 1 Middle mouse, 2 Ctrl+Alt+Left, 3 Any
+UIWizard.SetCaptionAreaSize(0, 0, w, 32); // the DRAG region once the caption is gone
+UIWizard.WindowMinimize();                // also ToggleMaximize / ExitMaximize / WindowRestore
+UIWizard.WindowState;                     // 0 Normal, 1 Maximized, 2 Fullscreen
+UIWizard.DisableWindowSizing = false;
+```
+
+Close is not UI Wizard's job -- SMP already has `fb.Exit()`.
+
+**Consequences for the design.** The top bar becomes the caption: give
+`SetCaptionAreaSize` the strip's rectangle so dragging it moves the window, and
+exclude the button areas so a click on close does not start a drag. The window
+controls the mockup draws on the right of the strip then become real, and the
+native title bar goes away, which is what the mockup has always assumed.
+
+**Not installed yet.** This is a third-party binary and nothing above has been
+run on this machine -- the API is quoted from `assets/docs/API.md` in that repo,
+not from a working call. Install into the DUPLICATE profile only.
+
+## The visualiser is cut
+
+Nine designs were built and compared in `foobar2000/mockup-visualizer.html`, V6
+oscilloscope was chosen, and the whole feature was then **cut** -- there is no
+audio source for it. SMP has no audio API at all, and the only PCM route on this
+machine belongs to the `foo_uie_webview` host, which is a different panel type
+and was never tested. Rather than ship a visualiser fed by a fake signal, it is
+gone from `mockup-layout.html`.
+
+`mockup-visualizer.html` is KEPT rather than deleted, the same way this project
+keeps the unwired `tacky-borders.yaml` template: the comparison harness and the
+nine designs are recoverable the moment a real PCM source exists.
+
 ## What is genuinely unfinished
 
 Establish this yourself rather than trusting this list — it is inferred from

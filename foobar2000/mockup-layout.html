@@ -31,7 +31,6 @@
   --track:  color-mix(in srgb, var(--outline) 20%, transparent);
   --guide:  color-mix(in srgb, var(--outline) 32%, transparent);
   --stripe: color-mix(in srgb, var(--outline) 7%, transparent);
-  --dim:    color-mix(in srgb, var(--outline) 26%, transparent);
   --raised-hover: color-mix(in srgb, var(--outline) 18%, var(--surface-container-high));
 
   --gap: 8px;
@@ -207,10 +206,12 @@ button { border: 0; background: transparent; font: inherit; color: inherit; curs
    rule lands on the same scanline as the bottom of the tab strip. At 28px it sat
    4px high -- close enough to look like a mistake rather than a decision. The two
    values are a matched pair: change one and the other has to follow. */
-/* The left column is now two cards: the library, and a visualiser beneath it.
-   Lifting the library's bottom is what makes room for it. */
-.leftcol { display: grid; grid-template-rows: 1fr auto; gap: var(--gap); min-height: 0; }
-
+/* The visualiser card that used to sit beneath the library is CUT. There is no
+   audio source for it: SMP has no audio API, and the only PCM route on this
+   machine belongs to the WebView host -- a different panel type, and untested.
+   The nine designs are kept in mockup-visualizer.html rather than deleted, the
+   same way this project keeps the unwired tacky-borders template: the work is
+   recoverable if a source ever appears. */
 .side { grid-template-rows: 32px 1px 1fr; }
 .side__head { display: flex; align-items: center; gap: 8px; padding: 0 8px 0 14px; }
 .rule { background: var(--rule); }
@@ -234,25 +235,6 @@ button { border: 0; background: transparent; font: inherit; color: inherit; curs
 .vmenu__i[aria-selected="true"] { color: var(--on-surface); }
 .vmenu__i[aria-selected="true"] .fa { color: var(--primary); }
 
-/* ----------------------------------------------------------- visualiser --- */
-/* Real bars would come from cava's own PCM read; here they are static heights
-   so the SHAPE and the space it needs can be judged.
-   The palette has only one accent (no tertiary/error the way the cava theme
-   file has), so the ramp runs primary -> on-surface rather than the three-stop
-   hue walk cava uses. */
-/* 64px: the same height as the now-playing panel opposite it, measured rather
-   than guessed -- that panel is sized by its 64px cover art.
-   display:block overrides .card's grid. As a grid the single row was
-   content-sized, so the bars' `height: 100%` resolved against a track that was
-   itself sized by them -- circular, so it collapsed to zero and the card
-   rendered empty. */
-.viz { height: 64px; padding: 12px; display: block; }
-
-/* V6 OSCILLOSCOPE, chosen from mockup-visualizer.html. The waveform itself
-   rather than a spectrum: one stroked line about a centre axis. Nothing about
-   it is discrete, so it cannot flicker or alias the way bars at this height do,
-   and it spends far less of the card's area on ink than any bar design. */
-.viz canvas { display: block; width: 100%; height: 100%; }
 /* NO horizontal content scrolling. It was tried and reverted: rows sized with
    `width: max-content; min-width: 100%` are only as wide as the VIEWPORT when
    their own name is short, so scrolling right ran them out from under the
@@ -600,7 +582,6 @@ body[data-drag="1"] .ghost { display: flex; }
   <div class="body">
 
     <!-- sidebar: FLAT Finder rows, not filled blocks. See the A/B in the notes. -->
-    <div class="leftcol">
     <div class="card side">
       <div class="side__head">
         <span class="lab">Library</span>
@@ -640,9 +621,6 @@ body[data-drag="1"] .ghost { display: flex; }
         <div class="node node--dir"><span class="fa tw">&#xf0da;</span><span class="fa">&#xf07b;</span><span class="node__n">MAIMAI</span><span class="node__c">53</span></div>
         <div class="node node--dir node--band"><span class="fa tw">&#xf0da;</span><span class="fa">&#xf07b;</span><span class="node__n">VOCALOID</span><span class="node__c">11</span></div>
       </div>
-    </div>
-
-    <div class="card viz"><canvas id="viz"></canvas></div>
     </div>
 
     <div class="resizer" title="Drag to resize"></div>
@@ -1002,52 +980,6 @@ mbtn.addEventListener("click", function () {
   document.body.setAttribute("data-menu", on ? "0" : "1");
 });
 
-// Visualiser: V6 oscilloscope. The signal is deterministic -- a fixed sum of
-// sines driven by a frame counter, no Math.random -- so the same frame always
-// draws the same picture and two screenshots of this page diff cleanly.
-// The real one reads PCM; the shape and weight are what is being shown here.
-(function () {
-  var cv = document.getElementById("viz");
-  if (!cv || !cv.getContext) return;
-  var dpr = window.devicePixelRatio || 1;
-  var r = cv.getBoundingClientRect();
-  cv.width  = Math.round(r.width  * dpr);
-  cv.height = Math.round(r.height * dpr);
-  var g = cv.getContext("2d");
-  g.scale(dpr, dpr);
-
-  // Colours are read back from the palette rather than restated in JS, so this
-  // still holds to the no-colour-literals rule that the stylesheets follow.
-  var probe = document.createElement("span");
-  probe.style.cssText = "position:absolute;visibility:hidden";
-  document.body.appendChild(probe);
-  function role(n) { probe.style.color = "var(" + n + ")"; return getComputedStyle(probe).color; }
-  var lineC = role("--primary"), axisC = role("--dim");
-
-  var w = r.width, h = r.height, mid = h / 2, N = 200, t = 0;
-  var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-  function frame() {
-    t++;
-    var beat = Math.exp(-((t % 30) / 6));
-    g.clearRect(0, 0, w, h);
-    g.strokeStyle = axisC; g.lineWidth = 1;
-    g.beginPath(); g.moveTo(0, mid + 0.5); g.lineTo(w, mid + 0.5); g.stroke();
-    g.strokeStyle = lineC; g.lineWidth = 1.4; g.beginPath();
-    for (var i = 0; i < N; i++) {
-      var x = i / (N - 1);
-      var v = (Math.sin(x * 18.8 + t * 0.18) * 0.5 +
-               Math.sin(x * 44.0 + t * 0.11) * 0.3 +
-               Math.sin(x * 81.7 + t * 0.23) * 0.2) * (0.35 + 0.65 * beat);
-      var y = mid - v * mid * 0.92;
-      i ? g.lineTo(x * w, y) : g.moveTo(x * w, y);
-    }
-    g.stroke();
-    if (!reduced) requestAnimationFrame(frame);
-  }
-  if (reduced) { t = 40; }
-  frame();
-})();
 
 // the resizer is real, so the proportions can be judged rather than imagined
 (function () {
