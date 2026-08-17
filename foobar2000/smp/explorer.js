@@ -35,6 +35,8 @@ var DTX_ROW_R = DTX_ROW | DTX.RIGHT;
 var GLYPH_FOLDER      = String.fromCharCode(0xF07B);   // fa-folder
 var GLYPH_FILE        = String.fromCharCode(0xF001);   // fa-music
 var GLYPH_FOLDER_OPEN = String.fromCharCode(0xF07C);   // fa-folder-open
+var GLYPH_CARET_R     = String.fromCharCode(0xF0DA);   // fa-caret-right, closed
+var GLYPH_CARET_D     = String.fromCharCode(0xF0D7);   // fa-caret-down, open
 
 var E = {
     rowH:      20,
@@ -48,8 +50,18 @@ var E = {
     scrollW:    9,
     gapY:       2    // between node blocks
 };
+// DISCLOSURE CARET. fa-folder and fa-folder-open differ by a few pixels of
+// flap, which at 13px is not a difference anyone can see -- shape cannot carry
+// open-vs-closed at this size. A caret can, because it is read by ROTATION, and
+// 90 degrees stays unmistakable however small it gets. The folder glyph stays
+// beside it so a directory is still identifiable as one; the caret only says
+// open or closed. Files reserve the same column without drawing into it, so
+// every name still lines up.
+E.twW = 9;
+E.twGap = 3;
+E.iconOff = E.nodePad + E.twW + E.twGap;        // row x -> folder/file glyph
 // A file's name must line up with a folder's name at the same level.
-E.fileIndent = E.nodePad + E.iconW + E.iconGap;
+E.fileIndent = E.iconOff + E.iconW + E.iconGap;
 E.levelIndent = E.guideIn + E.guideOut;
 
 var f_ui, f_bold, f_icon, f_small;
@@ -188,6 +200,8 @@ function on_paint(gr) {
 
     var top = cardTop();
     var availW = VW - IN.r - E.scrollW;
+    // the banding spans the card, not the indented row -- see the note below
+    var bandX = IN.l + E.pad, bandW = Math.max(0, availW - E.pad - bandX);
 
     // guide spines first, so node blocks sit on top of them
     var sp = rows.spines || [];
@@ -208,21 +222,35 @@ function on_paint(gr) {
         var x = IN.l + E.pad + r.indent;
         var w = availW - x - E.pad;
 
+        // FINDER BANDING, matching the playlist. The band spans the full card
+        // width regardless of how deep the row is indented -- banding that
+        // started at the indent would read as steps rather than rows. Drawn
+        // from the FLATTENED row list, so alternation never restarts inside a
+        // nesting level; the browser mockup needed a bled pseudo-element to get
+        // the same thing, which is machinery this does not need.
+        if (i % 2 === 1) gr.FillSolidRect(bandX, y, bandW, E.rowH, THEME.stripe);
+
         if (r.kind === 'dir') {
-            // A folder reads as a raised block, which is what distinguishes it
-            // from a file. Its resting tone is already the lightest surface
-            // role, so hover/selection has to lift ABOVE it -- hence
-            // THEME.raised_hover, pre-blended toward outline.
-            var bg = (i === selected || i === hover) ? THEME.raised_hover
-                                                     : THEME.surface_container_high;
-            fillRoundE(gr, x, y, w, E.rowH, E.radius, bg);
+            // FLAT, not a raised block. The folder blocks and the banding cannot
+            // both be present -- a block covers the band it sits on -- and the
+            // Finder direction the rest of this design follows spends contrast
+            // on the SELECTED row only. Reverting is one line: restore the
+            // unconditional surface_container_high fill below.
+            if (i === selected || i === hover) {
+                fillRoundE(gr, x, y, w, E.rowH, E.radius,
+                           i === selected ? THEME.raised_hover : THEME.surface_container_high);
+            }
+
+            gr.GdiDrawText(r.node.open ? GLYPH_CARET_D : GLYPH_CARET_R, f_small,
+                           THEME.outline, x + E.nodePad, y, E.twW, E.rowH,
+                           DTX.SINGLELINE | DTX.VCENTER | DTX.NOPREFIX | DTX.CENTER);
 
             gr.GdiDrawText(r.node.open ? GLYPH_FOLDER_OPEN : GLYPH_FOLDER, f_icon,
                            THEME.on_surface_variant,
-                           x + E.nodePad, y, E.iconW, E.rowH,
+                           x + E.iconOff, y, E.iconW, E.rowH,
                            DTX.SINGLELINE | DTX.VCENTER | DTX.NOPREFIX);
 
-            var nameX = x + E.nodePad + E.iconW + E.iconGap;
+            var nameX = x + E.fileIndent;
             var cntW = 36;
             gr.GdiDrawText(r.node.name, (i === selected) ? f_bold : f_ui, THEME.on_surface,
                            nameX, y, w - (nameX - x) - E.nodePad - cntW, E.rowH, DTX_ROW);
@@ -235,9 +263,10 @@ function on_paint(gr) {
             // A track gets its own glyph in the SAME column a folder's sits in.
             // Without it the icon column was empty for files, so their names
             // read as floating at a different left offset from the folders
-            // above them even though the text x was identical.
+            // above them even though the text x was identical. The caret column
+            // is reserved and left empty for the same reason.
             gr.GdiDrawText(GLYPH_FILE, f_icon, THEME.outline,
-                           x + E.nodePad, y, E.iconW, E.rowH,
+                           x + E.iconOff, y, E.iconW, E.rowH,
                            DTX.SINGLELINE | DTX.VCENTER | DTX.NOPREFIX);
             gr.GdiDrawText(r.file.name, f_ui,
                            (i === hover || i === selected) ? THEME.on_surface : THEME.on_surface_variant,

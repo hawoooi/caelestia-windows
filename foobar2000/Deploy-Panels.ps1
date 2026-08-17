@@ -167,6 +167,22 @@ if (Test-Path $smpSrc) {
             "  {0,-28} {1,7} bytes   colour literals in panel: {2}" -f $panel.Name, $b.Length, $lits.Count
         }
     }
+
+    # The app mark has to be a BITMAP, not a glyph: Font Awesome's ghost is
+    # U+F6E2 and 0xProto Nerd Font is Nerd Fonts v3, which left that codepoint
+    # empty (Material Design Icons moved to plane 1) -- it renders as tofu. No
+    # Font Awesome family is installed system wide either, and GDI cannot read
+    # the vendored woff2. topbar.js loads this from fb.ProfilePath.
+    $icon = Join-Path $src 'art\foobar-icon.png'
+    if (Test-Path $icon) {
+        $iconDst = Join-Path $smpDst 'foobar-icon.png'
+        if ($PSCmdlet.ShouldProcess($iconDst, 'copy app icon')) {
+            Copy-Item -LiteralPath $icon -Destination $iconDst -Force
+            "  {0,-28} {1,7} bytes" -f 'foobar-icon.png', (Get-Item $iconDst).Length
+        }
+    } else {
+        Write-Warning "art\foobar-icon.png missing; the top bar will draw no app mark"
+    }
 }
 
 Write-Host "done." -ForegroundColor Green

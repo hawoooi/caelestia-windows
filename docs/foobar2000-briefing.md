@@ -516,6 +516,65 @@ internal state rather than an OS-level drag between two panel windows.
   click lands on its title bar, so re-read `GetWindowRect` before computing any
   button coordinate rather than caching an origin.
 
+## GdiDrawText clips to its rect, and that IS the missing clipping region
+
+`GdiGraphics` has no clip region -- which is what made every fixed band overdraw
+until each one was taught to paint its own ground. But **`GdiDrawText` clips to
+the rectangle it is given**, and text alignment is anchored to *one* edge of that
+rect. So the same string can be drawn twice at the same position and clipped
+differently, by moving the edge that does NOT anchor the alignment:
+
+| alignment | anchored at | move this edge to clip |
+|---|---|---|
+| `DT_LEFT`  | rect left  | the right edge (clips the tail) |
+| `DT_RIGHT` | rect right | the left edge (clips the head)  |
+
+**Why it was needed.** Seekbar option F puts the clocks *inside* the bar, and the
+volume icon inside the volume bar. Anything drawn inside a bar sits on the fill at
+one end of the bar's travel and on the empty track at the other, and one colour is
+unreadable at whichever end it is wrong for. Draw the whole string in the
+track-side colour, then draw it again in the fill-side colour clipped to where the
+fill actually reaches (`drawInBarLeft` / `drawInBarRight` in `smp/topbar.js`).
+
+**Verified, not assumed** -- and the obvious test is the one that proves nothing.
+At full volume the icon is entirely over the fill, so a clipping and a
+non-clipping `GdiDrawText` produce identical pixels. Setting the volume to ~15%
+is what separates them: the speaker glyph then renders visibly **split**, dark
+over the fill and light over the track, in one screenshot.
+
+## Fonts: the panels can only draw what 0xProto Nerd Font contains
+
+GDI needs an **installed** font. The vendored `vendor/fontawesome/*.woff2` works
+only in the WebView panel, and **no Font Awesome family is installed on this
+machine at all** (checked via `System.Drawing.FontFamily.Families`). Every panel
+glyph therefore has to exist in `0xProto Nerd Font`.
+
+Probed by rendering each codepoint to a bitmap and looking at it:
+
+| codepoint | glyph | result |
+|---|---|---|
+| `F0DA` / `F0D7` | caret right / down | present |
+| `F07B` / `F07C` | folder / folder-open | present |
+| `F001` | music | present |
+| `F1DE` | sliders | present |
+| `F028` / `F026` | volume / muted | present |
+| **`F6E2`** | **fa-ghost** | **TOFU** |
+
+`0xProto Nerd Font` is **Nerd Fonts v3**, where Material Design Icons moved to
+plane 1 (`U+F0000+`) and vacated the old v2 `U+F500-FD46` range that `F6E2` sits
+in. So the ghost the design asked for cannot be drawn as text at all. The top bar
+draws the **real extracted app icon** instead -- `art/foobar-icon.png`, copied to
+`profile/caelestia/` by `Deploy-Panels.ps1` and loaded once via `gdi.Image`. The
+cost is that a bitmap cannot follow the wallpaper palette; a logo arguably should
+not anyway.
+
+**If a glyph outside FA v4 is ever needed**, the options are: install Font Awesome
+6 Free Solid as a real `.otf` (per-user installs work without admin since 1809 --
+but the repo vendors woff2, not otf), draw the shape with `FillPolygon`, or use a
+bitmap as above. Do not reach for a codepoint without probing it first: a wrong
+codepoint in a Nerd Font usually renders *some other icon* rather than tofu,
+which is worse.
+
 ## What is genuinely unfinished
 
 Establish this yourself rather than trusting this list — it is inferred from

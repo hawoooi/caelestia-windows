@@ -56,15 +56,26 @@ var T = {
     btnH:     26,
     // "File" must line up with "LIBRARY" in the panel below it. That label is
     // drawn at card.x + 14; here the text sits at card.x + pad + menuPad, so
-    // pad = 14 - menuPad = 5. Both cards use the same 8px outer inset, so the
-    // two now start at the same 22px from the window edge.
-    pad:       5,   // inside the card, left/right
+    // pad + menuPad must stay 14. Both cards use the same 8px outer inset, so
+    // the two start at the same 22px from the window edge.
+    pad:       8,   // inside the card, left
+    menuPad:   6,   // horizontal padding inside a menu label
+    // Right padding is NOT pad. The app icon's ink is ~12px inside an 18px box,
+    // so it carries ~3px of side bearing; equal INK gaps of 16px need
+    // gapR 10 + margin 3 + bearing 3 on the left and bearing 3 + padR 13 on the
+    // right. Spacing the boxes evenly instead leaves 18 against 11.
+    padR:     13,
     sep:      11,   // width taken by a separator incl. its margins
-    barH:      8,   // thick bars, per the mockup
-    knob:     14,
-    volW:     96,
-    timeW:    46,
-    menuPad:   9    // horizontal padding inside a menu label
+    // Seekbar option F: at 20px the bar reads as a container rather than a line,
+    // which is what lets the clocks live inside it -- and that hands the seekbar
+    // back the ~90px the two outside clocks were spending. Radius 2, not a pill:
+    // a pill radius is half the thickness, which at 20px is a lozenge.
+    barH:     20,
+    barR:      2,
+    barPad:    8,   // inset of a label drawn inside a bar
+    volW:    112,
+    iconW:    18,
+    gapR:     10    // seek -> volume -> app icon, identical on both sides
 };
 
 // Font Awesome v4 codepoints, which 0xProto Nerd Font embeds at U+F000-U+F2E0.
@@ -143,29 +154,51 @@ function layout(gr) {
     x += T.sep;
     L.sep3 = x - Math.floor(T.sep / 2);
 
-    // volume is anchored right; the seek bar takes everything between
-    var volX = c.x + c.w - T.pad - T.volW;
-    var volIconX = volX - 8 - 18;
-    L.vol = { x: volX, w: T.volW };
-    L.volIcon = { x: volIconX, w: 18 };
-    L.sep4 = volIconX - Math.floor(T.sep / 2) - 4;
-
-    L.posX = x;
-    L.durX = L.sep4 - T.sep - T.timeW;
-    L.seek = { x: x + T.timeW + 8, w: Math.max(40, L.durX - 8 - (x + T.timeW + 8)) };
+    // Right-anchored: app icon, then volume, then the seek bar takes the rest.
+    // There is deliberately NO separator between the seek and volume bars -- the
+    // volume bar's own track already separates them, and the rule made the gap
+    // on its left 17px against 5px on its right.
+    var iconX = c.x + c.w - T.padR - T.iconW;
+    var volX  = iconX - T.gapR - T.volW;
+    L.icon = { x: iconX, w: T.iconW };
+    L.vol  = { x: volX,  w: T.volW };
+    L.seek = { x: x, w: Math.max(60, volX - T.gapR - x) };
     return L;
 }
 
 // ------------------------------------------------------------------- paint --
 
-function drawBar(gr, x, y, w, fill, colFill, hot) {
+// A 20px slab. Returns where the fill reaches, which the inline labels need.
+function drawSlab(gr, x, y, w, fill, colFill) {
     var by = y + Math.floor((cardT().h - T.barH) / 2);
-    fillRoundT(gr, x, by, w, T.barH, Math.floor(T.barH / 2), THEME.track);
+    fillRoundT(gr, x, by, w, T.barH, T.barR, THEME.track);
     var fw = Math.round(w * clampT(fill, 0, 1));
-    if (fw > 0) fillRoundT(gr, x, by, fw, T.barH, Math.floor(T.barH / 2), colFill);
-    if (hot) {
-        var kx = x + fw - Math.floor(T.knob / 2);
-        fillRoundT(gr, kx, by - Math.floor((T.knob - T.barH) / 2), T.knob, T.knob, Math.floor(T.knob / 2), colFill);
+    if (fw > 0) fillRoundT(gr, x, by, fw, T.barH, T.barR, colFill);
+    return { y: by, h: T.barH, fillR: x + fw };
+}
+
+// CONTENT DRAWN INSIDE A BAR NEEDS TWO COLOURS, because it sits on the fill at
+// one end of the bar's travel and on the empty track at the other, and one
+// colour is unreadable at whichever end it is wrong for.
+//
+// There is no clipping region in GdiGraphics -- but GdiDrawText clips to the
+// rect it is given, and alignment is anchored to one edge of that rect. So the
+// same string can be drawn twice at the SAME position and clipped differently:
+// move the edge that does NOT anchor the alignment.
+//
+//   left-aligned  -> anchored at the rect's LEFT, so narrowing the right edge
+//                    clips the tail without moving the glyphs
+//   right-aligned -> anchored at the rect's RIGHT, so raising the left edge
+//                    clips the head without moving the glyphs
+function drawInBarLeft(gr, s, font, x, right, fillR, sb) {
+    gr.GdiDrawText(s, font, THEME.on_surface_variant, x, sb.y, right - x, sb.h, DTT_L);
+    if (fillR > x) gr.GdiDrawText(s, font, THEME.on_primary, x, sb.y, fillR - x, sb.h, DTT_L);
+}
+function drawInBarRight(gr, s, font, x, right, fillR, sb) {
+    gr.GdiDrawText(s, font, THEME.on_primary, x, sb.y, right - x, sb.h, DTT_R);
+    if (fillR < right) {
+        var l = Math.max(x, fillR);
+        gr.GdiDrawText(s, font, THEME.on_surface_variant, l, sb.y, right - l, sb.h, DTT_R);
     }
 }
 
@@ -208,18 +241,37 @@ function on_paint(gr) {
     gr.FillSolidRect(L.sep1, c.y + 8, 1, c.h - 16, THEME.rule);
     gr.FillSolidRect(L.sep2, c.y + 8, 1, c.h - 16, THEME.rule);
     gr.FillSolidRect(L.sep3, c.y + 8, 1, c.h - 16, THEME.rule);
-    gr.FillSolidRect(L.sep4, c.y + 8, 1, c.h - 16, THEME.rule);
 
+    // seek bar, with both clocks inside it
     var len = fb.PlaybackLength || 0;
     var pos = (dragging === 'seek') ? seekPos : (fb.PlaybackTime || 0);
-    gr.GdiDrawText(fmtT(pos), f_small, THEME.on_surface_variant, L.posX, c.y, T.timeW, c.h, DTT_R);
-    gr.GdiDrawText(fmtT(len), f_small, THEME.outline, L.durX, c.y, T.timeW, c.h, DTT_L);
-    drawBar(gr, L.seek.x, c.y, L.seek.w, len > 0 ? pos / len : 0, THEME.primary, dragging === 'seek');
+    var sb = drawSlab(gr, L.seek.x, c.y, L.seek.w, len > 0 ? pos / len : 0, THEME.primary);
+    var tl = L.seek.x + T.barPad, tr = L.seek.x + L.seek.w - T.barPad;
+    drawInBarLeft(gr, fmtT(pos), f_small, tl, tr, sb.fillR, sb);
+    if (len > 0) drawInBarRight(gr, fmtT(len), f_small, tl, tr, sb.fillR, sb);
 
+    // volume bar, with its icon inside it. The fill is `outline`, not `primary`,
+    // so the icon over it takes surface_container rather than on_primary.
+    var vb = drawSlab(gr, L.vol.x, c.y, L.vol.w, dbToPct(fb.Volume), THEME.outline);
+    var vx = L.vol.x + T.barPad, vw = 14;
     var muted = fb.Volume <= -100;
-    gr.GdiDrawText(muted ? GL.volMute : GL.volOn, f_icon, THEME.on_surface_variant,
-                   L.volIcon.x, c.y, L.volIcon.w, c.h, DTT_C);
-    drawBar(gr, L.vol.x, c.y, L.vol.w, dbToPct(fb.Volume), THEME.outline, dragging === 'vol');
+    var vg = muted ? GL.volMute : GL.volOn;
+    gr.GdiDrawText(vg, f_icon, THEME.on_surface_variant, vx, vb.y, vw, vb.h, DTT_L);
+    if (vb.fillR > vx) {
+        gr.GdiDrawText(vg, f_icon, THEME.surface_container, vx, vb.y,
+                       Math.min(vw, vb.fillR - vx), vb.h, DTT_L);
+    }
+
+    // The app mark. Drawn as the real extracted icon rather than a glyph: the
+    // Font Awesome ghost is U+F6E2, and 0xProto Nerd Font is Nerd Fonts v3,
+    // where Material Design Icons moved to plane 1 and left that codepoint
+    // empty -- it renders as tofu. No Font Awesome family is installed system
+    // wide either, and GDI cannot use the vendored woff2. Verified by rendering
+    // the codepoint, not assumed.
+    if (appIcon) {
+        var iy = c.y + Math.floor((c.h - T.iconW) / 2);
+        gr.DrawImage(appIcon, L.icon.x, iy, T.iconW, T.iconW, 0, 0, appIcon.Width, appIcon.Height);
+    }
 }
 
 // fb2k reports volume in dBFS: 0 is full, about -100 silence. Below -60 the
@@ -337,8 +389,13 @@ function on_playback_order_changed() { window.Repaint(); }
 
 // -------------------------------------------------------------------- init --
 
-f_ui    = gdi.Font('0xProto Nerd Font', 12, 0);
+f_ui    = gdi.Font('0xProto Nerd Font', 11, 0);   // menus: 11px, tighter padding
 f_icon  = gdi.Font('0xProto Nerd Font', 12, 0);
 f_small = gdi.Font('0xProto Nerd Font', 11, 0);
+
+// The app mark, copied next to the scripts by Deploy-Panels.ps1. Loaded once --
+// gdi.Image hits the disk, and this is a paint path.
+var appIcon = null;
+try { appIcon = gdi.Image(fb.ProfilePath + 'caelestia\\foobar-icon.png'); } catch (e) { appIcon = null; }
 
 TW = window.Width; TH = window.Height;
