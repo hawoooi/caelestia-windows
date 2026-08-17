@@ -181,6 +181,341 @@ would replace that script and emit `theme.css` from the live wallpaper palette,
 with no other change anywhere — because `mockup.html` holds no colour literals.
 Do not re-derive this; build on it.
 
+## The host API — established from the DLL, not inferred (2026-08-16, later)
+
+An earlier pass in this file assumed `foo_uie_webview` exposed playback only.
+**That was wrong**, and the correction matters because it decides what can be
+built. The component ships two undocumented sample templates next to its DLL
+(`Default-Template.html`, `Default-PlaylistTemplate.html`), and the member names
+were then confirmed against the identifier strings inside `foo_uie_webview.dll`
+itself.
+
+**Available** (all verified present in the DLL's symbol table):
+
+- transport: `stop()` `play(bool)` `togglePause()` `previous()` `next()`
+  `random()` `seek(sec)` `seekDelta(sec)` `canSeek` `length` `position`
+- volume: `volume` (dBFS, read/write) `volumeUp()` `volumeDown()`
+  `toggleMute()` `isMuted`
+- `playbackOrder` (bare index) · `stopAfterCurrent` / `toggleStopAfterCurrent()`
+- now playing: `getFormattedText(<titleformat>)` · `getArtwork("front"|…)`
+- playlists: `playlistCount` `activePlaylist` `playingPlaylist`
+  `getPlaylistName` `setPlaylistName` `findPlaylist` `createPlaylist`
+  `createAutoPlaylist` `duplicatePlaylist` `deletePlaylist` `clearPlaylist`
+  `isAutoPlaylist` `getPlaylistItemCount` `getPlaylistItems`
+  `getSelectedPlaylistItems` `selectPlaylistItem` `deselectPlaylistItem`
+  `isPlaylistItemSelected` `clearPlaylistSelection` `getFocusedPlaylistItem`
+  `setFocusedPlaylistItem` `ensurePlaylistItemVisible` `removePlaylistItem`
+  `removeSelectedPlaylistItems` `executePlaylistDefaultAction` `addPath`
+- filesystem: `readDirectory(path, pattern)` `readImage(path)` `readAllText`
+- audio: a shared PCM buffer (`sharedbufferreceived` + `OnTimer`) with sample
+  rate and channel config — **so a level meter or spectrum is real, not fake**
+- events for essentially everything, including `onPlaybackOrderChanged` and the
+  full playlist-mutation set
+
+**NOT available — the two limits that shape the design:**
+
+1. **No per-playlist-item metadata.** `getPlaylistItems()` returns objects with
+   exactly two fields, `path` and `subsong` (measured live: 36 items, those two
+   keys). `getFormattedText()` takes only a format string and applies to the
+   **now-playing** track, and there is no `getPlaylistItemText`-style member in
+   the DLL. So HTML can list, select, focus and *play* playlist items, but can
+   only display their file path — no title, artist, album, duration or play
+   count. **A tag-rich playlist view must stay Columns UI's own.**
+2. **No main-menu command API.** Only WebView2's own `ContextMenuRequested`.
+   File/Edit/View/Playback/Library/Help therefore cannot live inside the panel;
+   foobar's menu bar stays a separate toolbar row above it. The mockup draws
+   them on one line — the real thing cannot.
+
+### The trap that cost a debugging pass
+
+`foo_uie_webview` watches its template file and reloads the panel **the moment
+it changes**. Writing `Template.html` before the CSS it references means the
+panel reloads against assets that have not landed yet, the stylesheet 404s, and
+**every icon renders as tofu** — indistinguishable from a broken webfont, which
+is what it was mistaken for. `Deploy-Panels.ps1` therefore writes theme and
+vendor assets FIRST and templates LAST. Proven not-a-font-problem by a probe
+page that reported `document.fonts.check(...) === true`, one registered face,
+and U+F04B measuring 48.00px in Font Awesome vs 39.69px in the fallback.
+
+Related: WebView2 blocks `cssRules` on file:// stylesheets with a
+`SecurityError`. That is normal and is **not** a load failure — the sheet is
+applied, it just cannot be read back from script.
+
+## Driving the Columns UI layout (done 2026-08-17)
+
+The `.cfg` is checksummed so the layout cannot be scripted — it was built through
+the Preferences GUI instead, by automation. What that established:
+
+- **`Row` = horizontal** (children side by side), **`Column` = vertical**. The
+  tree's indentation is the only clue to nesting and is easy to misread; check
+  the x offset of the labels, not the apparent grouping.
+- **Layout edits apply LIVE, before OK.** Pressing Escape closes the dialog but
+  does *not* undo them. Two Escapes in a row will close the dialog out from
+  under you — do not send stray Escapes; dismiss a popup by clicking the
+  dialog's own title bar instead.
+- **Ctrl+P does not open Preferences when focus is inside the WebView panel** —
+  WebView2 swallows it. Click a native panel first, or use File > Preferences.
+- **The template file path is PER-PANEL, not global.** This was initially
+  inferred to be global (both panels rendered the same file) and that was
+  WRONG: a newly added WebView simply defaults to the same path. Select the
+  panel in Display > Columns UI > Layout, then open Display > **WebView** and
+  set "Template file path" — it edits the selected panel. Proven by pointing
+  one at `nowplaying.html` and watching only that panel change.
+- **"Configure panel..." does nothing** for `foo_uie_webview`; the WebView
+  preferences page is the only route.
+- Splitter dividers are 2px `#333333` lines between panels. Drag them to size a
+  panel; the drag must start ON the divider row (2px off does nothing). Find
+  them by pixel-scanning a column for that colour rather than by eye.
+
+**Verified live, not assumed:** clicking the panel's own order button moved
+foobar's toolbar dropdown `Repeat (track)` -> `Random`, and six further clicks
+returned it to `Repeat (track)`. That proves three things at once: the command
+path works, `playbackOrder` is writable from JS, and there are exactly seven
+playback orders (so `ORDERS` in `panels/topbar.html` has the right length, with
+index 2 = Repeat (track) and 3 = Random).
+
+The resulting layout:
+
+```
+Column                     (root, vertical)
+  WebView                  -> Template.html   (top bar, ~44px)
+  Row                      (horizontal)
+    Playlist switcher
+    Playlist view
+  WebView                  -> nowplaying.html (bottom bar, ~64px)
+```
+
+## Spider Monkey Panel — the second approach (2026-08-17)
+
+The WebView route cannot draw a real playlist (no per-item metadata, proven
+above). Georgia-ReBORN solves this by not theming foobar's views at all: it
+hosts **Spider Monkey Panel** inside Columns UI and draws its entire UI itself.
+We now do the same, with our own code.
+
+**SMP x64 exists and works, contrary to this project's earlier note.** The
+record said SMP was "discontinued and x86-only (won't load in this x64
+v2.25.9)" — that is why foo_uie_webview was chosen. False. A maintained fork,
+`github.com/dima-lur/spider-monkey-panel-x64`, release **1.7.26.4.5**, installs
+as two DLLs into `profile\user-components-x64\foo_spider_monkey_panel\` and
+loads fine: Preferences > Components lists it in white, next to Columns UI
+3.6.0 and core 2.25.9.
+
+**What it buys:** `fb.TitleFormat(...).EvalWithMetadbs(handleList)` returns an
+ARRAY — one batch call per field for a whole playlist, which is what keeps a
+custom playlist fast. Plus `plman` for selection/focus/playback and
+`handleList.CalcTotalDuration()` — even the playlist total the WebView could
+not compute.
+
+### The dev loop (no GUI round-trip per edit)
+
+The panel's own script is a ONE-LINE bootstrap, pasted once:
+
+```js
+include(fb.ProfilePath + 'caelestia\\playlist.js', { always_evaluate: true });
+```
+
+`Deploy-Panels.ps1` writes `<profile>\caelestia\playlist.js` as
+`theme.js + playlist.js` concatenated (SMP loads one file per panel, and
+concatenating avoids relying on include() path resolution — the same tactic as
+the inlined webfont). Then **right-click the panel > Reload**. Verified that
+this genuinely re-reads the file from disk: a fix deployed between two reloads
+produced a *different* error, so SMP's script cache is not serving stale text
+when `always_evaluate` is set.
+
+Errors surface in a `foo_spider_monkey_panel` dialog with file, line, column
+and a stack trace — read that, don't guess.
+
+### Two API traps, both of which cost a paint
+
+1. **`utils.GetAlbumArtAsync`, NOT `fb.GetAlbumArtAsync`.** The component's own
+   bundled JSDoc cross-references it twice as `{@link fb.GetAlbumArtAsync}`,
+   which is a documentation bug; the member lives on `utils`. Calling it on
+   `fb` throws "is not a function" from inside `on_paint`. The callback is
+   `on_get_album_art_done(metadb, art_id, image, image_path)`.
+2. **`FillRoundRect` throws "Arc argument has invalid value"** when the corner
+   radius does not fit the rectangle — a 4px-wide scrollbar thumb with a 3px
+   arc is enough, and it kills the ENTIRE paint, not just that shape. Never
+   call it directly; `fillRound()` in `smp/playlist.js` clamps the radius to
+   half the smaller side and falls back to `FillSolidRect` below 1px.
+
+Also worth knowing: `Add-Type` in PowerShell refuses to compile a helper class
+containing a static method named `Main` ("wrong signature to be an entry
+point"). Cost two failed calls while automating the GUI.
+
+## The all-SMP layout (2026-08-17, later)
+
+Every band in the window is now drawn by our own code:
+
+```
+Column
+  Spider Monkey Panel   -> smp/topbar.js    menu + transport + seek + volume
+  Row
+    Spider Monkey Panel -> smp/explorer.js  library tree
+    Spider Monkey Panel -> smp/playlist.js  tabs + columns + list + now playing
+```
+
+The WebView panels and every native toolbar are gone: `Buttons`, `Playback
+order`, `Seekbar`, a stray empty toolbar, the status pane, and finally the
+`Menu` toolbar itself.
+
+**The menu lives in our top bar.** `fb.CreateMainMenuManager()` + `Init('file')`
++ `BuildMenu(menu, 1, -1)` + `TrackPopupMenu` + `ExecuteByID(ret - 1)` gives
+foobar's genuine File/Edit/View/Playback/Library/Help, shortcuts and all. This
+is why the native menu strip -- a fixed `#333333` band no colour setting
+reaches -- could be switched off. **`foo_uie_webview` could not do this**, which
+is the one thing that made the mockup's single line of chrome unbuildable there.
+
+### Traps this cost
+
+1. **SMP splits its factory methods across objects with no inferable rule.**
+   It is `fb.CreateMainMenuManager()` but `window.CreatePopupMenu()`; likewise
+   `utils.GetAlbumArtAsync()` but `fb.GetLibraryItems()`. Guessing the owner
+   throws "is not a function" at CLICK time, long after the panel looks fine.
+   Check each name against `docs/js/foo_spider_monkey_panel.js`.
+2. **`MenuObject` has no `Dispose()`.** Calling it throws *after* the menu has
+   already worked, which reads as the menu being broken when it is not.
+3. **Divider width 0 makes splitters ungrabbable.** Preferences > Layout > Misc
+   > "Divider width" is what draws the grey lines between panels; 0 removes
+   them, but then there is nothing to drag to resize a panel. To resize: set it
+   to 4, drag, set it back to 0. Panel sizes persist independently.
+   Find the divider by pixel-scanning a column for `#333333` -- a drag that
+   starts even 1px off it does nothing at all, silently.
+4. **The Layout page remembers its last TAB.** Clicking "Layout" in the left
+   tree can land on `Misc`, where the panel tree does not exist and every
+   right-click finds nothing. Click the `Layout` tab too.
+
+### Gaps: why per-side insets
+
+Every panel paints its own margin, so a SHARED edge gets both panels' margins
+while an OUTER edge gets only one. Symmetric insets therefore give 8px between
+panels and 4px at the window edge -- visibly inconsistent. Each panel now
+declares `IN = {l,t,r,b}` with outer sides at the full gap and shared sides at
+half. Measured result: every gap 7-8px (the 1px spread is corner antialiasing),
+and zero `#333333` pixels anywhere in the window.
+
+Card radius is **8px**, matching the Windows 11 window corner. That is an
+informed assumption, not a measurement: the rounded corner is painted by DWM
+*outside* the client rect, so a screen grab at the window origin shows only
+square pixels.
+
+### A bug shape worth remembering
+
+A panel section that does not paint its own background lets the scrolling list
+draw straight through it. This happened twice -- the playlist footer, then the
+explorer footer -- with file names overlapping "view by folder structure". Any
+fixed header/footer must be drawn LAST and fill its own ground, as a rounded
+rect extended by the card radius so the card's outer corners stay round.
+
+## Why scrolling was laggy — measured, and it was not what it looked like
+
+Reported as "scrolling feels laggy and slow". Instrumented `on_paint` with
+`fb.CreateProfiler()` rather than guessing, logging to the foobar console:
+
+```
+[playlist] 152.47 ms/paint avg over 30 frames | IsPlaylistItemSelected x7  CalcTextWidth x6  rows=343
+```
+
+**152 ms per repaint — about 6 fps.** The two calls that looked expensive were
+innocent: only 7 and 6 of them per frame, because barely a dozen rows are ever
+visible. The cost was **`gr.DrawImage` rescaling every visible album cover from
+its full resolution (commonly 1000x1000) down to 39px on EVERY frame**, with
+antialiasing on.
+
+Fix: pre-scale each cover ONCE on arrival, in `on_get_album_art_done`, via
+`GdiBitmap.Resize(w, h, 7)` (7 = HighQualityBicubic — affordable precisely
+because it happens once), and cache the thumbnail. The per-frame draw then
+becomes a straight blit.
+
+```
+before  152.47 ms/paint
+after     4.37 ms/paint      -- 33x
+```
+
+**The general rule:** in an SMP panel, never hand `DrawImage` a bitmap larger
+than the rectangle you are drawing it into. Resize on load, cache the result,
+and keep a separate cache per display size (the list thumbnail is 39px, the
+now-playing cover 76px — they are different bitmaps).
+
+### A hit-testing bug this uncovered
+
+`topbar.js` computed its layout twice: with a `GdiGraphics` during paint (real
+`CalcTextWidth`) and with an estimated `length * 7` on mouse events, because
+mouse callbacks have no `gr`. The two drifted, so `File` responded — it starts
+at the same x — while `View` and everything right of it did nothing at all. The
+paint layout is now cached in `_layout` and reused by every mouse handler, which
+is what the code's own comment had always claimed it did.
+
+### And a third instance of the same drawing bug
+
+A fixed band that does not paint its own ground lets the scrolling list draw
+through it. Fixed in the playlist footer, then the explorer footer, then AGAIN
+in both headers — "01 sunder" was rendering on top of "ART # TITLE / TRACK
+ARTIST". **There is no clipping region in GdiGraphics**, so a row that is only
+partly inside the list region is still drawn in full. Every fixed band must be
+painted AFTER the list and fill its own background.
+
+## The Columns UI splitter: its colour is hardcoded, and its width is the only
+## drag target (2026-08-17)
+
+Asked to make the grey line between panels match the background. **It cannot be
+done from any Columns UI setting**, and this was established by measurement, not
+by reading anything:
+
+- Set **Global** -> Scheme `Custom`, item background `surface` (#0e1415), applied,
+  re-scanned the pixel row: splitter still `#333333`.
+- Set **Core** -> Scheme `Custom`, item background `surface`, applied, re-scanned:
+  splitter still `#333333`. (Core's item background turned out to be `#191919`,
+  which is the *native playlist* background — a useful thing to know, but not
+  this.)
+
+So `#333333` is a hardcoded dark-mode constant in Columns UI.
+
+**And the width is also the hit area.** Preferences > Layout > Misc > "Divider
+width" set to **0** removes the line completely — and removes the ability to
+resize the panels with it, which the user noticed immediately. "Allow manual
+resizing of locked panels" being checked does **not** provide a hit area of its
+own. The two requests (invisible divider, resizable panels) are therefore
+mutually exclusive under Columns UI.
+
+**Settled at 2px**, measured grabbable: a glide-drag with cursor-integrity
+checking moved it from x=439 to x=375, exactly the 64px dragged. Half the visual
+weight of the old 4px slab.
+
+**The gap arithmetic that goes with it.** Every shared panel edge is
+`(GAP - DIVIDER) / 2`, so two panels meeting produce exactly `GAP` between them —
+the same 8px the outer rim uses. At DIVIDER=2 that is an inset of 3:
+
+| file | value |
+|---|---|
+| `smp/playlist.js` | `var IN = { l: 3, t: 3, r: 8, b: 8 };` |
+| `smp/explorer.js` | `var IN = { l: 8, t: 3, r: 3, b: 8 };` |
+| `smp/topbar.js` | `var DIVIDER = 2; var INSET = { l: GAP, t: GAP, r: GAP, b: (GAP - DIVIDER) / 2 };` |
+
+Verified by pixel scan after a restart: left rim 8px, panel gap 8px, right rim
+8px, top rim 8px, top-bar gap 8px, bottom rim 8px. **If DIVIDER changes, all
+three inset values must change with it** — there is no single place that derives
+them, because each panel is a separate script.
+
+**The real fix is the single-panel merge** (see `foobar2000/mockup-layout.html`,
+section 5): one SMP panel drawing library + tabs + list, with our own divider.
+Then there is no Columns UI splitter at all, the divider is `surface`-coloured
+*and* draggable, and drag-and-drop between library and playlist becomes ordinary
+internal state rather than an OS-level drag between two panel windows.
+
+**Two operational notes paid for in this session:**
+
+- **SMP does not hot-reload these scripts from disk.** Deploy-Panels.ps1 writes
+  `profile\caelestia\*.js`, but the running panels kept the old geometry through
+  a deploy and through a window focus change. Restarting foobar is what picks
+  them up. Restart by matching `MainModule.FileName` against the *caelestia*
+  path and refusing if the match is not unique — there are always two foobar
+  processes running and the other one is the user's live player.
+- **The Preferences window is an owned window, so `GetForegroundWindow` returns
+  the main foobar window instead** and makes an open dialog look closed. Find it
+  by enumerating top-level `#32770` windows by title. It also *moves* if a stray
+  click lands on its title bar, so re-read `GetWindowRect` before computing any
+  button coordinate rather than caching an origin.
+
 ## What is genuinely unfinished
 
 Establish this yourself rather than trusting this list — it is inferred from

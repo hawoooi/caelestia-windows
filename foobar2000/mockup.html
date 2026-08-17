@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Caelestia Player</title>
+<link rel="stylesheet" href="theme.css">
+<style>
+/* =============================================================================
+   foobar2000 -- Caelestia, TUI build.
+
+   RULES THIS FILE HOLDS TO
+   1. ONE typeface: 0xProto Nerd Font. Everything, not just numerals.
+   2. ONE type size: 12px. Hierarchy comes from colour and weight only.
+   3. ONE vertical cell: 20px. Every row, control and strip is a multiple of it.
+   4. Layered surfaces, not one big box: surface < container < container-high.
+   5. var(--primary) means "now" and nothing else -- play button, scrub fill,
+      playing row.
+   6. Zero colour literals. Every colour is var(--role) from theme.css.
+   ========================================================================== */
+
+:root {
+  --track: color-mix(in srgb, var(--outline) 20%, transparent);
+  --edge:  color-mix(in srgb, var(--outline) 14%, transparent);
+
+  --cell: 20px;          /* the character cell height everything snaps to */
+  --gap: 6px;
+  --pad: 8px;
+
+  --r-tile:  10px;
+  --r-inner: 6px;
+  --r-row:   5px;
+  --r-full:  999px;
+
+  --mono: "0xProto Nerd Font", ui-monospace, "Cascadia Mono", Consolas, monospace;
+
+  --ms: 140ms;
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0; padding: 0; height: 100%;
+  background: var(--surface);
+  color: var(--on-surface);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: var(--cell);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  border: 0; background: transparent; padding: 0; margin: 0;
+  font: inherit; color: inherit; cursor: pointer;
+  display: grid; place-items: center; border-radius: var(--r-inner);
+}
+button:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+
+.dim  { color: var(--on-surface-variant); }
+.faint{ color: var(--outline); }
+
+.app {
+  height: 100vh;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: var(--gap);
+  padding: var(--gap);
+}
+
+/* ============================================================== ACTIONS ==== *
+   The hotbar. Transport, modes, a level meter and volume -- the foobar
+   toolbar, kept on top where it was.                                          */
+
+.actions {
+  height: 40px;
+  display: flex; align-items: center; gap: var(--gap);
+  padding: 0 var(--pad);
+  background: var(--surface-container);
+  border-radius: var(--r-tile);
+}
+
+.btn {
+  width: 26px; height: 26px;
+  color: var(--on-surface-variant);
+  transition: background var(--ms) var(--ease), color var(--ms) var(--ease);
+}
+.btn:hover { background: var(--surface-container-high); color: var(--on-surface); }
+.btn svg { width: 13px; height: 13px; fill: currentColor; }
+
+.btn--play {                                    /* "now" #1 */
+  background: var(--primary); color: var(--on-primary);
+  border-radius: var(--r-full);
+}
+.btn--play:hover { background: var(--primary); color: var(--on-primary); }
+
+.btn[aria-pressed="true"] { background: var(--surface-container-high); color: var(--on-surface); }
+
+.sep { width: 1px; height: 18px; background: var(--edge); flex: 0 0 auto; margin: 0 2px; }
+
+/* level meter -- decorative, reads as a TUI block gauge */
+.meter { display: flex; align-items: flex-end; gap: 2px; height: 18px; flex: 0 0 auto; padding: 0 2px; }
+.meter i { width: 3px; background: var(--outline); border-radius: 1px; display: block; }
+
+.actions .spacer { flex: 1 1 auto; }
+
+.vol { display: flex; align-items: center; gap: var(--pad); flex: 0 0 auto; }
+.vol svg { width: 13px; height: 13px; fill: var(--on-surface-variant); }
+
+/* thick bars, per direction */
+.bar { position: relative; height: 20px; display: flex; align-items: center; cursor: pointer; }
+.bar__track {
+  width: 100%; height: 8px; border-radius: 4px;
+  background: var(--track);
+}
+.bar__fill {
+  position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+  height: 8px; border-radius: 4px; background: var(--primary);   /* "now" #2 */
+}
+.vol .bar { width: 96px; flex: 0 0 auto; }
+.vol .bar__fill { background: var(--outline); }
+.vol .bar:hover .bar__fill { background: var(--on-surface-variant); }
+
+/* ================================================================= BODY ==== */
+
+.body { display: grid; grid-template-columns: 210px 1fr; gap: var(--gap); min-height: 0; }
+
+/* ------------------------------------------------------------ library ----- */
+
+.lib { display: grid; grid-template-rows: auto 1fr auto; gap: var(--gap); min-height: 0; }
+
+.strip {
+  height: 28px; display: flex; align-items: center; padding: 0 var(--pad);
+  background: var(--surface-container); border-radius: var(--r-inner);
+  color: var(--outline); letter-spacing: 0.08em;
+}
+
+.lib__tree {
+  background: var(--surface-container); border-radius: var(--r-tile);
+  overflow-y: auto; min-height: 0; padding: var(--gap) 5px;
+}
+
+/* a FOLDER: arrow + raised rounded background */
+.dir {
+  display: flex; align-items: center; gap: 6px;
+  height: var(--cell); padding: 0 7px; margin-bottom: 1px;
+  border-radius: var(--r-row);
+  background: var(--surface-container-high);
+  color: var(--on-surface);
+  cursor: default; white-space: nowrap;
+  transition: background var(--ms) var(--ease);
+}
+.dir:hover { background: var(--surface-container-high); }
+.dir__arrow { width: 9px; flex: 0 0 auto; display: grid; place-items: center; color: var(--on-surface-variant); }
+.dir__arrow svg { width: 8px; height: 8px; fill: currentColor; }
+.dir__name { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; }
+.dir__n { color: var(--outline); }
+.dir[aria-selected="true"] { color: var(--on-surface); }
+.dir[aria-selected="true"] .dir__name { font-weight: 700; }
+
+/* a FILE: no arrow, no background, just a line of text */
+.file {
+  display: flex; align-items: center;
+  height: var(--cell); padding: 0 7px 0 22px;
+  border-radius: var(--r-row);
+  color: var(--on-surface-variant);
+  cursor: default; white-space: nowrap;
+  transition: background var(--ms) var(--ease), color var(--ms) var(--ease);
+}
+.file:hover { background: var(--surface-container-high); color: var(--on-surface); }
+.file span { overflow: hidden; text-overflow: ellipsis; }
+
+.lib__foot { display: grid; gap: var(--gap); }
+.field {
+  display: flex; align-items: center; gap: 7px;
+  height: 28px; padding: 0 var(--pad);
+  background: var(--surface-container); border-radius: var(--r-inner);
+  color: var(--on-surface-variant);
+}
+.field svg { width: 11px; height: 11px; fill: var(--outline); flex: 0 0 auto; }
+.field .val { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; }
+
+/* ----------------------------------------------------------- playlist ----- */
+/* three stacked boxes, not one -- tabs / column header / list               */
+
+.pl { display: grid; grid-template-rows: auto auto 1fr auto; gap: var(--gap); min-height: 0; min-width: 0; }
+
+.tabs {
+  display: flex; align-items: center; gap: 3px;
+  height: 28px; padding: 0 4px;
+  background: var(--surface-container); border-radius: var(--r-inner);
+}
+.tab {
+  height: 22px; padding: 0 10px; border-radius: var(--r-row);
+  display: inline-flex; align-items: center;
+  color: var(--on-surface-variant); cursor: default; white-space: nowrap;
+  transition: background var(--ms) var(--ease), color var(--ms) var(--ease);
+}
+.tab:hover { background: var(--surface-container-high); color: var(--on-surface); }
+.tab[aria-selected="true"] { background: var(--surface-container-high); color: var(--on-surface); font-weight: 700; }
+
+/* ONE grid, shared by the column header and every row */
+.grid {
+  display: grid;
+  grid-template-columns: 30px 44px minmax(0, 1fr) 46px 50px;
+  gap: var(--pad); align-items: center;
+}
+
+.cols {
+  height: 28px; padding: 0 var(--pad);
+  background: var(--surface-container); border-radius: var(--r-inner);
+  color: var(--outline); letter-spacing: 0.06em;
+}
+.cols .r { text-align: right; }
+.cols .c { text-align: center; }
+
+.list {
+  background: var(--surface-container); border-radius: var(--r-tile);
+  overflow-y: auto; min-height: 0; padding: var(--gap) var(--pad);
+}
+
+/* group header -- starts AFTER the art column so the art strip is never cut */
+.group { padding-top: 7px; }
+.group:first-child { padding-top: 0; }
+.group__head {
+  display: flex; align-items: center; gap: var(--pad);
+  height: var(--cell);
+  padding-left: calc(30px + var(--pad));      /* clear of the art column */
+}
+.group__label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; color: var(--on-surface); font-weight: 700; }
+.group__label .who { color: var(--on-surface-variant); font-weight: 400; }
+.group__label .yr  { color: var(--outline); font-weight: 400; }
+.group__rule { flex: 1 1 auto; height: 1px; background: var(--edge); min-width: 10px; }
+
+/* rows */
+.row {
+  height: var(--cell); padding: 0;
+  border-radius: var(--r-row);
+  color: var(--on-surface-variant); cursor: default;
+  transition: background var(--ms) var(--ease);
+}
+.row--lead { height: 40px; }
+.row:hover { background: var(--surface-container-high); }
+.row[aria-selected="true"] { background: var(--surface-container-high); color: var(--on-surface); }
+
+.row__art {
+  width: 32px; height: 32px; border-radius: var(--r-inner);
+  background: var(--surface-container-high) center/cover no-repeat;
+  display: grid; place-items: center; overflow: hidden; justify-self: center;
+}
+.row__art svg { width: 11px; height: 11px; fill: var(--outline); }
+.row__art--none { background: none; }
+
+.row__n  { text-align: right; color: var(--outline); }
+.row__ti { color: var(--on-surface); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.row__ti .who { color: var(--on-surface-variant); }
+.row__pc { text-align: right; color: var(--outline); }
+.row__du { text-align: right; color: var(--on-surface-variant); }
+
+/* "now" #3 */
+.row--playing .row__ti,
+.row--playing .row__du,
+.row--playing .row__n { color: var(--primary); }
+.row--playing .row__ti { font-weight: 700; }
+
+.eq { display: inline-flex; align-items: flex-end; gap: 2px; height: 10px; }
+.eq i { width: 2px; border-radius: 1px; background: var(--primary); display: block; }
+
+/* --------------------------------------------------- now playing (below) -- */
+
+.np {
+  height: 40px; display: flex; align-items: center; gap: var(--pad);
+  padding: 0 var(--pad);
+  background: var(--surface-container); border-radius: var(--r-tile);
+}
+.np__art {
+  width: 30px; height: 30px; flex: 0 0 auto; border-radius: var(--r-inner);
+  background: var(--surface-container-high) center/cover no-repeat;
+  display: grid; place-items: center; overflow: hidden;
+}
+.np__art svg { width: 12px; height: 12px; fill: var(--outline); }
+
+.np__meta { flex: 0 0 230px; min-width: 0; }
+.np__t, .np__a { line-height: 15px; }
+.np__t { line-height: 15px; color: var(--on-surface); font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.np__a { line-height: 15px; color: var(--on-surface-variant); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.np__scrub { flex: 1 1 auto; display: flex; align-items: center; gap: var(--pad); min-width: 0; }
+.np__time { color: var(--outline); flex: 0 0 auto; }
+.np__scrub .bar { flex: 1 1 auto; }
+
+/* ============================================================== STATUS ==== */
+
+.status {
+  height: var(--cell);
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 var(--pad);
+  color: var(--on-surface-variant);
+}
+.status .s { color: var(--outline); margin: 0 6px; }
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--track); border-radius: var(--r-full);
+  border: 2px solid transparent; background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--outline); background-clip: content-box; }
+
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ============================================== ACTIONS (top) -->
+  <div class="actions">
+    <button class="btn" aria-label="Stop"><svg viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg></button>
+    <button class="btn" aria-label="Previous"><svg viewBox="0 0 24 24"><path d="M6 5h2v14H6zM20 5v14L9 12z"/></svg></button>
+    <button class="btn btn--play" aria-label="Pause"><svg viewBox="0 0 24 24"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg></button>
+    <button class="btn" aria-label="Next"><svg viewBox="0 0 24 24"><path d="M16 5h2v14h-2zM4 5l11 7-11 7z"/></svg></button>
+
+    <span class="sep"></span>
+
+    <button class="btn" aria-pressed="true" aria-label="Repeat track"><svg viewBox="0 0 24 24"><path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"/></svg></button>
+    <button class="btn" aria-label="Shuffle"><svg viewBox="0 0 24 24"><path d="M10.6 8.6L6.5 4.5 4 7l4.1 4.1 2.5-2.5zM14 4l2.3 2.3-9.8 9.8L4 13.6 2 15.6 6.4 20l12-12L20.7 10 22 4h-8z"/></svg></button>
+    <button class="btn" aria-label="Follow cursor"><svg viewBox="0 0 24 24"><path d="M4 6h16v2H4zm0 5h16v2H4zm0 5h10v2H4z"/></svg></button>
+    <button class="btn" aria-label="Playback order"><svg viewBox="0 0 24 24"><path d="M12 4l4 4h-3v8h-2V8H8l4-4zm7 12l-4 4v-3H7v-2h8v-3l4 4z"/></svg></button>
+
+    <span class="sep"></span>
+
+    <div class="meter" aria-hidden="true">
+      <i style="height:5px"></i><i style="height:9px"></i><i style="height:14px"></i><i style="height:8px"></i>
+      <i style="height:16px"></i><i style="height:11px"></i><i style="height:6px"></i><i style="height:13px"></i>
+      <i style="height:9px"></i><i style="height:4px"></i><i style="height:12px"></i><i style="height:7px"></i>
+    </div>
+
+    <span class="spacer"></span>
+
+    <div class="vol">
+      <svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9H4zm12.5 3a4.5 4.5 0 0 0-2.5-4v8a4.5 4.5 0 0 0 2.5-4z"/></svg>
+      <div class="bar"><div class="bar__track"></div><div class="bar__fill" style="width:62%"></div></div>
+    </div>
+  </div>
+
+  <!-- ===================================================== BODY -->
+  <div class="body">
+
+    <!-- library: folders are raised + arrowed, files are plain -->
+    <div class="lib">
+      <div class="strip">LIBRARY</div>
+
+      <div class="lib__tree">
+        <div class="dir" aria-selected="true">
+          <span class="dir__arrow"><svg viewBox="0 0 24 24"><path d="M7 10l5 5 5-5z"/></svg></span>
+          <span class="dir__name">All Music</span><span class="dir__n">36</span>
+        </div>
+        <div class="file"><span>00 - yeule - Anthems For A Seventeen Year-Old Girl.flac</span></div>
+        <div class="file"><span>1.07 - Naul - 바람기억.flac</span></div>
+        <div class="file"><span>02 - RIGHT LIGHT RISE.flac</span></div>
+        <div class="file"><span>03 - ivri - tower of memories.m4a</span></div>
+        <div class="file"><span>04 Fake Plastic Trees.m4a</span></div>
+        <div class="file"><span>08 - Saiko.mp3</span></div>
+
+        <div class="dir">
+          <span class="dir__arrow"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6z"/></svg></span>
+          <span class="dir__name">ARCAEA</span><span class="dir__n">20</span>
+        </div>
+        <div class="dir">
+          <span class="dir__arrow"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6z"/></svg></span>
+          <span class="dir__name">CHUNITHM</span><span class="dir__n">10</span>
+        </div>
+        <div class="dir">
+          <span class="dir__arrow"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6z"/></svg></span>
+          <span class="dir__name">ENG</span><span class="dir__n">14</span>
+        </div>
+        <div class="dir">
+          <span class="dir__arrow"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6z"/></svg></span>
+          <span class="dir__name">INSTRUMENTAL</span><span class="dir__n">12</span>
+        </div>
+        <div class="dir">
+          <span class="dir__arrow"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6z"/></svg></span>
+          <span class="dir__name">JP</span><span class="dir__n">29</span>
+        </div>
+        <div class="dir">
+          <span class="dir__arrow"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6z"/></svg></span>
+          <span class="dir__name">MAIMAI</span><span class="dir__n">52</span>
+        </div>
+        <div class="dir">
+          <span class="dir__arrow"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6z"/></svg></span>
+          <span class="dir__name">ONGEKI</span><span class="dir__n">6</span>
+        </div>
+      </div>
+
+      <div class="lib__foot">
+        <div class="field"><span class="faint">view</span><span class="val">by folder structure</span></div>
+        <div class="field">
+          <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5z"/></svg>
+          <span class="val faint">filter</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- playlist: tabs / columns / list / now-playing, each its own box -->
+    <div class="pl">
+
+      <div class="tabs">
+        <div class="tab" aria-selected="true">Default Playlist</div>
+        <div class="tab">New Playlist</div>
+      </div>
+
+      <div class="cols grid">
+        <div class="c">ART</div><div class="r">#</div><div>TITLE / TRACK ARTIST</div><div class="r">PLAYS</div><div class="r">TIME</div>
+      </div>
+
+      <div class="list">
+
+        <section class="group">
+          <div class="group__head">
+            <span class="group__label"><span class="who">cyber milk chan</span> · <span class="yr">2022</span> · angel girl is a slut</span>
+            <span class="group__rule"></span>
+          </div>
+          <div class="row grid row--lead row--playing">
+            <div class="row__art" style="background-image:url('art/trk-angel-girl.jpg')"></div>
+            <div class="row__n"><span class="eq"><i style="height:3px"></i><i style="height:10px"></i><i style="height:6px"></i></span></div>
+            <div class="row__ti">angel girl is a slut</div>
+            <div class="row__pc">14</div>
+            <div class="row__du">2:29</div>
+          </div>
+        </section>
+
+        <section class="group">
+          <div class="group__head">
+            <span class="group__label"><span class="who">yeule</span> · <span class="yr">2023</span> · softscars</span>
+            <span class="group__rule"></span>
+          </div>
+          <div class="row grid row--lead">
+            <div class="row__art" style="background-image:url('art/trk-cyber-meat.jpg')"></div>
+            <div class="row__n">1.11</div>
+            <div class="row__ti">cyber meat</div>
+            <div class="row__pc">6</div>
+            <div class="row__du">3:07</div>
+          </div>
+          <div class="row grid">
+            <div class="row__art row__art--none"></div>
+            <div class="row__n">1.04</div>
+            <div class="row__ti">4ui12</div>
+            <div class="row__pc">4</div>
+            <div class="row__du">2:44</div>
+          </div>
+        </section>
+
+        <section class="group">
+          <div class="group__head">
+            <span class="group__label"><span class="who">Glaive, kurtains</span> · <span class="yr">2026</span> · God Save The Three</span>
+            <span class="group__rule"></span>
+          </div>
+          <div class="row grid row--lead">
+            <div class="row__art" style="background-image:url('art/trk-spinning.jpg')"></div>
+            <div class="row__n">1.05</div>
+            <div class="row__ti">Spinning Around <span class="who">// Glaive &amp; kurtains</span></div>
+            <div class="row__pc">4</div>
+            <div class="row__du">2:42</div>
+          </div>
+        </section>
+
+        <section class="group">
+          <div class="group__head">
+            <span class="group__label"><span class="who">yeule</span> · <span class="yr">2021</span> · Don't Be So Hard on Your Own Beauty</span>
+            <span class="group__rule"></span>
+          </div>
+          <div class="row grid row--lead" aria-selected="true">
+            <div class="row__art" style="background-image:url('art/trk-dontbesohard.jpg')"></div>
+            <div class="row__n">1.01</div>
+            <div class="row__ti">Don't Be So Hard on Your Own Beauty</div>
+            <div class="row__pc">5</div>
+            <div class="row__du">3:12</div>
+          </div>
+        </section>
+
+        <section class="group">
+          <div class="group__head">
+            <span class="group__label"><span class="who">TUYU</span> · <span class="yr">2020</span> · It's Raining After All</span>
+            <span class="group__rule"></span>
+          </div>
+          <div class="row grid row--lead">
+            <div class="row__art" style="background-image:url('art/JP-TUYU-It-s-Raining-After-All.jpg')"></div>
+            <div class="row__n">1.07</div>
+            <div class="row__ti">Perhaps I'll be able to become the Sun.</div>
+            <div class="row__pc">34</div>
+            <div class="row__du">4:04</div>
+          </div>
+          <div class="row grid">
+            <div class="row__art row__art--none"></div>
+            <div class="row__n">1.05</div>
+            <div class="row__ti">Aoi</div>
+            <div class="row__pc">12</div>
+            <div class="row__du">3:36</div>
+          </div>
+        </section>
+
+        <section class="group">
+          <div class="group__head">
+            <span class="group__label"><span class="who">TUYU</span> · <span class="yr">2021</span> · I'll put you in misery</span>
+            <span class="group__rule"></span>
+          </div>
+          <div class="row grid row--lead">
+            <div class="row__art" style="background-image:url('art/JP-TUYU-I-ll-put-you-in-misery.jpg')"></div>
+            <div class="row__n">1.08</div>
+            <div class="row__ti">Faithful dog &ldquo;Hachi&rdquo;</div>
+            <div class="row__pc">41</div>
+            <div class="row__du">3:01</div>
+          </div>
+        </section>
+
+        <section class="group">
+          <div class="group__head">
+            <span class="group__label"><span class="who">Coldplay</span> · <span class="yr">2016</span> · A Rush of Blood to the Head</span>
+            <span class="group__rule"></span>
+          </div>
+          <div class="row grid row--lead">
+            <div class="row__art"><svg viewBox="0 0 24 24"><path d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6z"/></svg></div>
+            <div class="row__n">1.04</div>
+            <div class="row__ti">The Scientist</div>
+            <div class="row__pc">1</div>
+            <div class="row__du">5:09</div>
+          </div>
+        </section>
+
+        <section class="group">
+          <div class="group__head">
+            <span class="group__label"><span class="who">Tracy Chapman</span> · <span class="yr">1988</span> · Tracy Chapman</span>
+            <span class="group__rule"></span>
+          </div>
+          <div class="row grid row--lead">
+            <div class="row__art"><svg viewBox="0 0 24 24"><path d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6z"/></svg></div>
+            <div class="row__n">1.02</div>
+            <div class="row__ti">Fast Car</div>
+            <div class="row__pc">41</div>
+            <div class="row__du">4:57</div>
+          </div>
+        </section>
+
+      </div>
+
+      <!-- now playing: below the list, only as wide as this pane -->
+      <div class="np">
+        <div class="np__art" style="background-image:url('art/trk-angel-girl.jpg')"></div>
+        <div class="np__meta">
+          <div class="np__t">angel girl is a slut</div>
+          <div class="np__a">cyber milk chan</div>
+        </div>
+        <div class="np__scrub">
+          <div class="np__time">2:07</div>
+          <div class="bar"><div class="bar__track"></div><div class="bar__fill" style="width:85%"></div></div>
+          <div class="np__time">2:29</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- =================================================== STATUS -->
+  <div class="status">
+    <div><span class="faint">36 items</span><span class="s">·</span><span class="faint">2:16:12</span></div>
+    <div class="faint">FLAC<span class="s">·</span>790 kbps<span class="s">·</span>44100 Hz<span class="s">·</span>stereo</div>
+  </div>
+
+</div>
+</body>
+</html>
