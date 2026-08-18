@@ -45,12 +45,14 @@ var DT_ROW_C = DT_ROW | DT.CENTER;
 // right and left a dead gap in the middle of each line. Finder puts the icon in
 // the header and lets the rows be dense.
 var G = {
-    cardR:      8,   // = the Windows 11 window corner radius
+    cardR:      8,   // = the Windows 11 window corner radius, the base radius
     listPad:   12,
     radius:     5,
-    tabsH:     34,
-    colsH:     26,
-    footH:     72,
+    tabsH:     28,
+    colsH:     20,
+    colsDy:     2,   // header labels sit 2px low: see drawCols
+    footH:     52,
+    footPad:    7,
     scrollW:    9
 };
 // ------------------------------------------------------- the flat table ----
@@ -65,12 +67,17 @@ var G = {
 // artist is what pays for the wide columns -- the two facts that always travel
 // together take one column instead of two, so Album gets real room instead of
 // being crushed to an ellipsis.
-G.rowH   = 44;
-G.artPx  = 34;
-G.titleH = 16;   // the two stacked lines, tight enough that the pair sits
-G.artH   = 14;   // optically centred rather than floating high
+G.rowH   = 34;
+G.artPx  = 26;
+G.artR   = 4;    // the cover's own corners -- see roundArt
+G.titleH = 15;   // the two stacked lines, tight enough that the pair sits
+G.artH   = 13;   // optically centred rather than floating high
 
-var COL = { num: 26, art: 34, type: 54, time: 48, gap: 12 };
+var COL = { num: 26, art: 26, type: 50, time: 46, gap: 10 };
+
+// A field with nothing in it still gets a mark, so the row keeps its shape and
+// an empty value reads as "none" rather than as something failing to render.
+var DASH = '—';
 
 // ---------------------------------------------------------- the tab strip --
 G.tabBtnW  = 26;    // the + and folder controls at the left of the strip
@@ -78,7 +85,8 @@ G.tabBtnGap = 2;
 G.tabSepW  = 13;    // rule between the controls and the first tab
 G.tabW     = 150;   // the shared flex basis every tab gets
 G.tabGap   = 2;
-G.tabInact = 26;    // inactive tab height; the active one runs to the card edge
+G.tabActive = 26;   // bottom edge lands on colsY(), which is what makes it merge
+G.tabInact  = 22;   // inactive tabs float slightly above the card
 G.tabPad   = 10;    // inside a tab
 G.tabX     = 18;    // the close affordance
 
@@ -128,7 +136,10 @@ function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }
 
 function card()   { return { x: IN.l, y: IN.t, w: W - IN.l - IN.r, h: H - IN.t - IN.b }; }
 function tabsY()  { return IN.t; }
-function colsY()  { return IN.t + G.tabsH + 1; }
+// No +1 here. That leftover offset left a 1px band of window ground between the
+// active tab's bottom edge and the top of the column header, which read as a
+// gap the tab was floating above rather than merging into.
+function colsY()  { return IN.t + G.tabsH; }
 function listY()  { return colsY() + G.colsH + 1; }
 function footY()  { return H - IN.b - G.footH; }
 function listH()  { return Math.max(0, footY() - 1 - listY()); }
@@ -201,7 +212,7 @@ function requestArt(item) {
 // not guessed, and it was the entire reason scrolling felt laggy. Resizing once
 // makes the per-frame cost a straight blit.
 var ART_PX = G.artPx;                 // 34 -- the cover on a track row
-var NP_PX  = G.footH;                 // 72 -- the now-playing cover
+var NP_PX  = G.footH;                 // 52 -- the now-playing cover, full-bleed
 
 function requestNowPlayingArt() {
     if (!fb.IsPlaying) { npArt = null; npKey = ''; return; }
@@ -214,10 +225,40 @@ function requestNowPlayingArt() {
     utils.GetAlbumArtAsync(window.ID, h, 0);
 }
 
+// ROUNDED COVERS. DrawImage draws a rectangle and GdiGraphics has no clipping
+// region, so the corners cannot be cut at paint time -- which is why the real
+// covers had hard square corners while the missing-art placeholders, drawn with
+// FillRoundRect, were rounded. The fix is to round the BITMAP: build a stencil
+// and punch it into the alpha channel with ApplyMask.
+//
+// Done once, next to the resize, so it costs nothing per frame. Fail-soft: if
+// ApplyMask is missing from this SMP build the square cover is still returned
+// rather than losing the art entirely.
+//
+// The two mask values are an alpha stencil, NOT theme colours -- ApplyMask reads
+// only luminance. Built arithmetically so no colour literal appears in a panel.
+var MASK_KEEP = 255 * 16777216;                                    // opaque black
+var MASK_DROP = MASK_KEEP + 255 * 65536 + 255 * 256 + 255;         // opaque white
+
+function roundArt(img, size, r) {
+    if (!img) return null;
+    try {
+        var mask = gdi.CreateImage(size, size);
+        var mg = mask.GetGraphics();
+        mg.FillSolidRect(0, 0, size, size, MASK_DROP);
+        mg.SetSmoothingMode(2);
+        mg.FillRoundRect(0, 0, size - 1, size - 1, r, r, MASK_KEEP);
+        mg.SetSmoothingMode(0);
+        mask.ReleaseGraphics(mg);
+        var out = img.ApplyMask(mask);
+        return out ? out : img;
+    } catch (e) { return img; }
+}
+
 function on_get_album_art_done(handle, art_id, image, image_path) {
     var key = TF_GROUPKEY.EvalWithMetadb(handle);
     // 7 = HighQualityBicubic. Worth it here precisely because it happens once.
-    art[key] = image ? image.Resize(ART_PX, ART_PX, 7) : null;
+    art[key] = image ? roundArt(image.Resize(ART_PX, ART_PX, 7), ART_PX, G.artR) : null;
     if (key === npKey) npArt = image ? image.Resize(NP_PX, NP_PX, 7) : null;
     delete artPending[key];
     window.Repaint();
@@ -322,11 +363,13 @@ function drawTabs(gr, c) {
         var hot = (t === hoverTab);
         var ty, th;
         if (active) {
-            ty = tabsY() + (G.tabsH - 30); th = 30;
+            // Bottom edge lands exactly on colsY(), so the tab and the header
+            // band below it are continuous -- that flush join IS the merge.
+            ty = tabsY() + (G.tabsH - G.tabActive); th = G.tabActive;
             // extended past the card edge so only its TOP corners show round
             fillRound(gr, tb.x, ty, tb.w, th + G.cardR, G.cardR, THEME.surface_container);
         } else {
-            ty = tabsY() + (G.tabsH - G.tabInact) - 2; th = G.tabInact;
+            ty = tabsY() + (G.tabsH - G.tabInact) - 1; th = G.tabInact;
             if (hot) fillRound(gr, tb.x, ty, tb.w, th, G.cardR, THEME.stripe);
             // the hairline between two inactive neighbours, as Chrome draws it
             if (t > 0 && !hot && tabs[t - 1].i !== plman.ActivePlaylist) {
@@ -357,12 +400,16 @@ function drawCols(gr, c) {
     // Extended past its own height so only the top corners come out round.
     fillRound(gr, c.x, y, c.w, G.colsH + G.cardR, G.cardR, THEME.surface_container);
     gr.FillSolidRect(c.x, listY() - 1, c.w, 1, THEME.rule);
-    var m = metrics(c);
-    gr.GdiDrawText('#',     f_lab, THEME.outline, m.numX,   y, COL.num,  G.colsH, DT_ROW_R);
-    gr.GdiDrawText('TITLE', f_lab, THEME.outline, m.textX,  y, m.titleW, G.colsH, DT_ROW);
-    gr.GdiDrawText('ALBUM', f_lab, THEME.outline, m.albumX, y, m.albumW, G.colsH, DT_ROW);
-    gr.GdiDrawText('TYPE',  f_lab, THEME.outline, m.typeX,  y, COL.type, G.colsH, DT_ROW);
-    gr.GdiDrawText('TIME',  f_lab, THEME.outline, m.timeX,  y, COL.time, G.colsH, DT_ROW_R);
+    // The labels sit colsDy lower than centre. A line box reserves descender
+    // space whether or not the glyphs use it, and these are all-caps with no
+    // descenders at all, so a mathematically centred label reads as high --
+    // the same effect that made the stacked row text float.
+    var m = metrics(c), ty = y + G.colsDy, th = G.colsH - G.colsDy;
+    gr.GdiDrawText('#',     f_lab, THEME.outline, m.numX,   ty, COL.num,  th, DT_ROW_R);
+    gr.GdiDrawText('TITLE', f_lab, THEME.outline, m.textX,  ty, m.titleW, th, DT_ROW);
+    gr.GdiDrawText('ALBUM', f_lab, THEME.outline, m.albumX, ty, m.albumW, th, DT_ROW);
+    gr.GdiDrawText('TYPE',  f_lab, THEME.outline, m.typeX,  ty, COL.type, th, DT_ROW);
+    gr.GdiDrawText('TIME',  f_lab, THEME.outline, m.timeX,  ty, COL.time, th, DT_ROW_R);
 }
 
 // One place that decides where every column lives, used by the header, the
@@ -433,7 +480,7 @@ function drawList(gr, c) {
         var img = art[it.key];
         var ay = y + Math.floor((it.h - COL.art) / 2);
         if (img) gr.DrawImage(img, m.artX, ay, COL.art, COL.art, 0, 0, img.Width, img.Height);
-        else     fillRound(gr, m.artX, ay, COL.art, COL.art, 3, THEME.surface_container_high);
+        else     fillRound(gr, m.artX, ay, COL.art, COL.art, G.artR, THEME.surface_container_high);
 
         // Title over Artist. The pair is centred as a BLOCK: the two line
         // heights are set tight rather than left at the font's default leading,
@@ -442,12 +489,15 @@ function drawList(gr, c) {
         var blockH = G.titleH + G.artH;
         var by = y + Math.floor((it.h - blockH) / 2);
         gr.GdiDrawText(it.title, fTitle, cTitle, m.textX, by, m.titleW, G.titleH, DT_ROW);
-        if (it.artist) {
-            gr.GdiDrawText(it.artist, f_small, THEME.on_surface_variant,
-                           m.textX, by + G.titleH, m.titleW, G.artH, DT_ROW);
-        }
+        // An empty artist still gets a mark. Drawing nothing leaves the row a
+        // different shape from its neighbours and reads as a rendering failure
+        // rather than as a track with no artist tag.
+        gr.GdiDrawText(it.artist || DASH, f_small,
+                       it.artist ? THEME.on_surface_variant : THEME.outline,
+                       m.textX, by + G.titleH, m.titleW, G.artH, DT_ROW);
 
-        gr.GdiDrawText(it.album, f_ui, THEME.on_surface_variant,
+        gr.GdiDrawText(it.album || DASH, f_ui,
+                       it.album ? THEME.on_surface_variant : THEME.outline,
                        m.albumX, y, m.albumW, it.h, DT_ROW);
         // Type is plain dimmed text, not a badge: a badge would give the
         // container more visual weight than the track title, and in a library
@@ -490,21 +540,28 @@ function drawFooter(gr, c) {
     var tx = c.x + pad;
     var fx = tx + idW + 16;
 
+    // BOTH lines are always drawn, on both sides. Leaving the second line out
+    // when nothing is playing made the footer change height by eye and read as
+    // half-rendered; a dash says "nothing here" and keeps the block's shape.
+    var y1 = y + G.footPad, h1 = 20;
+    var y2 = y1 + h1,       h2 = 18;
+
     if (fb.IsPlaying) {
         gr.GdiDrawText(fb.TitleFormat('%title%').Eval(), f_np, THEME.on_surface,
-                       tx, y + 14, idW, 22, DT_ROW);
-        gr.GdiDrawText(fb.TitleFormat('[%artist%][   %album%]').Eval(), f_npSub,
-                       THEME.on_surface_variant, tx, y + 36, idW, 20, DT_ROW);
+                       tx, y1, idW, h1, DT_ROW);
+        var sub = fb.TitleFormat('[%artist%][   %album%]').Eval();
+        gr.GdiDrawText(sub || DASH, f_npSub,
+                       sub ? THEME.on_surface_variant : THEME.outline, tx, y2, idW, h2, DT_ROW);
     } else {
-        gr.GdiDrawText('Nothing playing', f_np, THEME.on_surface_variant, tx, y + 14, idW, 22, DT_ROW);
+        gr.GdiDrawText('Nothing playing', f_np, THEME.on_surface_variant, tx, y1, idW, h1, DT_ROW);
+        gr.GdiDrawText(DASH, f_npSub, THEME.outline, tx, y2, idW, h2, DT_ROW);
     }
 
     gr.GdiDrawText(plman.GetPlaylistName(playlistIdx) + '   ' + totalText,
-                   f_small, THEME.on_surface_variant, fx, y + 14, factsW, 22, DT_ROW_R);
-    if (fb.IsPlaying) {
-        gr.GdiDrawText(fb.TitleFormat('[%codec%][   %bitrate% kbps][   %samplerate% Hz]').Eval(),
-                       f_small, THEME.outline, fx, y + 36, factsW, 20, DT_ROW_R);
-    }
+                   f_small, THEME.on_surface_variant, fx, y1, factsW, h1, DT_ROW_R);
+    var fmt = fb.IsPlaying
+        ? fb.TitleFormat('[%codec%][   %bitrate% kbps][   %samplerate% Hz]').Eval() : '';
+    gr.GdiDrawText(fmt || DASH, f_small, THEME.outline, fx, y2, factsW, h2, DT_ROW_R);
 }
 
 
