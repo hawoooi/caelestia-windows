@@ -49,7 +49,7 @@ var GAP = 8;
 // panel and draw our own divider -- see docs/foobar2000-briefing.md.
 var DIVIDER = 2;
 var INSET = { l: GAP, t: GAP, r: GAP, b: (GAP - DIVIDER) / 2 };
-var CARD_R = 8;                                        // = Windows 11 window radius
+var CARD_R = 0;                                        // square background; hover pills keep their 4
 
 var T = {
     btnW:     28,

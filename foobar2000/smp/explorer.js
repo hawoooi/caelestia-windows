@@ -68,6 +68,22 @@ var f_ui, f_bold, f_icon, f_small;
 var root = null;          // {name, children:[], files:[], count, open}
 var rows = [];            // flattened visible rows
 var scrollY = 0;
+
+// ------------------------------------------------------ horizontal scroll --
+// Names are no longer truncated into nothing: the tree scrolls sideways to
+// reach a long one. This works here in a way it could not in the browser
+// mockup, where rows sized to their own content stopped at the viewport edge
+// and the counts drifted out from under each other. Here the panel draws every
+// row itself, so ONE offset moves the whole grid together and every column
+// stays in register at any scroll position.
+//
+// The content width is measured from the longest row rather than the visible
+// ones, so the scrollbar does not resize as you scroll vertically. 0xProto is
+// MONOSPACE, so one character width measured once gives every row's extent
+// without calling CalcTextWidth per row.
+var scrollX = 0, contentW = 0, charW = 0;
+var hThumb = null;        // {x, w} of the drawn thumb, for hit-testing
+var hDrag = null;         // {grabX, startScroll} while dragging it
 var hover = -1;
 var selected = -1;
 var VW = 0, VH = 0;
@@ -152,9 +168,28 @@ function flatten() {
     walk(root, 0, 0);
     rows.spines = spines;
     scrollY = clampE(scrollY, 0, maxScrollE());
+    measureContent();
+    scrollX = clampE(scrollX, 0, maxScrollX());
 }
 
 function rebuild() { buildTree(); flatten(); window.Repaint(); }
+
+// Widest row, in pixels. Recomputed whenever the visible rows change; needs
+// charW, which only exists once something has been painted.
+function measureContent() {
+    if (!charW) { contentW = 0; return; }
+    var maxW = 0;
+    for (var i = 0; i < rows.length; i++) {
+        var r = rows[i];
+        var text = (r.kind === 'dir') ? r.node.name : r.file.name;
+        var w = E.pad + r.indent + E.fileIndent + text.length * charW;
+        if (r.kind === 'dir') w += 36 + E.nodePad;      // the count column
+        if (w > maxW) maxW = w;
+    }
+    contentW = maxW + E.pad;
+}
+function viewW()      { return Math.max(0, VW - IN.l - IN.r - E.scrollW); }
+function maxScrollX() { return Math.max(0, contentW - viewW()); }
 
 // -------------------------------------------------------------------- paint --
 
@@ -183,7 +218,7 @@ function fillRoundE(gr, x, y, w, h, r, colour) {
 // has. Divider width 0 looks cleaner but makes panels impossible to resize --
 // there is nothing to grab -- so 4px of it is the price of a draggable split.
 var IN = { l: 8, t: 3, r: 3, b: 8 };
-var CARD = { r: 8, headH: 28, footH: 29 };
+var CARD = { r: 0, headH: 28, footH: 29 };   // square backgrounds; E.radius still rounds highlights
 
 function cardTop()  { return IN.t + CARD.headH + 1; }
 function cardFoot() { return VH - IN.b - CARD.footH; }
@@ -196,7 +231,9 @@ function on_paint(gr) {
     if (!root) return;
     gr.SetTextRenderingHint(5);
 
-
+    // One character width, measured once. 0xProto is monospace, so this is all
+    // that is needed to know how wide any row is without measuring each one.
+    if (!charW) { charW = gr.CalcTextWidth('0', f_ui); measureContent(); }
 
     var top = cardTop();
     var availW = VW - IN.r - E.scrollW;
@@ -209,7 +246,7 @@ function on_paint(gr) {
         var y0 = sp[s].y0 - scrollY + top, y1 = sp[s].y1 - scrollY + top;
         var bot = cardFoot();
         if (y1 < top || y0 > bot) continue;
-        gr.FillSolidRect(sp[s].x, Math.max(y0 + 2, top), 1,
+        gr.FillSolidRect(sp[s].x - scrollX, Math.max(y0 + 2, top), 1,
                          Math.max(0, Math.min(y1, bot) - Math.max(y0 + 2, top)), THEME.guide);
     }
 
@@ -219,8 +256,11 @@ function on_paint(gr) {
         if (y + E.rowH < top) continue;
         if (y > cardFoot()) break;
 
-        var x = IN.l + E.pad + r.indent;
-        var w = availW - x - E.pad;
+        // ONE offset moves the whole grid. Widths are computed from the
+        // unscrolled origin so a row keeps its shape at any scroll position.
+        var x0 = IN.l + E.pad + r.indent;
+        var x = x0 - scrollX;
+        var w = availW - x0 - E.pad;
 
         // FINDER BANDING, matching the playlist. The band spans the full card
         // width regardless of how deep the row is indented -- banding that
@@ -281,6 +321,22 @@ function on_paint(gr) {
         var ms = maxScrollE();
         var ty = top + (avail - thumbH) * (ms > 0 ? scrollY / ms : 0);
         fillRoundE(gr, VW - IN.r - E.scrollW + 2, ty, E.scrollW - 4, thumbH, 3, THEME.track);
+    }
+
+    // horizontal scrollbar, along the bottom of the tree area, only when there
+    // is something to reach. Its own ground is painted so scrolled rows passing
+    // underneath cannot show through -- no clipping region, as everywhere else.
+    hThumb = null;
+    var mx = maxScrollX();
+    if (mx > 0) {
+        var trackX = IN.l + E.pad, trackW = viewW() - E.pad;
+        var by = cardFoot() - 1 - E.scrollW;
+        gr.FillSolidRect(IN.l, by, VW - IN.l - IN.r, E.scrollW, THEME.surface_container);
+        var thumbW = Math.max(28, trackW * viewW() / contentW);
+        var tx = trackX + (trackW - thumbW) * (scrollX / mx);
+        fillRoundE(gr, tx, by + 2, thumbW, E.scrollW - 4, 3,
+                   hDrag ? THEME.guide : THEME.track);
+        hThumb = { x: tx, w: thumbW, y: by, h: E.scrollW, trackX: trackX, trackW: trackW };
     }
 
     // Header drawn AFTER the tree and painting its own ground: a scrolled row
@@ -347,6 +403,12 @@ function collectHandles(i) {
 }
 
 function on_mouse_move(x, y, mask) {
+    if (hDrag && hThumb) {
+        var span = hThumb.trackW - hThumb.w;
+        var per  = span > 0 ? maxScrollX() / span : 0;
+        scrollX = clampE(hDrag.start + (x - hDrag.grabX) * per, 0, maxScrollX());
+        window.Repaint(); return;
+    }
     // A press only becomes a drag past a slop threshold, so an ordinary click --
     // which always moves the cursor a pixel or two -- still expands a folder.
     if (pressAt && (mask & 1)) {
@@ -361,14 +423,29 @@ function on_mouse_move(x, y, mask) {
     if (i !== hover) { hover = i; window.Repaint(); }
 }
 function on_mouse_leave() { if (hover !== -1) { hover = -1; window.Repaint(); } }
-function on_mouse_lbtn_up(x, y) { pressAt = null; }
+function on_mouse_lbtn_up(x, y) { pressAt = null; if (hDrag) { hDrag = null; window.Repaint(); } }
 
 function on_mouse_wheel(step) {
     var next = clampE(scrollY - step * E.rowH * 3, 0, maxScrollE());
     if (next !== scrollY) { scrollY = next; window.Repaint(); }
 }
+// tilt wheel / horizontal scroll gesture
+function on_mouse_wheel_h(step) {
+    var next = clampE(scrollX + step * 40, 0, maxScrollX());
+    if (next !== scrollX) { scrollX = next; window.Repaint(); }
+}
 
 function on_mouse_lbtn_down(x, y) {
+    // the horizontal thumb first: it overlaps the bottom row band, and a grab
+    // there must scroll rather than select whatever row is behind it
+    if (hThumb && y >= hThumb.y && y < hThumb.y + hThumb.h) {
+        if (x >= hThumb.x && x < hThumb.x + hThumb.w) {
+            hDrag = { grabX: x, start: scrollX }; window.Repaint(); return;
+        }
+        // clicking the empty track jumps a page toward the click
+        scrollX = clampE(scrollX + (x < hThumb.x ? -viewW() : viewW()), 0, maxScrollX());
+        window.Repaint(); return;
+    }
     var i = rowAtE(y);
     if (i < 0) { pressAt = null; return; }
     pressAt = { x: x, y: y, row: i };

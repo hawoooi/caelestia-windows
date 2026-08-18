@@ -45,7 +45,11 @@ var DT_ROW_C = DT_ROW | DT.CENTER;
 // right and left a dead gap in the middle of each line. Finder puts the icon in
 // the header and lets the rows be dense.
 var G = {
-    cardR:      8,   // = the Windows 11 window corner radius, the base radius
+    // Backgrounds are SQUARE for now, by request; radius is spent only where it
+    // marks something -- a highlight or a tab. Two separate values so the two
+    // can never drift back into one.
+    cardR:      0,   // panel/card/header/footer backgrounds
+    tabR:       8,   // the tabs, which keep theirs
     listPad:   12,
     radius:     5,
     tabsH:     28,
@@ -367,15 +371,15 @@ function drawTabs(gr, c) {
             // band below it are continuous -- that flush join IS the merge.
             ty = tabsY() + (G.tabsH - G.tabActive); th = G.tabActive;
             // extended past the card edge so only its TOP corners show round
-            fillRound(gr, tb.x, ty, tb.w, th + G.cardR, G.cardR, THEME.surface_container);
+            fillRound(gr, tb.x, ty, tb.w, th + G.tabR, G.tabR, THEME.surface_container);
         } else {
             ty = tabsY() + (G.tabsH - G.tabInact) - 1; th = G.tabInact;
-            if (hot) fillRound(gr, tb.x, ty, tb.w, th, G.cardR, THEME.stripe);
+            if (hot) fillRound(gr, tb.x, ty, tb.w, th, G.tabR, THEME.stripe);
         }
         // a tab being dragged onto lights up and takes an accent underline, so
         // the target is unambiguous even when it is the active tab
         if (t === dropTab) {
-            fillRound(gr, tb.x, ty, tb.w, th, G.cardR, THEME.surface_container_high);
+            fillRound(gr, tb.x, ty, tb.w, th, G.tabR, THEME.surface_container_high);
             gr.FillSolidRect(tb.x, ty + th - 2, tb.w, 2, THEME.primary);
         }
         if (!active) {
