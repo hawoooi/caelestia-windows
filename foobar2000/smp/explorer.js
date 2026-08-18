@@ -350,8 +350,27 @@ function on_mouse_lbtn_down(x, y) {
     window.Repaint();
 }
 
-// Double-click sends the folder (or the file) to the active playlist and plays
-// it — the same thing double-clicking does everywhere else in foobar.
+// The scratch playlist every library activation lands in. Because it is
+// understood to be scratch, replacing its contents is not destructive and needs
+// no confirmation -- which is the whole point.
+var LIBRARY_PLAYLIST = 'Library';
+
+function libraryPlaylist() {
+    for (var i = 0; i < plman.PlaylistCount; i++) {
+        if (plman.GetPlaylistName(i) === LIBRARY_PLAYLIST) return i;
+    }
+    return plman.CreatePlaylist(plman.PlaylistCount, LIBRARY_PLAYLIST);
+}
+
+// Double-click sends the folder (or the file) to the LIBRARY playlist and plays
+// it.
+//
+// It used to call plman.ClearPlaylist(plman.ActivePlaylist) -- so browsing the
+// library silently destroyed whatever the user had curated in the playlist they
+// happened to be looking at, with no warning and no undo. Reported as "i dont
+// like the behavior when i click on a folder and it overwrites my playlist
+// view", and it should never have been the default. A dedicated scratch
+// playlist gives browsing somewhere to go that is nobody's work.
 function on_mouse_lbtn_dblclk(x, y) {
     var i = rowAtE(y);
     if (i < 0) return;
@@ -365,9 +384,10 @@ function on_mouse_lbtn_dblclk(x, y) {
     if (!handles.length) return;
     var hl = fb.CreateHandleList();
     for (var h = 0; h < handles.length; h++) hl.Add(handles[h]);
-    var pl = plman.ActivePlaylist;
+    var pl = libraryPlaylist();
     plman.ClearPlaylist(pl);
     plman.InsertPlaylistItems(pl, 0, hl);
+    plman.ActivePlaylist = pl;
     plman.ExecutePlaylistDefaultAction(pl, 0);
 }
 
