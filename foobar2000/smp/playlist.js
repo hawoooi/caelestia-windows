@@ -371,6 +371,14 @@ function drawTabs(gr, c) {
         } else {
             ty = tabsY() + (G.tabsH - G.tabInact) - 1; th = G.tabInact;
             if (hot) fillRound(gr, tb.x, ty, tb.w, th, G.cardR, THEME.stripe);
+        }
+        // a tab being dragged onto lights up and takes an accent underline, so
+        // the target is unambiguous even when it is the active tab
+        if (t === dropTab) {
+            fillRound(gr, tb.x, ty, tb.w, th, G.cardR, THEME.surface_container_high);
+            gr.FillSolidRect(tb.x, ty + th - 2, tb.w, 2, THEME.primary);
+        }
+        if (!active) {
             // the hairline between two inactive neighbours, as Chrome draws it
             if (t > 0 && !hot && tabs[t - 1].i !== plman.ActivePlaylist) {
                 gr.FillSolidRect(tb.x - 1, ty + 6, 1, th - 12, THEME.rule);
@@ -505,6 +513,19 @@ function drawList(gr, c) {
         gr.GdiDrawText(it.type, f_small, THEME.outline, m.typeX, y, COL.type, it.h, DT_ROW);
         gr.GdiDrawText(it.time, f_small, isPlaying ? THEME.primary : THEME.on_surface_variant,
                        m.timeX, y, COL.time, it.h, DT_ROW_R);
+    }
+
+    // THE DROP INDICATOR: a line BETWEEN rows, not a highlight ON one. A
+    // highlighted row says "replace this"; a line in the gap says "insert here",
+    // which is what actually happens.
+    if (dropAt >= 0) {
+        var dy = top - scroll + (dropAt < items.length
+                                 ? items[dropAt].y
+                                 : items[items.length - 1].y + items[items.length - 1].h);
+        if (!items.length) dy = top + G.listPad;
+        if (dy >= top && dy <= top + avail) {
+            gr.FillSolidRect(rowX, dy - 1, rowW, 2, THEME.primary);
+        }
     }
 
     var total = contentH();
@@ -730,6 +751,71 @@ function on_mouse_lbtn_dblclk(x, y) {
     var i = rowAt(x, y);
     if (i < 0 || items[i].kind !== 'track') return;
     plman.ExecutePlaylistDefaultAction(playlistIdx, items[i].index);
+}
+
+// ------------------------------------------------------------ drop target --
+// The library panel starts a real OLE drag with fb.DoDragDrop, so this receives
+// it like any other drop source -- the two panels do NOT have to be merged for
+// this to work, which is what the project record used to claim.
+//
+// The action object carries Base, Effect, Playlist, ToSelect and IsInternal;
+// setting Playlist and Base is what tells foobar where the items land, and SMP
+// performs the insert itself.
+var DROP_NONE = 0, DROP_COPY = 1;
+var dropAt = -1;      // insertion index within the list, -1 = not dropping here
+var dropTab = -1;     // a tab being hovered instead, -1 = none
+
+// The insertion point is the nearest row BOUNDARY, not the row under the
+// cursor: a drop lands between two tracks, and the indicator has to say which
+// gap it will land in.
+function dropIndexAt(y) {
+    if (!items.length) return 0;
+    var yy = y - listY() + scroll;
+    for (var i = 0; i < items.length; i++) {
+        if (yy < items[i].y + items[i].h / 2) return i;
+    }
+    return items.length;
+}
+
+function updateDrop(x, y) {
+    if (y < colsY()) {                       // over the tab strip
+        var t = tabAt(x, y);
+        dropTab = t; dropAt = -1;
+        return t >= 0;
+    }
+    dropTab = -1;
+    dropAt = dropIndexAt(y);
+    return true;
+}
+
+function on_drag_enter(action, x, y, mask) {
+    action.Effect = updateDrop(x, y) ? DROP_COPY : DROP_NONE;
+    window.Repaint();
+}
+function on_drag_over(action, x, y, mask) {
+    var wasAt = dropAt, wasTab = dropTab;
+    action.Effect = updateDrop(x, y) ? DROP_COPY : DROP_NONE;
+    if (dropAt !== wasAt || dropTab !== wasTab) window.Repaint();
+}
+function on_drag_leave() { dropAt = -1; dropTab = -1; window.Repaint(); }
+
+function on_drag_drop(action, x, y, mask) {
+    updateDrop(x, y);
+    if (dropTab >= 0) {
+        // Dropped on a tab: append to THAT playlist and leave the view where it
+        // is. Switching to it would hide the list the user was arranging.
+        var tabs = tabRects();
+        var pl = tabs[dropTab].i;
+        action.Playlist = pl;
+        action.Base = plman.PlaylistItemCount(pl);
+    } else {
+        action.Playlist = playlistIdx;
+        action.Base = dropAt < 0 ? 0 : dropAt;
+    }
+    action.ToSelect = true;
+    action.Effect = DROP_COPY;
+    dropAt = -1; dropTab = -1;
+    window.Repaint();
 }
 
 // ------------------------------------------------------------------ events --

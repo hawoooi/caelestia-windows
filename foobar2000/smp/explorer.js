@@ -323,11 +323,45 @@ function rowAtE(y) {
     return -1;
 }
 
-function on_mouse_move(x, y) {
+// ------------------------------------------------------------ drag source --
+// Dragging OUT of an SMP panel is possible after all: fb.DoDragDrop(window_id,
+// handle_list, effect) starts a real OLE drag, and the playlist panel receives
+// it through on_drag_enter/over/drop. Both are in this build -- checked against
+// the component's own bundled JSDoc, not assumed -- so library-to-playlist drag
+// and drop does NOT require merging the two panels into one, which is what the
+// project record previously claimed.
+//
+// DoDragDrop BLOCKS until the drop completes, so nothing may be left half-set
+// when it is called.
+var DROP_COPY = 1;                 // DROPEFFECT_COPY
+var DRAG_SLOP = 5;                 // px before a press becomes a drag
+var pressAt = null;
+
+function collectHandles(i) {
+    if (i < 0 || i >= rows.length) return null;
+    var lib = fb.GetLibraryItems();
+    var hl = fb.CreateHandleList();
+    if (rows[i].kind === 'file') hl.Add(lib[rows[i].file.index]);
+    else collectFiles(rows[i].node, function (idx) { hl.Add(lib[idx]); });
+    return hl.Count ? hl : null;
+}
+
+function on_mouse_move(x, y, mask) {
+    // A press only becomes a drag past a slop threshold, so an ordinary click --
+    // which always moves the cursor a pixel or two -- still expands a folder.
+    if (pressAt && (mask & 1)) {
+        if (Math.abs(x - pressAt.x) > DRAG_SLOP || Math.abs(y - pressAt.y) > DRAG_SLOP) {
+            var hl = collectHandles(pressAt.row);
+            pressAt = null;
+            if (hl) { try { fb.DoDragDrop(window.ID, hl, DROP_COPY); } catch (e) {} }
+            return;
+        }
+    }
     var i = rowAtE(y);
     if (i !== hover) { hover = i; window.Repaint(); }
 }
 function on_mouse_leave() { if (hover !== -1) { hover = -1; window.Repaint(); } }
+function on_mouse_lbtn_up(x, y) { pressAt = null; }
 
 function on_mouse_wheel(step) {
     var next = clampE(scrollY - step * E.rowH * 3, 0, maxScrollE());
@@ -336,7 +370,8 @@ function on_mouse_wheel(step) {
 
 function on_mouse_lbtn_down(x, y) {
     var i = rowAtE(y);
-    if (i < 0) return;
+    if (i < 0) { pressAt = null; return; }
+    pressAt = { x: x, y: y, row: i };
     selected = i;
     if (rows[i].kind === 'dir') {
         rows[i].node.open = !rows[i].node.open;
