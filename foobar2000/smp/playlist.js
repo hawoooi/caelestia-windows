@@ -46,22 +46,31 @@ var DT_ROW_C = DT_ROW | DT.CENTER;
 // the header and lets the rows be dense.
 var G = {
     cardR:      8,   // = the Windows 11 window corner radius
-    rowH:      24,   // a track row: compact, Finder-dense
-    hdrH:      30,   // an album section header
-    hdrArt:    24,   // the cover in that header
-    hdrGap:    10,
-    rowPad:     8,   // permanent, so highlighting shifts nothing
     listPad:   12,
-    groupGap:  12,   // above a header, except the first
     radius:     5,
     tabsH:     34,
     colsH:     26,
     footH:     72,
     scrollW:    9
 };
-// Track text starts where the header text starts, so the two align.
-G.textX = G.listPad + G.hdrArt + G.hdrGap;
-var COL = { num: 32, plays: 44, time: 46, gap: 10 };
+// ------------------------------------------------------- the flat table ----
+// The album section headers are GONE. This library is almost entirely one-track
+// albums -- Porter Robinson, kmoe, kmoe, Drake, Post Malone, 8485, kuru and
+// underscores each contribute one -- so a header per album put a header above
+// nearly every row and roughly doubled the line count. That is what made the
+// old view feel noisy. Finder's list view is a flat table with a column per
+// attribute; the album is right there on the row, so grouping earns nothing.
+//
+// Row shape: #, cover, Title over Artist, Album, Type, Time. Stacking title and
+// artist is what pays for the wide columns -- the two facts that always travel
+// together take one column instead of two, so Album gets real room instead of
+// being crushed to an ellipsis.
+G.rowH   = 44;
+G.artPx  = 34;
+G.titleH = 16;   // the two stacked lines, tight enough that the pair sits
+G.artH   = 14;   // optically centred rather than floating high
+
+var COL = { num: 26, art: 34, type: 54, time: 48, gap: 12 };
 
 // ---------------------------------------------------------- the tab strip --
 G.tabBtnW  = 26;    // the + and folder controls at the left of the strip
@@ -146,30 +155,32 @@ function buildItems() {
     // One batch call per field. Evaluating per row is what makes a naive SMP
     // playlist crawl once the list is long.
     var f = function (spec) { return fb.TitleFormat(spec).EvalWithMetadbs(handles); };
-    var album   = f('%album artist% - [%album%]');
-    var artist  = f('[%album artist%]');
+    var album   = f('%album artist% - [%album%]');   // the ART cache key
     var albumN  = f('[%album%]');
-    var year    = f('[$year(%date%)]');
-    var track   = f('[%tracknumber%]');
     var title   = f('%title%');
-    var tArtist = f("$if($strcmp(%artist%,%album artist%),,[%artist%])");
-    var plays   = f('[%play_count%]');
+    var artist  = f('[%artist%]');
+    // Type, where the reference had "date added". $ext gives the container, not
+    // the codec: an .m4a stays M4A instead of becoming "AAC", which is what the
+    // filename says and therefore what the user recognises.
+    var type    = f('$upper($ext(%path%))');
     var length  = f('%length%');
 
-    var y = G.listPad, lastKey = null, band = 0;
+    // The index is zero-padded to a FIXED width for the whole playlist: 2
+    // digits normally, 3 once it reaches 100. Padding to a fixed width keeps the
+    // column a clean right-aligned block instead of a ragged edge that shifts
+    // when the list crosses 9 or 99.
+    var pad = Math.max(2, String(n).length);
+
+    var y = G.listPad;
     for (var i = 0; i < n; i++) {
-        var key = album[i];
-        if (key !== lastKey) {
-            if (lastKey !== null) y += G.groupGap;
-            items.push({ kind: 'group', y: y, h: G.hdrH, index: i, key: key,
-                         artist: artist[i] || '?', album: albumN[i] || '', year: year[i] || '' });
-            y += G.hdrH; lastKey = key;
-        }
-        // `band` runs across the WHOLE list, not per group, so the striping
-        // reads as one continuous table the way Finder's does.
-        items.push({ kind: 'track', y: y, h: G.rowH, index: i, key: key, band: (band++ & 1),
-                     num: track[i], title: title[i], tArtist: tArtist[i],
-                     plays: plays[i], time: length[i] });
+        var num = String(i + 1);
+        while (num.length < pad) num = '0' + num;
+        items.push({
+            kind: 'track', y: y, h: G.rowH, index: i, key: album[i],
+            band: (i & 1),
+            num: num, title: title[i] || '?', artist: artist[i] || '',
+            album: albumN[i] || '', type: type[i] || '', time: length[i]
+        });
         y += G.rowH;
     }
     scroll = clamp(scroll, 0, maxScroll());
@@ -189,7 +200,7 @@ function requestArt(item) {
 // 39px on every frame cost ~152 ms per repaint -- measured with fb.CreateProfiler,
 // not guessed, and it was the entire reason scrolling felt laggy. Resizing once
 // makes the per-frame cost a straight blit.
-var ART_PX = G.hdrArt;                // 24 -- the cover in a section header
+var ART_PX = G.artPx;                 // 34 -- the cover on a track row
 var NP_PX  = G.footH;                 // 72 -- the now-playing cover
 
 function requestNowPlayingArt() {
@@ -347,24 +358,35 @@ function drawCols(gr, c) {
     fillRound(gr, c.x, y, c.w, G.colsH + G.cardR, G.cardR, THEME.surface_container);
     gr.FillSolidRect(c.x, listY() - 1, c.w, 1, THEME.rule);
     var m = metrics(c);
-    gr.GdiDrawText('#',     f_lab, THEME.outline, m.numX,   y, COL.num,   G.colsH, DT_ROW_R);
-    gr.GdiDrawText('TITLE', f_lab, THEME.outline, m.titleX, y, m.titleW,  G.colsH, DT_ROW);
-    gr.GdiDrawText('PLAYS', f_lab, THEME.outline, m.playsX, y, COL.plays, G.colsH, DT_ROW_R);
-    gr.GdiDrawText('TIME',  f_lab, THEME.outline, m.timeX,  y, COL.time,  G.colsH, DT_ROW_R);
+    gr.GdiDrawText('#',     f_lab, THEME.outline, m.numX,   y, COL.num,  G.colsH, DT_ROW_R);
+    gr.GdiDrawText('TITLE', f_lab, THEME.outline, m.textX,  y, m.titleW, G.colsH, DT_ROW);
+    gr.GdiDrawText('ALBUM', f_lab, THEME.outline, m.albumX, y, m.albumW, G.colsH, DT_ROW);
+    gr.GdiDrawText('TYPE',  f_lab, THEME.outline, m.typeX,  y, COL.type, G.colsH, DT_ROW);
+    gr.GdiDrawText('TIME',  f_lab, THEME.outline, m.timeX,  y, COL.time, G.colsH, DT_ROW_R);
 }
 
 // One place that decides where every column lives, used by the header, the
 // rows and the hit-testing alike -- so they cannot drift apart.
+//
+// Title and Album share the leftover width 1.7 : 1.2, the ratio the mockup
+// settled on: Album needs enough room to be read rather than merely present,
+// and Title carries two stacked lines so it needs the larger share.
 function metrics(c) {
+    var left  = c.x + G.listPad;
     var right = c.x + c.w - G.listPad - G.scrollW;
-    var timeX  = right - COL.time;
-    var playsX = timeX - COL.gap - COL.plays;
-    var numX   = c.x + G.textX;
-    var titleX = numX + COL.num + COL.gap;
+    var numX  = left;
+    var artX  = numX + COL.num + COL.gap;
+    var textX = artX + COL.art + COL.gap;
+    var timeX = right - COL.time;
+    var typeX = timeX - COL.gap - COL.type;
+    var flex   = Math.max(80, typeX - COL.gap - textX);
+    var titleW = Math.floor(flex * 0.58);
+    var albumX = textX + titleW + COL.gap;
     return {
-        left: c.x + G.listPad, right: right,
-        numX: numX, titleX: titleX, playsX: playsX, timeX: timeX,
-        titleW: Math.max(40, playsX - COL.gap - titleX)
+        left: left, right: right,
+        numX: numX, artX: artX, textX: textX, titleW: titleW,
+        albumX: albumX, albumW: Math.max(30, typeX - COL.gap - albumX),
+        typeX: typeX, timeX: timeX
     };
 }
 
@@ -389,26 +411,6 @@ function drawList(gr, c) {
         if (y + it.h < top) continue;
         if (y > top + avail) break;
 
-        if (it.kind === 'group') {
-            requestArt(it);
-            var img = art[it.key];
-            var ax = c.x + G.listPad, ay = y + Math.floor((G.hdrH - G.hdrArt) / 2);
-            if (img) gr.DrawImage(img, ax, ay, G.hdrArt, G.hdrArt, 0, 0, img.Width, img.Height);
-            else     fillRound(gr, ax, ay, G.hdrArt, G.hdrArt, 4, THEME.surface_container_high);
-
-            // artist in full, then year and album dimmed after it
-            var gx = c.x + G.textX, gw = m.right - gx;
-            var aw = Math.min(gr.CalcTextWidth(it.artist, f_bold), gw);
-            gr.GdiDrawText(it.artist, f_bold, THEME.on_surface, gx, y, aw, it.h, DT_ROW);
-            var rest = '';
-            if (it.year)  rest += '   ' + it.year;
-            if (it.album) rest += '   ' + it.album;
-            if (rest && aw < gw) {
-                gr.GdiDrawText(rest, f_ui, THEME.on_surface_variant, gx + aw, y, gw - aw, it.h, DT_ROW);
-            }
-            continue;
-        }
-
         var isPlaying  = (it.index === playingIdx);
         var isSelected = plman.IsPlaylistItemSelected(playlistIdx, it.index);
 
@@ -422,17 +424,35 @@ function drawList(gr, c) {
         var cTitle = isPlaying ? THEME.primary : THEME.on_surface;
         var fTitle = isPlaying ? f_bold : f_ui;
 
-        gr.GdiDrawText(it.num, f_small, isPlaying ? THEME.primary : THEME.outline,
+        gr.GdiDrawText(it.num, f_ui, isPlaying ? THEME.primary : THEME.outline,
                        m.numX, y, COL.num, it.h, DT_ROW_R);
-        gr.GdiDrawText(it.title, fTitle, cTitle, m.titleX, y, m.titleW, it.h, DT_ROW);
-        if (it.tArtist) {
-            var tw = gr.CalcTextWidth(it.title, fTitle);
-            if (tw + 24 < m.titleW) {
-                gr.GdiDrawText('   ' + it.tArtist, f_ui, THEME.outline,
-                               m.titleX + tw, y, m.titleW - tw, it.h, DT_ROW);
-            }
+
+        // cover. Cached per ALBUM, not per track, so a 20-track album loads one
+        // image; requested only for rows actually on screen.
+        requestArt(it);
+        var img = art[it.key];
+        var ay = y + Math.floor((it.h - COL.art) / 2);
+        if (img) gr.DrawImage(img, m.artX, ay, COL.art, COL.art, 0, 0, img.Width, img.Height);
+        else     fillRound(gr, m.artX, ay, COL.art, COL.art, 3, THEME.surface_container_high);
+
+        // Title over Artist. The pair is centred as a BLOCK: the two line
+        // heights are set tight rather than left at the font's default leading,
+        // which reserved more descender space than the glyphs used and made the
+        // pair sit visibly high against the cover beside it.
+        var blockH = G.titleH + G.artH;
+        var by = y + Math.floor((it.h - blockH) / 2);
+        gr.GdiDrawText(it.title, fTitle, cTitle, m.textX, by, m.titleW, G.titleH, DT_ROW);
+        if (it.artist) {
+            gr.GdiDrawText(it.artist, f_small, THEME.on_surface_variant,
+                           m.textX, by + G.titleH, m.titleW, G.artH, DT_ROW);
         }
-        gr.GdiDrawText(it.plays, f_small, THEME.outline, m.playsX, y, COL.plays, it.h, DT_ROW_R);
+
+        gr.GdiDrawText(it.album, f_ui, THEME.on_surface_variant,
+                       m.albumX, y, m.albumW, it.h, DT_ROW);
+        // Type is plain dimmed text, not a badge: a badge would give the
+        // container more visual weight than the track title, and in a library
+        // this FLAC-heavy it would tile the whole column in one colour.
+        gr.GdiDrawText(it.type, f_small, THEME.outline, m.typeX, y, COL.type, it.h, DT_ROW);
         gr.GdiDrawText(it.time, f_small, isPlaying ? THEME.primary : THEME.on_surface_variant,
                        m.timeX, y, COL.time, it.h, DT_ROW_R);
     }
