@@ -63,6 +63,34 @@ var G = {
 G.textX = G.listPad + G.hdrArt + G.hdrGap;
 var COL = { num: 32, plays: 44, time: 46, gap: 10 };
 
+// ---------------------------------------------------------- the tab strip --
+G.tabBtnW  = 26;    // the + and folder controls at the left of the strip
+G.tabBtnGap = 2;
+G.tabSepW  = 13;    // rule between the controls and the first tab
+G.tabW     = 150;   // the shared flex basis every tab gets
+G.tabGap   = 2;
+G.tabInact = 26;    // inactive tab height; the active one runs to the card edge
+G.tabPad   = 10;    // inside a tab
+G.tabX     = 18;    // the close affordance
+
+// Font Awesome v4 codepoints -- the only range 0xProto Nerd Font carries.
+var GT = {
+    plus:   String.fromCharCode(0xF067),
+    folder: String.fromCharCode(0xF07B),
+    times:  String.fromCharCode(0xF00D),
+    list:   String.fromCharCode(0xF03A)
+};
+
+// The scratch playlist library activation lands in. It is PINNED: no close
+// button, and a folder glyph instead, because it is understood to be scratch
+// and is the one tab whose contents get replaced without asking.
+var LIBRARY_PLAYLIST = 'Library';
+
+// Saved playlists live beside the scripts, as .m3u8 -- UTF-8, so a name like
+// "1.07 - Naul (나얼) - 바람기억.flac" round-trips. Plain
+// .m3u is written in the system ANSI code page and mangles exactly that.
+function playlistDir() { return fb.ProfilePath + 'caelestia-playlists\\'; }
+
 // GAPS: every panel paints its own margin, so a SHARED edge gets both panels'
 // margins while an OUTER edge gets only one. Symmetric insets therefore give
 // 8px between panels but 4px at the window edge. Per-side instead: outer sides
@@ -77,7 +105,7 @@ var IN = { l: 3, t: 3, r: 8, b: 8 };
 
 var f_ui, f_bold, f_small, f_lab, f_np, f_npSub;
 var items = [], handles = null, playlistIdx = -1;
-var scroll = 0, hoverRow = -1, hoverTab = -1;
+var scroll = 0, hoverRow = -1, hoverTab = -1, hoverBtn = -1;
 var art = {}, artPending = {};
 var npArt = null, npKey = '';
 var totalText = '';
@@ -208,46 +236,115 @@ function on_paint(gr) {
     // GdiGraphics. Every fixed band is therefore painted AFTER the list and
     // fills its own ground, or scrolled rows bleed into the header and footer.
     // That was a real bug twice: "01 sunder" over "ART # TITLE / TRACK ARTIST".
+    // Tabs BEFORE cols. The tab strip has to repaint its band as window ground,
+    // and the card's rounded top now belongs to the column header directly
+    // below it -- so cols must land last of the two or the strip's rounding
+    // wipes the header text it sits on. That bug ate the whole "# TITLE ...
+    // PLAYS TIME" row the first time round.
     drawList(gr, c);
-    drawCols(gr, c);
     drawTabs(gr, c);
+    drawCols(gr, c);
     drawFooter(gr, c);
 }
 
+// The two controls at the LEFT end of the strip. They act on the SET of
+// playlists rather than on any one of them, which is why they sit before the
+// first tab rather than after the last.
+function tabBtnRects() {
+    var c = card(), x = c.x + 6, y = tabsY() + Math.floor((G.tabsH - 22) / 2);
+    return [
+        { id: 'new',  x: x,                              y: y, w: G.tabBtnW, h: 22 },
+        { id: 'open', x: x + G.tabBtnW + G.tabBtnGap,    y: y, w: G.tabBtnW, h: 22 }
+    ];
+}
+function tabsStartX() {
+    var b = tabBtnRects();
+    return b[1].x + b[1].w + G.tabSepW;
+}
+
+// EVERY TAB IS THE SAME WIDTH, the way Sublime and VS Code do it: one shared
+// basis, shrinking equally when crowded. Sizing each tab to its own label makes
+// the strip ragged AND moves every tab's position whenever a playlist is
+// renamed, so a click can land on the wrong one after a rename.
 function tabRects() {
-    var out = [], x = IN.l + 6;
-    for (var i = 0; i < plman.PlaylistCount; i++) {
+    var c = card(), n = plman.PlaylistCount;
+    if (n <= 0) return [];
+    var x0 = tabsStartX();
+    var avail = (c.x + c.w - 6) - x0;
+    var w = Math.min(G.tabW, Math.floor((avail - (n - 1) * G.tabGap) / n));
+    w = Math.max(56, w);
+    var out = [];
+    for (var i = 0; i < n; i++) {
         var name = plman.GetPlaylistName(i);
-        var w = gTabW(name);
-        out.push({ i: i, name: name, x: x, w: w });
-        x += w + 3;
+        out.push({
+            i: i, name: name, w: w,
+            x: x0 + i * (w + G.tabGap),
+            pinned: (name === LIBRARY_PLAYLIST)
+        });
     }
     return out;
 }
-function gTabW(name) { return (name.length * 7) + 24; }   // 0xProto is monospace
 
 function drawTabs(gr, c) {
-    // own ground, extended DOWN by the radius so the card's TOP corners stay
-    // round while this fill's own bottom edge hides inside the card
-    fillRound(gr, c.x, c.y, c.w, G.tabsH + G.cardR, G.cardR, THEME.surface_container);
-    gr.FillSolidRect(c.x, colsY() - 1, c.w, 1, THEME.rule);
+    // CHROME'S TRICK: the strip sits on the window GROUND, and only the active
+    // tab is raised to the card's own colour with no bottom radius, so tab and
+    // list read as one continuous object. That is why this fills surface first
+    // and then re-rounds the card's top -- the card was already painted square
+    // to the panel's top edge by on_paint.
+    gr.FillSolidRect(c.x, c.y, c.w, colsY() - c.y, THEME.surface);
+
+    var btns = tabBtnRects();
+    for (var b = 0; b < btns.length; b++) {
+        var bt = btns[b];
+        if (b === hoverBtn) fillRound(gr, bt.x, bt.y, bt.w, bt.h, G.radius, THEME.stripe);
+        gr.GdiDrawText(bt.id === 'new' ? GT.plus : GT.folder, f_ui,
+                       b === hoverBtn ? THEME.on_surface : THEME.outline,
+                       bt.x, bt.y, bt.w, bt.h, DT_ROW_C);
+    }
+    var sx = btns[1].x + btns[1].w + Math.floor(G.tabSepW / 2);
+    gr.FillSolidRect(sx, tabsY() + 9, 1, G.tabsH - 18, THEME.rule);
 
     var tabs = tabRects();
     for (var t = 0; t < tabs.length; t++) {
         var tb = tabs[t];
         var active = (tb.i === plman.ActivePlaylist);
-        var y = tabsY() + 6;
-        if (active)              fillRound(gr, tb.x, y, tb.w, 22, G.radius, THEME.surface_container_high);
-        else if (t === hoverTab) fillRound(gr, tb.x, y, tb.w, 22, G.radius, THEME.surface_container_high);
+        var hot = (t === hoverTab);
+        var ty, th;
+        if (active) {
+            ty = tabsY() + (G.tabsH - 30); th = 30;
+            // extended past the card edge so only its TOP corners show round
+            fillRound(gr, tb.x, ty, tb.w, th + G.cardR, G.cardR, THEME.surface_container);
+        } else {
+            ty = tabsY() + (G.tabsH - G.tabInact) - 2; th = G.tabInact;
+            if (hot) fillRound(gr, tb.x, ty, tb.w, th, G.cardR, THEME.stripe);
+            // the hairline between two inactive neighbours, as Chrome draws it
+            if (t > 0 && !hot && tabs[t - 1].i !== plman.ActivePlaylist) {
+                gr.FillSolidRect(tb.x - 1, ty + 6, 1, th - 12, THEME.rule);
+            }
+        }
+
+        var tx = tb.x + G.tabPad, tw = tb.w - G.tabPad * 2;
+        if (tb.pinned) {
+            gr.GdiDrawText(GT.folder, f_small, THEME.outline, tx, ty, 12, th,
+                           DT.SINGLELINE | DT.VCENTER | DT.NOPREFIX);
+            tx += 16; tw -= 16;
+        } else if (active || hot) {
+            gr.GdiDrawText(GT.times, f_small, THEME.outline,
+                           tb.x + tb.w - G.tabX, ty, 12, th, DT_ROW_C);
+            tw -= G.tabX - G.tabPad;
+        }
         gr.GdiDrawText(tb.name, active ? f_bold : f_ui,
                        active ? THEME.on_surface : THEME.on_surface_variant,
-                       tb.x, y, tb.w, 22, DT_ROW_C);
+                       tx, ty, Math.max(10, tw), th, DT_ROW);
     }
 }
 
 function drawCols(gr, c) {
     var y = colsY();
-    gr.FillSolidRect(c.x, y, c.w, G.colsH, THEME.surface_container);
+    // The card's rounded TOP corners live here, because this band is the top of
+    // the card now that the tab strip above it is painted as window ground.
+    // Extended past its own height so only the top corners come out round.
+    fillRound(gr, c.x, y, c.w, G.colsH + G.cardR, G.cardR, THEME.surface_container);
     gr.FillSolidRect(c.x, listY() - 1, c.w, 1, THEME.rule);
     var m = metrics(c);
     gr.GdiDrawText('#',     f_lab, THEME.outline, m.numX,   y, COL.num,   G.colsH, DT_ROW_R);
@@ -411,14 +508,111 @@ function tabAt(x, y) {
     }
     return -1;
 }
+function tabBtnAt(x, y) {
+    var b = tabBtnRects();
+    for (var i = 0; i < b.length; i++) {
+        if (x >= b[i].x && x < b[i].x + b[i].w && y >= b[i].y && y < b[i].y + b[i].h) return i;
+    }
+    return -1;
+}
+// the close affordance occupies the tab's right end -- pinned tabs have none
+function onTabClose(tb, x) { return !tb.pinned && x >= tb.x + tb.w - G.tabX; }
+
+// ------------------------------------------------------ saved playlists ----
+// .m3u8, not .m3u: the 8 means UTF-8. Plain .m3u is written in the system ANSI
+// code page, so a real file in this library -- "1.07 - Naul (나얼) -
+// 바람기억.flac" -- comes back mangled or unresolvable.
+//
+// The file is written and parsed HERE rather than handed to foobar as a
+// location. Letting foobar resolve a playlist file works, but it puts the
+// format and the failure modes outside our control for no gain; a playlist is
+// one path per line.
+function savedPlaylists() {
+    try {
+        var g = utils.Glob(playlistDir() + '*.m3u8');
+        return g ? g : [];
+    } catch (e) { return []; }
+}
+function baseName(p) {
+    var s = p.lastIndexOf('\\'), d = p.lastIndexOf('.');
+    return p.substring(s + 1, d > s ? d : p.length);
+}
+
+function savePlaylist(idx) {
+    var name = plman.GetPlaylistName(idx);
+    var hl = plman.GetPlaylistItems(idx);
+    var paths = fb.TitleFormat('%path%').EvalWithMetadbs(hl);
+    var lines = ['#EXTM3U'];
+    for (var i = 0; i < paths.length; i++) lines.push(paths[i]);
+    try {
+        utils.CreateFolder(playlistDir());
+    } catch (e) { /* already there */ }
+    // NO BOM -- the third argument is the BOM flag and it must stay false.
+    // The repo's house rule aside, this file is parsed by loadPlaylist below,
+    // and a BOM makes the first line "﻿#EXTM3U", which no longer starts
+    // with '#', so the header would be taken for a track path.
+    var ok = false;
+    try { ok = utils.WriteTextFile(playlistDir() + name + '.m3u8', lines.join('\r\n'), false); } catch (e2) { ok = false; }
+    return ok;
+}
+
+function loadPlaylist(path) {
+    var txt = '';
+    try { txt = utils.ReadTextFile(path, 65001); } catch (e) { return; }
+    if (!txt) return;
+    // Strip a leading BOM defensively: we do not write one, but a .m3u8 saved
+    // by another player very likely does, and it would turn the "#EXTM3U"
+    // header into something that no longer starts with '#'.
+    if (txt.charCodeAt(0) === 0xFEFF) txt = txt.substring(1);
+    var raw = txt.split(/\r?\n/), locs = [];
+    for (var i = 0; i < raw.length; i++) {
+        var s = raw[i].replace(/^\s+|\s+$/g, '');
+        if (s.length && s.charAt(0) !== '#') locs.push(s);
+    }
+    if (!locs.length) return;
+    var name = baseName(path);
+    var idx = -1;
+    for (var p = 0; p < plman.PlaylistCount; p++) {
+        if (plman.GetPlaylistName(p) === name) { idx = p; break; }
+    }
+    if (idx < 0) idx = plman.CreatePlaylist(plman.PlaylistCount, name);
+    plman.ClearPlaylist(idx);
+    plman.AddLocations(idx, locs, true);
+    plman.ActivePlaylist = idx;
+}
+
+// A NATIVE popup, not a drawn flyout. A panel cannot paint outside its own
+// window, so a drawn menu would be clipped by the tab strip; the top bar's
+// File/Edit menus are native for the same reason, so this is consistent rather
+// than a compromise.
+function showPlaylistMenu(x, y) {
+    var files = savedPlaylists();
+    var m = window.CreatePopupMenu();
+    if (files.length) {
+        for (var i = 0; i < files.length; i++) m.AppendMenuItem(0, 100 + i, baseName(files[i]));
+        m.AppendMenuSeparator();
+    } else {
+        m.AppendMenuItem(1, 99, 'No saved playlists');   // 1 = MF_GRAYED
+        m.AppendMenuSeparator();
+    }
+    m.AppendMenuItem(0, 1, 'Save "' + plman.GetPlaylistName(plman.ActivePlaylist) + '"');
+    m.AppendMenuItem(0, 2, 'Open from file…');
+    var r = m.TrackPopupMenu(x, y);
+    if (r >= 100)      loadPlaylist(files[r - 100]);
+    else if (r === 1)  savePlaylist(plman.ActivePlaylist);
+    else if (r === 2)  fb.RunMainMenuCommand('File/Load playlist...');
+    window.Repaint();
+}
 
 function on_mouse_move(x, y) {
     var r = rowAt(x, y);
     if (r >= 0 && items[r].kind !== 'track') r = -1;
-    var t = tabAt(x, y);
-    if (r !== hoverRow || t !== hoverTab) { hoverRow = r; hoverTab = t; window.Repaint(); }
+    var t = tabAt(x, y), b = tabBtnAt(x, y);
+    if (r !== hoverRow || t !== hoverTab || b !== hoverBtn) {
+        hoverRow = r; hoverTab = t; hoverBtn = b; window.Repaint();
+    }
 }
-function on_mouse_leave() { hoverRow = -1; hoverTab = -1; window.Repaint(); }
+function on_mouse_leave() { hoverRow = -1; hoverTab = -1; hoverBtn = -1; window.Repaint(); }
 
 function on_mouse_wheel(step) {
     var next = clamp(scroll - step * G.rowH * 3, 0, maxScroll());
@@ -426,8 +620,26 @@ function on_mouse_wheel(step) {
 }
 
 function on_mouse_lbtn_down(x, y) {
+    var b = tabBtnAt(x, y);
+    if (b === 0) {
+        var n = plman.CreatePlaylist(plman.PlaylistCount, '');   // '' = foobar names it
+        plman.ActivePlaylist = n; scroll = 0; buildItems(); return;
+    }
+    if (b === 1) {
+        var br = tabBtnRects()[1];
+        showPlaylistMenu(br.x, br.y + br.h);
+        return;
+    }
+
     var t = tabAt(x, y);
-    if (t >= 0) { plman.ActivePlaylist = t; scroll = 0; buildItems(); return; }
+    if (t >= 0) {
+        var tabs = tabRects();
+        if (onTabClose(tabs[t], x)) {
+            plman.RemovePlaylist(tabs[t].i);
+            scroll = 0; buildItems(); return;
+        }
+        plman.ActivePlaylist = tabs[t].i; scroll = 0; buildItems(); return;
+    }
     var i = rowAt(x, y);
     if (i < 0 || items[i].kind !== 'track') return;
     var idx = items[i].index;
