@@ -120,6 +120,14 @@ komorebi still reported the real window as focused and `cycle-focus` still
 worked -- so this is a migration gap closed on correctness grounds, not a
 proven cause of the reported symptom.
 
+**`foobar2000.exe` is also in `ignore_rules`** (added 2026-08-18), so both foobar
+instances float rather than tile. The player's own top bar was briefly made
+frameless via `foo_ui_wizard`, and dragging an 8px caption rim while komorebi
+tried to tile the window was unusable; the frame was reverted and the window
+excluded from tiling. Applied at runtime *and* persisted, the same dual approach
+the border colours use. Backup at `~/komorebi.json.bak-before-foobar-ignore`.
+Full account: `docs/foobar2000-briefing.md`.
+
 In-repo, `zebar/caelestia/komorebi-commands.js` moved to the same real-binary
 path, so the bar's workspace buttons and the dashboard's workspace pane stop
 paying the shim cost too. `KOMOREBIC_PATH` and the `shellCommands` allowlists

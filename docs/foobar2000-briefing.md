@@ -645,7 +645,35 @@ normally tiled by komorebi anyway, where dragging to move does not apply.
 **What UI Wizard does NOT fix.** It has no bearing on the Columns UI splitter
 colour (that is drawn by Columns UI, not by the window frame) or on
 library-to-playlist drag and drop (that needs the panels merged into one). It
-solves the frameless window and nothing else on the list. Install into the DUPLICATE profile only.
+solves the frameless window and nothing else on the list.
+
+### And then it was REVERTED (same day, user's call)
+
+It worked, and it was still the wrong trade: **moving the window became too
+fiddly to live with.** A caption area behaves as caption, so anything inside it
+drags the window instead of reaching the panel -- which forced the drag region
+down to the 8px rim above the bar and nothing more. An 8px target that komorebi
+is simultaneously trying to tile is not a usable way to move a window.
+
+Current state:
+
+- **Frame is back to `Default`** in Preferences > Display > UI Wizard. Verified:
+  `GWL_STYLE` returned to `0x97CF0000`, WS_CAPTION present.
+- **The component stays installed** but inert. Changing that one dropdown to
+  `No Caption` brings the frameless window straight back.
+- **`topbar.js` no longer draws window controls** and no longer touches COM. The
+  card, the shape-drawn buttons and the lazy-acquire helper are all recoverable
+  from commit `c168bda`.
+
+**`foobar2000.exe` was added to komorebi's ignore list** at the same time and for
+the same reason -- with the window floating free rather than tiled, dragging it
+by its native title bar behaves normally. Applied both ways, the same dual
+approach the border colours use: `komorebic ignore-rule exe foobar2000.exe` at
+runtime (no restart), and persisted into `~/komorebi.json`'s `ignore_rules`
+(parse-mutate-serialize, temp-file-then-rename, count verified after write).
+Backup at `~/komorebi.json.bak-before-foobar-ignore`. **Note this matches BOTH
+foobar instances by exe name**, so the user's live player floats too, which is
+the intent. Install into the DUPLICATE profile only.
 
 ## The visualiser is cut
 
