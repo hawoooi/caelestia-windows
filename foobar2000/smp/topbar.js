@@ -94,6 +94,49 @@ var GL = {
 
 var MENUS = ['File', 'Edit', 'View', 'Playback', 'Library', 'Help'];
 
+// ------------------------------------------------------- the window frame --
+// foo_ui_wizard (UI Wizard), the maintained successor to foo_ui_hacks, built
+// for Georgia-ReBORN's x64 transition -- which is what makes it the right one
+// for the x64 SMP fork this profile runs. Columns UI has no hide-caption
+// setting and SMP cannot subclass the window; neither matters, because this is
+// a component, not a UI setting.
+//
+// EVERYTHING HERE IS FAIL-SOFT. With the component absent, UIW stays null, the
+// window keeps its native caption, the controls card is not reserved and the
+// top bar spans the full width exactly as it did before. A theme must never
+// fail to paint because an optional component is missing.
+// THE FRAME STYLE IS NOT SET FROM HERE. It lives in Preferences > Display >
+// UI Wizard > Frame ("No Caption"), which is persistent, survives a panel
+// reload and has no timing problem. The script uses the COM object only for the
+// things a preference cannot do: minimise and maximise on demand.
+//
+// ACQUIRED LAZILY, and this matters. UI Wizard does not register its ProgID in
+// the registry -- it HOOKS CLSIDFromProgID (the string `MyCOM::HookCLSIDFromProgID`
+// is in the DLL, and HKCU\Software\Classes\UIWizard does not exist). A hook is
+// only in place once the component has initialised, and panel scripts are
+// evaluated during foobar's startup, so a single attempt at load time can run
+// too early and fail for good. Retry on a timer instead.
+var UIW = null, uiwTries = 0;
+
+function tryUIW() {
+    if (UIW) return;
+    try { UIW = new ActiveXObject('UIWizard'); } catch (e) { UIW = null; }
+    if (UIW) {
+        try { UIW.SetCaptionAreaSize(0, 0, TW || 4000, INSET.t); } catch (e2) {}
+        window.Repaint();                 // the controls card appears once it exists
+        return;
+    }
+    if (++uiwTries <= 20) window.SetTimeout(tryUIW, 500);   // 10s, then give up quietly
+}
+
+// The three window buttons, drawn as SHAPES rather than glyphs. Font Awesome's
+// window-minimize/window-maximize are pictures OF a window -- a filled body
+// with a title bar -- so at this size they read as two heavy blobs instead of
+// thin marks. A rule, a square and a cross are a few FillSolidRect/DrawLine
+// calls and depend on no font at all.
+var WCTL = { btnW: 28, btnH: 22, pad: 5, gap: 2 };
+var hoverCtl = -1;
+
 var f_ui, f_icon, f_small;
 var TW = 0, TH = 0;
 var hoverBtn = -1, hoverMenu = -1;
@@ -101,7 +144,29 @@ var dragging = null;
 var seekPos = 0;
 
 function clampT(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }
-function cardT() { return { x: INSET.l, y: INSET.t, w: TW - INSET.l - INSET.r, h: TH - INSET.t - INSET.b }; }
+// The controls get their own card, the same height and radius as the bar --
+// left bare on the window ground they read as three glyphs dropped in a corner
+// rather than a group. Width is 0 when UI Wizard is absent, so the bar simply
+// takes the whole strip back.
+function ctlW()  { return UIW ? (WCTL.pad * 2 + 3 * WCTL.btnW + 2 * WCTL.gap) : 0; }
+function cardT() {
+    var reserve = UIW ? (ctlW() + GAP) : 0;
+    return { x: INSET.l, y: INSET.t, w: TW - INSET.l - INSET.r - reserve, h: TH - INSET.t - INSET.b };
+}
+function ctlCard() { var c = cardT(); return { x: c.x + c.w + GAP, y: c.y, w: ctlW(), h: c.h }; }
+
+// Hit-test the three buttons. Returns 0 min, 1 max, 2 close, or -1.
+function hitCtl(x, y) {
+    if (!UIW) return -1;
+    var k = ctlCard();
+    if (y < k.y || y > k.y + k.h) return -1;
+    var bx = k.x + WCTL.pad;
+    for (var i = 0; i < 3; i++) {
+        if (x >= bx && x < bx + WCTL.btnW) return i;
+        bx += WCTL.btnW + WCTL.gap;
+    }
+    return -1;
+}
 
 function fillRoundT(gr, x, y, w, h, r, colour) {
     if (w <= 0 || h <= 0) return;
@@ -272,6 +337,37 @@ function on_paint(gr) {
         var iy = c.y + Math.floor((c.h - T.iconW) / 2);
         gr.DrawImage(appIcon, L.icon.x, iy, T.iconW, T.iconW, 0, 0, appIcon.Width, appIcon.Height);
     }
+
+    drawWindowControls(gr);
+}
+
+function drawWindowControls(gr) {
+    if (!UIW) return;
+    var k = ctlCard();
+    fillRoundT(gr, k.x, k.y, k.w, k.h, CARD_R, THEME.surface_container);
+
+    var by = k.y + Math.floor((k.h - WCTL.btnH) / 2);
+    var bx = k.x + WCTL.pad;
+    for (var i = 0; i < 3; i++) {
+        if (i === hoverCtl) fillRoundT(gr, bx, by, WCTL.btnW, WCTL.btnH, 4, THEME.surface_container_high);
+        var col = (i === hoverCtl) ? THEME.on_surface : THEME.on_surface_variant;
+        var cx = bx + Math.floor(WCTL.btnW / 2);
+        var cy = k.y + Math.floor(k.h / 2);
+        if (i === 0) {
+            gr.FillSolidRect(cx - 5, cy, 10, 1, col);                       // minimise: a rule
+        } else if (i === 1) {
+            gr.FillSolidRect(cx - 4, cy - 4, 9, 1, col);                    // maximise: a square
+            gr.FillSolidRect(cx - 4, cy + 4, 9, 1, col);
+            gr.FillSolidRect(cx - 4, cy - 4, 1, 9, col);
+            gr.FillSolidRect(cx + 4, cy - 4, 1, 9, col);
+        } else {
+            gr.SetSmoothingMode(2);                                          // close: a cross
+            gr.DrawLine(cx - 4, cy - 4, cx + 4, cy + 4, 1, col);
+            gr.DrawLine(cx + 4, cy - 4, cx - 4, cy + 4, 1, col);
+            gr.SetSmoothingMode(0);
+        }
+        bx += WCTL.btnW + WCTL.gap;
+    }
 }
 
 // fb2k reports volume in dBFS: 0 is full, about -100 silence. Below -60 the
@@ -310,12 +406,26 @@ function on_mouse_move(x, y) {
         fb.Volume = pctToDb(clampT((x - L.vol.x) / L.vol.w, 0, 1));
         window.Repaint(); return;
     }
-    if (b !== hoverBtn || m !== hoverMenu) { hoverBtn = b; hoverMenu = m; window.Repaint(); }
+    var k = hitCtl(x, y);
+    if (b !== hoverBtn || m !== hoverMenu || k !== hoverCtl) {
+        hoverBtn = b; hoverMenu = m; hoverCtl = k; window.Repaint();
+    }
 }
-function on_mouse_leave() { hoverBtn = -1; hoverMenu = -1; window.Repaint(); }
+function on_mouse_leave() { hoverBtn = -1; hoverMenu = -1; hoverCtl = -1; window.Repaint(); }
 
 function on_mouse_lbtn_down(x, y) {
     var L = L_current(), c = L.c;
+
+    var k = hitCtl(x, y);
+    if (k >= 0) {
+        try {
+            if (k === 0)      UIW.WindowMinimize();
+            else if (k === 1) { if (UIW.WindowState === 1) UIW.ExitMaximize(); else UIW.ToggleMaximize(); }
+            else              fb.Exit();     // close is not UI Wizard's job; SMP has it
+        } catch (e) { /* component went away mid-session; do nothing rather than throw */ }
+        return;
+    }
+
     var m = hitMenu(L, x, y);
     if (m >= 0) { showMenu(m, L.menus[m].x, c.y + c.h); return; }
 
@@ -378,7 +488,19 @@ function showMenu(i, x, y) {
 
 // ------------------------------------------------------------------ events --
 
-function on_size() { TW = window.Width; TH = window.Height; }
+function on_size() {
+    TW = window.Width; TH = window.Height;
+    _layout = null;
+    // THE DRAG REGION, once the caption is gone. Deliberately only the 8px rim
+    // ABOVE the bar, not the bar itself: a caption area behaves as caption, so
+    // anything inside it drags the window instead of reaching the panel -- which
+    // would kill the menus, the transport buttons and the seek bar in one go.
+    // The rim is the window's own frame, so dragging it to move is what a user
+    // would expect anyway. Note this window is normally tiled by komorebi, where
+    // dragging to move does not apply at all; it matters only when floated.
+    if (UIW) { try { UIW.SetCaptionAreaSize(0, 0, TW, INSET.t); } catch (e) {} }
+    else tryUIW();
+}
 function on_playback_new_track()   { window.Repaint(); }
 function on_playback_stop()        { window.Repaint(); }
 function on_playback_pause()       { window.Repaint(); }

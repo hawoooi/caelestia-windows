@@ -177,8 +177,22 @@ if (Test-Path $smpSrc) {
     if (Test-Path $icon) {
         $iconDst = Join-Path $smpDst 'foobar-icon.png'
         if ($PSCmdlet.ShouldProcess($iconDst, 'copy app icon')) {
-            Copy-Item -LiteralPath $icon -Destination $iconDst -Force
-            "  {0,-28} {1,7} bytes" -f 'foobar-icon.png', (Get-Item $iconDst).Length
+            # gdi.Image() keeps the file handle OPEN for the life of the panel, so
+            # a running foobar locks this and the copy throws. That must not fail
+            # the whole deploy: the icon changes almost never, and the scripts --
+            # which do change -- have already been written by this point. Skip it
+            # when the bytes already match, and warn rather than throw otherwise.
+            $same = (Test-Path $iconDst) -and ((Get-Item $iconDst).Length -eq (Get-Item $icon).Length)
+            if ($same) {
+                "  {0,-28} {1,7} bytes   (unchanged)" -f 'foobar-icon.png', (Get-Item $iconDst).Length
+            } else {
+                try {
+                    Copy-Item -LiteralPath $icon -Destination $iconDst -Force -ErrorAction Stop
+                    "  {0,-28} {1,7} bytes" -f 'foobar-icon.png', (Get-Item $iconDst).Length
+                } catch {
+                    Write-Warning "could not replace foobar-icon.png (a running foobar holds it open via gdi.Image); close it and re-run if the icon changed"
+                }
+            }
         }
     } else {
         Write-Warning "art\foobar-icon.png missing; the top bar will draw no app mark"

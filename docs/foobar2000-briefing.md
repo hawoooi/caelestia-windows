@@ -606,9 +606,46 @@ exclude the button areas so a click on close does not start a drag. The window
 controls the mockup draws on the right of the strip then become real, and the
 native title bar goes away, which is what the mockup has always assumed.
 
-**Not installed yet.** This is a third-party binary and nothing above has been
-run on this machine -- the API is quoted from `assets/docs/API.md` in that repo,
-not from a working call. Install into the DUPLICATE profile only.
+### Installed and working (2026-08-18)
+
+`foo_ui_wizard` **0.2.8**, x64 build, at
+`~/Music/foobar2000-caelestia/profile/user-components-x64/foo_ui_wizard/foo_ui_wizard.dll`.
+The `.fb2k-component` is a zip inside a zip and ships both architectures; take
+`x64/foo_ui_wizard.dll`. **foobar must be closed to install it** -- the DLL is
+locked while running. Verified loaded by checking the process module list, not
+by looking at Preferences.
+
+**The frame style is set in PREFERENCES, not from script.** Preferences >
+Display > UI Wizard > Appearance > Frame = **No Caption**. Confirmed by reading
+`GWL_STYLE`: `0x16CF0000` before (WS_CAPTION present) -> `0x96070000` after
+(absent). A preference is persistent, survives a panel reload and has no timing
+problem, so it is the better owner. That page also holds Caption area
+(Left, Top, Width, Height), defaulting to `0, 0, 9999, 5` -- which confirms the
+argument order of `SetCaptionAreaSize`.
+
+**The COM object must be acquired LAZILY, and this was the whole difficulty.**
+A single `new ActiveXObject('UIWizard')` at panel load **fails silently**: the
+window controls simply never appear. UI Wizard does not register its ProgID in
+the registry -- `HKCU\Software\Classes\UIWizard` does not exist, and the DLL
+contains the string `MyCOM::HookCLSIDFromProgID`. It **hooks the API call**
+instead, so the ProgID only resolves once the component has initialised, which
+is after panel scripts are evaluated during startup. `topbar.js` retries on a
+500ms timer, up to 20 times, and paints the controls the moment it succeeds.
+
+**Verified live**, not inferred: clicking minimise gives `IsIconic == true`,
+clicking maximise gives `IsZoomed == true`, and clicking it again returns to
+normal. Close uses `fb.Exit()` and needs no component at all.
+
+**The drag region is only the 8px rim above the bar** (`SetCaptionAreaSize(0, 0,
+TW, INSET.t)`). A caption area behaves as caption, so anything inside it drags
+the window rather than reaching the panel -- covering the whole strip would kill
+the menus, the transport buttons and the seek bar at once. This window is
+normally tiled by komorebi anyway, where dragging to move does not apply.
+
+**What UI Wizard does NOT fix.** It has no bearing on the Columns UI splitter
+colour (that is drawn by Columns UI, not by the window frame) or on
+library-to-playlist drag and drop (that needs the panels merged into one). It
+solves the frameless window and nothing else on the list. Install into the DUPLICATE profile only.
 
 ## The visualiser is cut
 
