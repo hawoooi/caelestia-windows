@@ -48,3 +48,15 @@ output_path = 'C:\Users\PC\Documents\git\setup\state\staging\komorebi-colours.js
 [templates.windows]
 input_path = 'C:\Users\PC\Documents\git\setup\matugen\templates\windows-accent.json'
 output_path = 'C:\Users\PC\Documents\git\setup\state\staging\windows-accent.json'
+
+# Also NOT one of $script:Targets, for the same reason as the two above: there
+# is no single live config FILE to copy or roll back. foobar2000's colours are
+# baked into the panel scripts at DEPLOY time -- Apply-Theme's
+# Update-FoobarTheme step hands this staged palette to Deploy-Panels.ps1, which
+# renders it to theme.js (ARGB integers, since GdiGraphics takes no strings) and
+# theme.css, concatenates each panel with it and writes the result into the
+# DUPLICATE install's profile. The panels themselves contain zero colour
+# literals, which is what makes eight values enough.
+[templates.foobar]
+input_path = 'C:\Users\PC\Documents\git\setup\matugen\templates\foobar-palette.json'
+output_path = 'C:\Users\PC\Documents\git\setup\state\staging\foobar-palette.json'

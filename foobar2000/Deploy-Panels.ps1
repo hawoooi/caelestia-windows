@@ -31,7 +31,17 @@
 #>
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
-    [string] $InstallRoot = 'C:\Users\PC\Music\foobar2000-caelestia'
+    [string] $InstallRoot = 'C:\Users\PC\Music\foobar2000-caelestia',
+
+    # A palette to theme from, instead of the checked-in foobar2000/palette.json.
+    # Apply-Theme passes the one matugen just rendered from the wallpaper.
+    #
+    # WITH this set, the generated theme.js goes to a TEMP directory rather than
+    # into the repo. A wallpaper change must not leave the working tree dirty --
+    # it happens on a keybinding, potentially many times an hour, and generated
+    # colour files appearing as modifications every time would make git status
+    # useless.
+    [string] $Palette
 )
 
 $ErrorActionPreference = 'Stop'
@@ -83,7 +93,21 @@ Write-Host "deploying to $dst" -ForegroundColor Cyan
 # every icon renders as tofu. That looked exactly like a broken webfont and was
 # not one. Assets first, template LAST.
 Write-Host "theme:"
-Copy-Text (Join-Path $src 'theme.css') (Join-Path $dst 'theme.css')
+# With -Palette, theme.css is REGENERATED from it rather than copied from the
+# repo -- otherwise the SMP panels would follow the wallpaper while the WebView
+# panel kept the checked-in colours, and the two halves of the window would
+# disagree. Both are rendered from the same eight roles.
+$themeCss = Join-Path $src 'theme.css'
+if ($Palette) {
+    $pyc = @('py', 'python') | Where-Object { Get-Command $_ -ErrorAction SilentlyContinue } | Select-Object -First 1
+    if (-not $pyc) { throw "no python interpreter found; cannot render theme.css from -Palette" }
+    $tmpDir = Join-Path ([System.IO.Path]::GetTempPath()) 'caelestia-foobar'
+    if (-not (Test-Path $tmpDir)) { New-Item -ItemType Directory -Force -Path $tmpDir | Out-Null }
+    $themeCss = Join-Path $tmpDir 'theme.css'
+    & $pyc (Join-Path $src 'render-theme-css.py') --out $themeCss --palette $Palette | Out-Null
+    if (-not (Test-Path $themeCss)) { throw "render-theme-css.py did not produce $themeCss" }
+}
+Copy-Text $themeCss (Join-Path $dst 'theme.css')
 
 # --- Font Awesome, INLINED as a data: URI -----------------------------------
 # The webfont is embedded in the stylesheet rather than fetched from
@@ -147,10 +171,15 @@ if (Test-Path $smpSrc) {
     $smpDst = Join-Path $rootFull 'profile\caelestia'
     if (-not (Test-Path $smpDst)) { New-Item -ItemType Directory -Force -Path $smpDst | Out-Null }
 
-    $themeJs = Join-Path $smpSrc 'theme.js'
+    # generated output stays out of the repo when a palette is supplied
+    $genDir = if ($Palette) { Join-Path ([System.IO.Path]::GetTempPath()) 'caelestia-foobar' } else { $smpSrc }
+    if (-not (Test-Path $genDir)) { New-Item -ItemType Directory -Force -Path $genDir | Out-Null }
+    $themeJs = Join-Path $genDir 'theme.js'
     $py = @('py', 'python') | Where-Object { Get-Command $_ -ErrorAction SilentlyContinue } | Select-Object -First 1
     if (-not $py) { throw "no python interpreter found; cannot generate theme.js" }
-    & $py (Join-Path $src 'render-theme-js.py') --out $themeJs | Out-Null
+    $jsArgs = @((Join-Path $src 'render-theme-js.py'), '--out', $themeJs)
+    if ($Palette) { $jsArgs += @('--palette', $Palette) }
+    & $py $jsArgs | Out-Null
     if (-not (Test-Path $themeJs)) { throw "render-theme-js.py did not produce $themeJs" }
 
     $theme = [System.IO.File]::ReadAllText($themeJs)

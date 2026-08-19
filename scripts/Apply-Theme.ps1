@@ -1430,6 +1430,66 @@ function Update-WindowsAccentTheme {
     Write-Host "Windows accent themed: accent $($colors.accent), taskbar surface $($colors.taskbar)."
 }
 
+function Update-FoobarTheme {
+    <#
+      .SYNOPSIS
+        Re-theme the foobar2000 Caelestia panels from the wallpaper palette.
+
+      .DESCRIPTION
+        foobar2000 has no single live config file to copy, so this is NOT one of
+        $script:Targets -- same shape as Update-KomorebiBorderTheme and
+        Update-WindowsAccentTheme. Its colours are baked into the panel scripts
+        at DEPLOY time: Deploy-Panels.ps1 renders the palette to theme.js (ARGB
+        integers, because GdiGraphics takes no colour strings) and theme.css,
+        concatenates each panel with it, and writes the result into the
+        DUPLICATE install's profile. The panels contain zero colour literals,
+        which is what makes eight staged values enough.
+
+        ENTIRELY FAIL-SOFT. foobar2000 is optional here: the duplicate install
+        may be absent, python may be missing, the deploy may refuse. None of
+        those may fail a theme apply that has already succeeded everywhere else.
+
+        THE COLOURS APPLY ON foobar2000's NEXT START, not immediately. Spider
+        Monkey Panel evaluates a panel's script once at load; the deployed file
+        is only re-read on a panel reload, and there is no way to ask for one
+        from outside the process. Restarting foobar automatically was rejected
+        -- it is a media player, and stopping playback to change a colour is a
+        worse trade than waiting.
+    #>
+    [CmdletBinding()]
+    param(
+        [string]$StagedPalettePath = (Join-Path $script:Staging 'foobar-palette.json'),
+        [string]$DeployScript      = (Join-Path $PSScriptRoot '..\foobar2000\Deploy-Panels.ps1')
+    )
+
+    if (-not (Test-Path -LiteralPath $StagedPalettePath)) {
+        Write-Warning "foobar-palette.json was not staged -- skipping the foobar2000 retheme"
+        return
+    }
+    $raw = [System.IO.File]::ReadAllText($StagedPalettePath)
+    if ($raw -match '\{\{') {
+        Write-Warning "foobar-palette.json still contains an unrendered template expression -- skipping the foobar2000 retheme"
+        return
+    }
+    if (-not (Test-Path -LiteralPath $DeployScript)) {
+        Write-Warning "Deploy-Panels.ps1 not found -- skipping the foobar2000 retheme"
+        return
+    }
+
+    try {
+        $out = & $DeployScript -Palette $StagedPalettePath 2>&1
+        $panels = @($out | Where-Object { $_ -match 'colour literals in panel: (\d+)' })
+        $bad = @($panels | Where-Object { $_ -notmatch 'colour literals in panel: 0' })
+        if ($bad.Count) {
+            # The deploy reports rather than throws, so the check is enforced here.
+            Write-Warning "a foobar panel carries colour literals, which the wallpaper cannot reach: $($bad -join '; ')"
+        }
+        Write-Host "  foobar2000 panels redeployed from the wallpaper palette (applies on its next start)"
+    } catch {
+        Write-Warning "the foobar2000 retheme failed: $($_.Exception.Message). The rest of the apply succeeded."
+    }
+}
+
 function Update-KomorebiBorderTheme {
     <#
       Ties the border-colour role mapping (single->surface_container_high,
@@ -1741,6 +1801,15 @@ function Apply-Theme {
         Update-WindowsAccentTheme
     } catch {
         Write-Warning "Update-WindowsAccentTheme threw unexpectedly: $($_.Exception.Message). Taskbar colours were not themed this run, but the rest of the apply succeeded."
+    }
+
+    # Re-theme foobar2000's panels from the same palette. Fail-soft for the same
+    # reason as the two steps above, and additionally because foobar2000 is
+    # optional: the duplicate install may simply not be there.
+    try {
+        Update-FoobarTheme
+    } catch {
+        Write-Warning "Update-FoobarTheme threw unexpectedly: $($_.Exception.Message). foobar2000 was not rethemed this run, but the rest of the apply succeeded."
     }
 
     # Keep the real taskbar hidden -- the dock widget replaces it, and leaving

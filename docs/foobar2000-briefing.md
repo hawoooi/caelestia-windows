@@ -734,14 +734,88 @@ image reading "20 tracks", the cursor reads "+ Copy" over the playlist, a 2px
 accent line marks the insertion point between rows, and on release all 20 tracks
 land at that position -- selected, with the pre-existing item still at the top.
 
+## foobar2000 now follows the wallpaper
+
+It is wired into the matugen pipeline. Changing the wallpaper re-themes it along
+with everything else -- this was the original brief's open question, and the
+answer turned out to be cheap, because every panel already contained zero colour
+literals.
+
+The chain:
+
+```
+matugen/templates/foobar-palette.json     8 roles, one matugen expression each
+  -> state/staging/foobar-palette.json    rendered by [templates.foobar]
+  -> Update-FoobarTheme (Apply-Theme.ps1) fail-soft, NOT one of $script:Targets
+  -> Deploy-Panels.ps1 -Palette <staged>
+       -> render-theme-js.py  -> theme.js   (ARGB ints; GdiGraphics takes no strings)
+       -> render-theme-css.py -> theme.css  (the WebView panel)
+       -> concatenated with each panel, written into the DUPLICATE profile
+```
+
+**Not a `$script:Target`,** for the same reason as komorebi's border colours and
+the Windows accent: there is no single live config FILE to copy, validate and
+roll back. The colours are baked into the panel scripts at deploy time.
+
+**Generated output does not touch the repo.** With `-Palette` set, `theme.js`
+and `theme.css` are rendered into `%TEMP%\caelestia-foobar\` instead of into
+`foobar2000\`. A wallpaper change happens on a keybinding, potentially many
+times an hour, and generated colour files appearing as modifications every time
+would make `git status` useless. Verified: a full live apply leaves
+`palette.json`, `theme.css` and `smp/theme.js` unmodified.
+
+`foobar2000/palette.json` is now only the fallback for a manual
+`Deploy-Panels.ps1` run with no `-Palette`.
+
+**THE COLOURS APPLY ON foobar2000's NEXT START.** Spider Monkey Panel evaluates
+a panel's script once at load; the deployed file is only re-read on a panel
+reload, and there is no way to ask for one from outside the process.
+`window.Reload()` exists but only to a script inside the panel. Restarting
+foobar automatically was rejected: it is a media player, and stopping playback
+to change a colour is the worse trade. If live retheming is ever wanted, the
+route is a cheap poll of the palette file's mtime inside one panel plus
+`window.NotifyOthers` to the others -- a file stat, not a process spawn, so it
+does not fall foul of this project's polling rule.
+
+**Verified end to end**, not assumed: staging a DIFFERENT wallpaper's palette
+(`#d8c770` primary, a warm gold) produced correspondingly different ARGB values
+in the rendered `theme.js`, against the current wallpaper's teal `#80d4d9`.
+
 ## What is genuinely unfinished
 
-Establish this yourself rather than trusting this list — it is inferred from
-files on disk, not from the previous agent, which cannot be asked:
+Everything below is a real gap, checked against the live build rather than
+inferred:
 
-1. Whether the webview panel is actually **wired into the duplicate install's
-   Columns UI layout** and pointed at these files, or whether `mockup.html` is
-   still only a standalone design.
-2. A **screenshot of the result running inside foobar2000** — item 4 of the
-   report above. A mockup rendered in a browser is not that, and this project's
-   house rule is that looking at the real thing is the only proof.
+**Designed and not built**
+
+1. **The visualiser.** Cut on a false premise -- I claimed SMP had no audio API,
+   and `fb.GetAudioChunk(requested_length[, offset])` exists. V6 oscilloscope is
+   buildable in the panel itself, with no second panel type and no untested
+   WebView route. The nine designs are still in `foobar2000/mockup-visualizer.html`.
+2. **Sortable column headers** in the playlist -- the labels are drawn but not
+   clickable. `plman.SortByFormat` does the work.
+3. **Library view modes.** By album / artist / genre are listed in the view menu
+   but greyed; only "By folder structure" builds a tree.
+4. **Tree expansion state resets on every panel load** -- the library collapses
+   on each foobar restart.
+5. **The panels do not talk to each other.** The library cannot highlight what is
+   playing. `window.NotifyOthers` / `on_notify_data` is the route.
+6. **No filter or search box** in the library.
+
+**Known limits, decided rather than broken**
+
+7. **A 2px grey Columns UI splitter sits above the top bar.** Divider width is a
+   single global setting, so it cannot be removed for one splitter only.
+8. **Merging library + playlist into one panel** would leave that as the only
+   Columns UI splitter in the layout and give a divider we draw ourselves.
+9. **The frameless window** was built, verified and reverted -- one dropdown in
+   UI Wizard away, see above.
+
+**Housekeeping**
+
+10. **No tests cover any of this.** `Deploy-Panels.ps1`'s BOM guard, its
+    live-player refusal and its colour-literal count all have none, and this
+    repo's convention is that an unproven check is not a check.
+11. **`Open from file...`** in the saved-playlist menu is untested; it shells out
+    to foobar's own dialog.
+12. `foobar2000/probe.html` and `fontprobe.html` are untracked debug pages.

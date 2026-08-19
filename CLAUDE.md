@@ -1,8 +1,8 @@
 # Wallpaper-driven theming pipeline — working knowledge
 
 One command extracts a Material You palette from the current Wallpaper Engine wallpaper and
-regenerates the colors of WezTerm, starship, the Zebar sidebar, and komorebi's own window-border
-colours. yasb and tacky-borders were **retired** as theming targets (see "The stack" and "Window borders and gaps" below) --
+regenerates the colors of WezTerm, starship, cava, the Zebar sidebar, foobar2000's Caelestia
+panels, komorebi's own window-border colours and the Windows accent. yasb and tacky-borders were **retired** as theming targets (see "The stack" and "Window borders and gaps" below) --
 the Zebar bar (docked left) replaced yasb as the desktop's only bar, and komorebi's built-in window
 borders (`border`/`border_style`/`border_colours` in `~/komorebi.json`) now do the job the
 tacky-borders template was built for but never actually got to do (tacky-borders was never
@@ -24,6 +24,7 @@ building it — read it before changing anything here.
 | cava (1.0.0) | `C:\Users\PC\AppData\Local\cava\cava.exe`, per-user MSI (`cava_win_x64_install.msi`) from the upstream GitHub release — **not in scoop, and there is no winget on this machine**. The installer appends its directory to the **User** PATH, so `cava` does not resolve in shells that were already open. Config at `~/.config/cava/config` (13 KB, **hand-owned, not version controlled, never written by this pipeline**); the only pipeline-owned thing there is `theme = 'wallpaper'` in its `[color]` section, which points it at `~/.config/cava/themes/wallpaper` — a theming target. See "cava" below. |
 | Wallpaper Engine | `C:\Program Files (x86)\Steam\steamapps\common\wallpaper_engine\` — `wallpaper32.exe` or `wallpaper64.exe` (whichever is the live process; both exist on disk, this machine runs `wallpaper32.exe`) |
 | Zebar (v3.3.1) | `C:\Program Files\glzr.io\Zebar\zebar.exe` — a vertical Caelestia-style bar docked left, and (since yasb's retirement) the **only** bar on the desktop. Pack source tracked at `zebar/caelestia/`, served to Zebar via a junction at `~/.glzr/zebar/caelestia`. The pack declares **nine** widgets -- `bar`, `corners`, `edges`, `layoutmenu`, `statusmenu`, `panels`, `dock`, `dockpreview`, `dashboard` -- each needing its own `startupConfigs` entry per preset (`Install-Config` writes them all). Full detail: `docs/zebar-bar.md`. |
+| foobar2000 (Caelestia) | A DUPLICATE portable install at `~/Music/foobar2000-caelestia` -- **never** the user's live player at `~/Music/foobar2000`. Columns UI hosting three **Spider Monkey Panel** panels (top bar, library tree, playlist) that draw the whole UI themselves, Georgia-ReBORN style. Sources in `foobar2000/smp/`, deployed by `foobar2000/Deploy-Panels.ps1`. Wired into this pipeline since 2026-08-19 -- see `docs/foobar2000-briefing.md`. |
 | komorebi + whkd | `~/komorebi.json`, `~/.config/whkdrc` — the tiling WM driving the desktop (GlazeWM was replaced during this project's pre-flight; see `~/.config/yasb/CLAUDE.md`). Since the borders/yasb-retirement task, komorebi.json also carries `border: true`, `border_style: "Rounded"`, `border_width: 4`, `border_offset: 1`, `default_workspace_padding`/`default_container_padding` of **8/8**, a `global_work_area_offset` of `{left:-8, top:0, right:-8, bottom:0}`, and a themed `border_colours` object -- see "Window borders and gaps" and "The desktop frame" below. |
 | Pester | 6.0.1 and 3.4.0 are both installed; **all tests in this repo are Pester 5+ syntax** (`Should -Be`, not `Should Be`) — `Import-Module Pester -MinimumVersion 5.0.0` before running the suite, or 3.4.0 loads by default and every test errors on syntax it doesn't recognize |
 
@@ -527,6 +528,15 @@ Switch-Wallpaper.ps1
           (`komorebic border-colour`, fail-soft) and persisted into ~/komorebi.json's
           border_colours field -- see "Window borders and gaps" above. Entirely fail-soft; never
           affects this run's own Success/Failed result.
+       -> Update-FoobarTheme: re-theme foobar2000's SMP panels from the same
+          palette, by handing state/staging/foobar-palette.json to
+          Deploy-Panels.ps1 -Palette. NOT one of $script:Targets (no single live
+          config file to copy or roll back -- the colours are baked into the
+          panel scripts at deploy time). Entirely fail-soft. Generated theme.js
+          and theme.css go to %TEMP% rather than the repo, so a wallpaper change
+          leaves the working tree clean. THE COLOURS APPLY ON foobar's NEXT
+          START: SMP evaluates a panel script once at load and there is no way
+          to trigger a reload from outside the process.
        -> Update-WindowsAccentTheme: theme the Windows taskbar/Start/title bars from the same
           palette, by writing HKCU accent keys + broadcasting WM_SETTINGCHANGE. Also entirely
           fail-soft. See "The Windows taskbar" below.
