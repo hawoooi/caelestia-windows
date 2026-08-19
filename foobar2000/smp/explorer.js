@@ -562,7 +562,8 @@ function on_mouse_lbtn_dblclk(x, y) {
     if (i < 0) return;
     var lib = fb.GetLibraryItems();
     var handles = [];
-    if (rows[i].kind === 'file') {
+    var isFile = (rows[i].kind === 'file');
+    if (isFile) {
         handles.push(lib[rows[i].file.index]);
     } else {
         collectFiles(rows[i].node, function (idx) { handles.push(lib[idx]); });
@@ -574,7 +575,22 @@ function on_mouse_lbtn_dblclk(x, y) {
     plman.ClearPlaylist(pl);
     plman.InsertPlaylistItems(pl, 0, hl);
     plman.ActivePlaylist = pl;
-    plman.ExecutePlaylistDefaultAction(pl, 0);
+
+    // A FOLDER IS LOADED, NOT PLAYED. Opening a folder is a browsing action --
+    // you are looking for something -- and hijacking playback to start its first
+    // track interrupts whatever is already on to play something nobody chose.
+    // A FILE is different: double-clicking one track is an explicit "play this",
+    // so that still plays.
+    //
+    // The folder case still focuses and selects the first row, so the playlist
+    // is ready to start from the top on Enter or a double-click there.
+    if (isFile) {
+        plman.ExecutePlaylistDefaultAction(pl, 0);
+    } else {
+        plman.ClearPlaylistSelection(pl);
+        plman.SetPlaylistSelectionSingle(pl, 0, true);
+        plman.SetPlaylistFocusItem(pl, 0);
+    }
 }
 
 function collectFiles(node, fn) {
