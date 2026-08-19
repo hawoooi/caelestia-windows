@@ -38,6 +38,8 @@ var GLYPH_FOLDER_OPEN = String.fromCharCode(0xF07C);   // fa-folder-open
 var GLYPH_CARET_R     = String.fromCharCode(0xF0DA);   // fa-caret-right, closed
 var GLYPH_CARET_D     = String.fromCharCode(0xF0D7);   // fa-caret-down, open
 
+var CNT_W = 36;        // the pinned track-count column
+
 var E = {
     rowH:      20,
     pad:       12,   // inside the scroll area
@@ -182,8 +184,10 @@ function measureContent() {
     for (var i = 0; i < rows.length; i++) {
         var r = rows[i];
         var text = (r.kind === 'dir') ? r.node.name : r.file.name;
+        // The count column is PINNED and never scrolls, so it is not part of the
+        // scrollable width -- including it used to let the tree scroll 36px
+        // further than there was anything to see.
         var w = E.pad + r.indent + E.fileIndent + text.length * charW;
-        if (r.kind === 'dir') w += 36 + E.nodePad;      // the count column
         if (w > maxW) maxW = w;
     }
     contentW = maxW + E.pad;
@@ -275,6 +279,14 @@ function on_paint(gr) {
     var availW = VW - IN.r - E.scrollW;
     // the banding spans the card, not the indented row -- see the note below
     var bandX = IN.l + E.pad, bandW = Math.max(0, availW - E.pad - bandX);
+    // the pinned count column, fixed against the panel's right edge
+    var cntX = availW - E.pad - CNT_W;
+    // No ellipsis while there is somewhere to scroll to: an ellipsis would keep
+    // replacing the tail of the name no matter how far right you scrolled, so
+    // the end of a long name could never be read -- which is the whole point of
+    // scrolling. The scrollbar already says there is more.
+    var nameFmt = (maxScrollX() > 0)
+        ? (DTX.SINGLELINE | DTX.VCENTER | DTX.NOPREFIX) : DTX_ROW;
 
     // guide spines first, so node blocks sit on top of them
     var sp = rows.spines || [];
@@ -313,7 +325,7 @@ function on_paint(gr) {
             // on the SELECTED row only. Reverting is one line: restore the
             // unconditional surface_container_high fill below.
             if (i === selected || i === hover) {
-                fillRoundE(gr, x, y, w, E.rowH, E.radius,
+                fillRoundE(gr, x, y, Math.max(20, cntX + CNT_W - x), E.rowH, E.radius,
                            i === selected ? THEME.raised_hover : THEME.surface_container_high);
             }
 
@@ -327,14 +339,21 @@ function on_paint(gr) {
                            DTX.SINGLELINE | DTX.VCENTER | DTX.NOPREFIX);
 
             var nameX = x + E.fileIndent;
-            var cntW = 36;
+            // THE COUNT IS PINNED. It is drawn at a FIXED right edge, outside the
+            // horizontal scroll, because it is metadata about the row rather than
+            // part of the name: letting it slide away with the text left the
+            // numbers floating in the middle of the panel with nothing to read
+            // them against. The name is clipped short of it so the two never
+            // collide -- GdiDrawText clips to its rect, which is the only
+            // clipping this API has.
             gr.GdiDrawText(r.node.name, (i === selected) ? f_bold : f_ui, THEME.on_surface,
-                           nameX, y, w - (nameX - x) - E.nodePad - cntW, E.rowH, DTX_ROW);
+                           nameX, y, Math.max(10, cntX - E.iconGap - nameX), E.rowH, nameFmt);
             gr.GdiDrawText(String(r.node.count), f_small, THEME.outline,
-                           x + w - E.nodePad - cntW, y, cntW, E.rowH, DTX_ROW_R);
+                           cntX, y, CNT_W, E.rowH, DTX_ROW_R);
         } else {
             if (i === hover || i === selected) {
-                fillRoundE(gr, x, y, w, E.rowH, E.radius, THEME.surface_container_high);
+                fillRoundE(gr, x, y, Math.max(20, cntX + CNT_W - x), E.rowH, E.radius,
+                           THEME.surface_container_high);
             }
             // A track gets its own glyph in the SAME column a folder's sits in.
             // Without it the icon column was empty for files, so their names
@@ -346,7 +365,8 @@ function on_paint(gr) {
                            DTX.SINGLELINE | DTX.VCENTER | DTX.NOPREFIX);
             gr.GdiDrawText(r.file.name, f_ui,
                            (i === hover || i === selected) ? THEME.on_surface : THEME.on_surface_variant,
-                           x + E.fileIndent, y, w - E.fileIndent - E.nodePad, E.rowH, DTX_ROW);
+                           x + E.fileIndent, y,
+                           Math.max(10, cntX + CNT_W - (x + E.fileIndent)), E.rowH, nameFmt);
         }
     }
 
@@ -461,7 +481,20 @@ function on_mouse_leave() {
 }
 function on_mouse_lbtn_up(x, y) { pressAt = null; if (hDrag) { hDrag = null; window.Repaint(); } }
 
+// SHIFT + wheel scrolls sideways, the convention every list with a horizontal
+// axis uses. on_mouse_wheel carries no modifier state, so the key is read
+// directly -- utils.IsKeyPressed is a GetAsyncKeyState call, not a poll: it only
+// runs on an actual wheel event.
+var VK_SHIFT = 0x10;
+
 function on_mouse_wheel(step) {
+    var shift = false;
+    try { shift = utils.IsKeyPressed(VK_SHIFT); } catch (e) { shift = false; }
+    if (shift) {
+        var nx = clampE(scrollX - step * 60, 0, maxScrollX());
+        if (nx !== scrollX) { scrollX = nx; window.Repaint(); }
+        return;
+    }
     var next = clampE(scrollY - step * E.rowH * 3, 0, maxScrollE());
     if (next !== scrollY) { scrollY = next; window.Repaint(); }
 }
