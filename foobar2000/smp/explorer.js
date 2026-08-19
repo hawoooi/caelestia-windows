@@ -39,6 +39,10 @@ var GLYPH_CARET_R     = String.fromCharCode(0xF0DA);   // fa-caret-right, closed
 var GLYPH_CARET_D     = String.fromCharCode(0xF0D7);   // fa-caret-down, open
 
 var CNT_W = 36;        // the pinned track-count column
+// Its own right padding, deliberately larger than E.pad. The count sits just
+// inside the vertical scrollbar, so the row's ordinary inset left it looking
+// jammed against the panel edge in a way the left-hand text never does.
+var CNT_PAD = 20;
 
 var E = {
     rowH:      20,
@@ -280,7 +284,7 @@ function on_paint(gr) {
     // the banding spans the card, not the indented row -- see the note below
     var bandX = IN.l + E.pad, bandW = Math.max(0, availW - E.pad - bandX);
     // the pinned count column, fixed against the panel's right edge
-    var cntX = availW - E.pad - CNT_W;
+    var cntX = availW - CNT_PAD - CNT_W;
     // No ellipsis while there is somewhere to scroll to: an ellipsis would keep
     // replacing the tail of the name no matter how far right you scrolled, so
     // the end of a long name could never be read -- which is the whole point of
