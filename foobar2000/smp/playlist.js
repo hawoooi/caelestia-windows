@@ -89,8 +89,12 @@ G.tabBtnGap = 2;
 G.tabSepW  = 13;    // rule between the controls and the first tab
 G.tabW     = 150;   // the shared flex basis every tab gets
 G.tabGap   = 2;
+// EVERY TAB HAS THE SAME GEOMETRY, and only the fill differs. Inactive tabs
+// used to be shorter and to sit a pixel clear of the card, so hovering one drew
+// a fully rounded pill floating above the strip -- a shape no tab ever actually
+// has, which is what made the hover feel detached. Now hover paints the SAME
+// shape the active tab has, just dimmer: it previews what clicking would do.
 G.tabActive = 26;   // bottom edge lands on colsY(), which is what makes it merge
-G.tabInact  = 22;   // inactive tabs float slightly above the card
 G.tabPad   = 10;    // inside a tab
 G.tabX     = 18;    // the close affordance
 
@@ -127,6 +131,19 @@ var IN = { l: 3, t: 3, r: 8, b: 8 };
 var f_ui, f_bold, f_small, f_lab, f_np, f_npSub;
 var items = [], handles = null, playlistIdx = -1;
 var scroll = 0, hoverRow = -1, hoverTab = -1, hoverBtn = -1;
+
+// ------------------------------------------------------- tab reordering ----
+// A press on a tab becomes a REORDER past a slop threshold, the same rule the
+// library uses to tell a click from a drag. Below the threshold the press is
+// still just a tab switch, so ordinary clicking is unaffected.
+//
+// The dragged tab follows the cursor and an accent line marks where it will
+// land. The line sits in the GAP between two tabs rather than on one of them,
+// for the same reason the playlist's drop indicator does: a highlighted tab
+// would say "swap with this", and the operation is an insert.
+var tabPress = null;   // {t, x} while the button is down on a tab
+var tabDrag  = null;   // {from, grabX, dx, target} once it has become a drag
+var TAB_SLOP = 6;
 var art = {}, artPending = {};
 var npArt = null, npKey = '';
 var totalText = '';
@@ -365,43 +382,50 @@ function drawTabs(gr, c) {
         var tb = tabs[t];
         var active = (tb.i === plman.ActivePlaylist);
         var hot = (t === hoverTab);
-        var ty, th;
-        if (active) {
-            // Bottom edge lands exactly on colsY(), so the tab and the header
-            // band below it are continuous -- that flush join IS the merge.
-            ty = tabsY() + (G.tabsH - G.tabActive); th = G.tabActive;
-            // extended past the card edge so only its TOP corners show round
-            fillRound(gr, tb.x, ty, tb.w, th + G.tabR, G.tabR, THEME.surface_container);
-        } else {
-            ty = tabsY() + (G.tabsH - G.tabInact) - 1; th = G.tabInact;
-            if (hot) fillRound(gr, tb.x, ty, tb.w, th, G.tabR, THEME.stripe);
-        }
-        // a tab being dragged onto lights up and takes an accent underline, so
+        // Bottom edge lands exactly on colsY(), so a filled tab and the header
+        // band below it are continuous -- that flush join IS the merge.
+        var ty = tabsY() + (G.tabsH - G.tabActive), th = G.tabActive;
+        var tx0 = tb.x + (tabDrag && tabDrag.from === t ? tabDrag.dx : 0);
+
+        // extended past the card edge so only the TOP corners come out round
+        if (active)   fillRound(gr, tx0, ty, tb.w, th + G.tabR, G.tabR, THEME.surface_container);
+        else if (hot) fillRound(gr, tx0, ty, tb.w, th + G.tabR, G.tabR, THEME.stripe);
+
+        // a tab being dragged ONTO lights up and takes an accent underline, so
         // the target is unambiguous even when it is the active tab
         if (t === dropTab) {
-            fillRound(gr, tb.x, ty, tb.w, th, G.tabR, THEME.surface_container_high);
-            gr.FillSolidRect(tb.x, ty + th - 2, tb.w, 2, THEME.primary);
+            fillRound(gr, tx0, ty, tb.w, th + G.tabR, G.tabR, THEME.surface_container_high);
+            gr.FillSolidRect(tx0, ty + th - 2, tb.w, 2, THEME.primary);
         }
-        if (!active) {
-            // the hairline between two inactive neighbours, as Chrome draws it
-            if (t > 0 && !hot && tabs[t - 1].i !== plman.ActivePlaylist) {
-                gr.FillSolidRect(tb.x - 1, ty + 6, 1, th - 12, THEME.rule);
-            }
+        // the hairline between two unfilled neighbours, as Chrome draws it
+        if (!active && !hot && t > 0 &&
+            tabs[t - 1].i !== plman.ActivePlaylist && (t - 1) !== hoverTab) {
+            gr.FillSolidRect(tb.x - 1, ty + 6, 1, th - 12, THEME.rule);
         }
 
-        var tx = tb.x + G.tabPad, tw = tb.w - G.tabPad * 2;
+        var tx = tx0 + G.tabPad, tw = tb.w - G.tabPad * 2;
         if (tb.pinned) {
             gr.GdiDrawText(GT.folder, f_small, THEME.outline, tx, ty, 12, th,
                            DT.SINGLELINE | DT.VCENTER | DT.NOPREFIX);
             tx += 16; tw -= 16;
         } else if (active || hot) {
             gr.GdiDrawText(GT.times, f_small, THEME.outline,
-                           tb.x + tb.w - G.tabX, ty, 12, th, DT_ROW_C);
+                           tx0 + tb.w - G.tabX, ty, 12, th, DT_ROW_C);
             tw -= G.tabX - G.tabPad;
         }
         gr.GdiDrawText(tb.name, active ? f_bold : f_ui,
                        active ? THEME.on_surface : THEME.on_surface_variant,
                        tx, ty, Math.max(10, tw), th, DT_ROW);
+    }
+
+    // Where a reorder will drop: a line in the GAP between two tabs, not a
+    // highlight on one. A highlighted tab would read as "swap with this"; the
+    // operation is an insert, and the gap is where the tab actually goes.
+    if (tabDrag && tabs.length) {
+        var g = tabs[tabDrag.target];
+        var gx = (tabDrag.target > tabDrag.from) ? g.x + g.w : g.x;
+        var gy = tabsY() + (G.tabsH - G.tabActive);
+        gr.FillSolidRect(gx - 1, gy, 2, G.tabActive, THEME.primary);
     }
 }
 
@@ -610,6 +634,15 @@ function tabAt(x, y) {
     }
     return -1;
 }
+// Which insertion gap the dragged tab's CENTRE currently falls in.
+function tabTargetAt(centreX) {
+    var tabs = tabRects();
+    for (var i = 0; i < tabs.length; i++) {
+        if (centreX < tabs[i].x + tabs[i].w / 2) return i;
+    }
+    return tabs.length - 1;
+}
+
 function tabBtnAt(x, y) {
     var b = tabBtnRects();
     for (var i = 0; i < b.length; i++) {
@@ -706,7 +739,19 @@ function showPlaylistMenu(x, y) {
     window.Repaint();
 }
 
-function on_mouse_move(x, y) {
+function on_mouse_move(x, y, mask) {
+    if (tabDrag) {
+        tabDrag.dx = x - tabDrag.grabX;
+        var tabs = tabRects();
+        var src = tabs[tabDrag.from];
+        tabDrag.target = tabTargetAt(src.x + tabDrag.dx + src.w / 2);
+        window.Repaint(); return;
+    }
+    if (tabPress && (mask & 1) && Math.abs(x - tabPress.x) > TAB_SLOP) {
+        tabDrag = { from: tabPress.t, grabX: tabPress.x, dx: x - tabPress.x, target: tabPress.t };
+        tabPress = null;
+        window.Repaint(); return;
+    }
     var r = rowAt(x, y);
     if (r >= 0 && items[r].kind !== 'track') r = -1;
     var t = tabAt(x, y), b = tabBtnAt(x, y);
@@ -714,7 +759,7 @@ function on_mouse_move(x, y) {
         hoverRow = r; hoverTab = t; hoverBtn = b; window.Repaint();
     }
 }
-function on_mouse_leave() { hoverRow = -1; hoverTab = -1; hoverBtn = -1; window.Repaint(); }
+function on_mouse_leave() { hoverRow = -1; hoverTab = -1; hoverBtn = -1; tabPress = null; window.Repaint(); }
 
 function on_mouse_wheel(step) {
     var next = clamp(scroll - step * G.rowH * 3, 0, maxScroll());
@@ -740,6 +785,9 @@ function on_mouse_lbtn_down(x, y) {
             plman.RemovePlaylist(tabs[t].i);
             scroll = 0; buildItems(); return;
         }
+        // switch immediately, as Chrome does, and remember the press in case
+        // this turns out to be a reorder rather than a click
+        tabPress = { t: t, x: x };
         plman.ActivePlaylist = tabs[t].i; scroll = 0; buildItems(); return;
     }
     var i = rowAt(x, y);
@@ -749,6 +797,17 @@ function on_mouse_lbtn_down(x, y) {
     plman.SetPlaylistSelectionSingle(playlistIdx, idx, true);
     plman.SetPlaylistFocusItem(playlistIdx, idx);
     window.Repaint();
+}
+
+function on_mouse_lbtn_up(x, y) {
+    if (tabDrag) {
+        var from = tabRects()[tabDrag.from].i;
+        var to   = tabRects()[tabDrag.target].i;
+        tabDrag = null;
+        if (from !== to) plman.MovePlaylist(from, to);
+        buildItems(); window.Repaint(); return;
+    }
+    tabPress = null;
 }
 
 function on_mouse_lbtn_dblclk(x, y) {
