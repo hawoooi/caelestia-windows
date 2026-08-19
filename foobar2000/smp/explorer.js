@@ -425,6 +425,37 @@ function on_paint(gr) {
 }
 
 // -------------------------------------------------------------------- input --
+// ---------------------------------------------------------- context menu --
+// Same reasoning as the playlist's: without an on_mouse_rbtn_up returning TRUE,
+// SMP shows its own developer menu. This builds foobar's real context menu for
+// whatever the row covers -- a single file, or every track under a folder.
+//
+// The menu is the standard one, so "Add to playlist", "Play", "Properties",
+// ReplayGain, converter entries and anything a component contributes are all
+// present without this panel knowing about any of them.
+function on_mouse_rbtn_up(x, y, mask) {
+    var i = rowAtE(y);
+    if (i < 0) return true;                 // still suppress the dev menu
+
+    // right-clicking a row selects it, so the menu acts on what was clicked
+    if (i !== selected) { selected = i; window.Repaint(); }
+
+    var lib = fb.GetLibraryItems();
+    var hl = fb.CreateHandleList();
+    if (rows[i].kind === 'file') hl.Add(lib[rows[i].file.index]);
+    else collectFiles(rows[i].node, function (idx) { hl.Add(lib[idx]); });
+    if (!hl.Count) return true;
+
+    var menu = window.CreatePopupMenu();
+    var cmm = fb.CreateContextMenuManager();
+    cmm.InitContext(hl);
+    cmm.BuildMenu(menu, 1, -1);
+    var ret = menu.TrackPopupMenu(x, y);
+    if (ret > 0) cmm.ExecuteByID(ret - 1);
+    return true;
+}
+
+
 
 function rowAtE(y) {
     if (y < cardTop() || y > cardFoot()) return -1;

@@ -816,6 +816,37 @@ function on_mouse_lbtn_dblclk(x, y) {
     plman.ExecutePlaylistDefaultAction(playlistIdx, items[i].index);
 }
 
+// ---------------------------------------------------------- context menu --
+// Without an on_mouse_rbtn_up that returns TRUE, SMP shows its own panel menu
+// -- Reload / Edit panel script / Configure panel -- which is a developer menu,
+// not something a listener ever wants. Returning true suppresses it; the menu
+// built here is foobar's REAL track context menu, the same one the stock
+// playlist view offers, so every component that adds entries to it still works.
+function on_mouse_rbtn_up(x, y, mask) {
+    var i = rowAt(x, y);
+    if (i < 0 || items[i].kind !== 'track') return true;   // still suppress the dev menu
+
+    // Right-clicking OUTSIDE the selection selects that row first, the way every
+    // list does -- otherwise the menu silently acts on something else.
+    if (!plman.IsPlaylistItemSelected(playlistIdx, items[i].index)) {
+        plman.ClearPlaylistSelection(playlistIdx);
+        plman.SetPlaylistSelectionSingle(playlistIdx, items[i].index, true);
+        plman.SetPlaylistFocusItem(playlistIdx, items[i].index);
+        window.Repaint();
+    }
+
+    var handles = plman.GetPlaylistSelectedItems(playlistIdx);
+    if (!handles || !handles.Count) return true;
+
+    var menu = window.CreatePopupMenu();
+    var cmm = fb.CreateContextMenuManager();
+    cmm.InitContext(handles);
+    cmm.BuildMenu(menu, 1, -1);
+    var ret = menu.TrackPopupMenu(x, y);
+    if (ret > 0) cmm.ExecuteByID(ret - 1);
+    return true;
+}
+
 // ------------------------------------------------------------ drop target --
 // The library panel starts a real OLE drag with fb.DoDragDrop, so this receives
 // it like any other drop source -- the two panels do NOT have to be merged for
