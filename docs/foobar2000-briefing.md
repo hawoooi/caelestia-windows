@@ -688,6 +688,52 @@ gone from `mockup-layout.html`.
 keeps the unwired `tacky-borders.yaml` template: the comparison harness and the
 nine designs are recoverable the moment a real PCM source exists.
 
+## Drag and drop works, and the playlist panel is now an SMP PACKAGE
+
+Library-to-playlist drag and drop is live. It does NOT need the two panels
+merged into one -- an earlier claim in this file that it did was wrong.
+
+**Source side, `explorer.js`.** `fb.DoDragDrop(window.ID, handle_list, effect)`
+starts a real OLE drag out of a panel. A press becomes a drag only past a 5px
+slop threshold, so an ordinary click still expands a folder. No special panel
+configuration is needed to START a drag.
+
+**Target side, `playlist.js`.** `on_drag_enter/over/leave/drop`. The action
+object carries `Base`, `Effect`, `Playlist`, `ToSelect` and `IsInternal`;
+setting `Playlist` and `Base` decides where the items land, and SMP performs
+the insert itself. Dropping on a tab targets that playlist and appends instead,
+without switching the view away from the list being arranged.
+
+**THE PART THAT BLOCKS EVERYTHING: a panel only receives drops if it is a
+PACKAGE.** `on_drag_*` never fires otherwise -- the drag shows a no-drop cursor
+and nothing in the script runs, which looks exactly like a bug in the handlers
+and is not one. The switch is Configure panel > Package tab > Panel behaviour >
+"Drag-n-drop support", and that whole tab only appears once the script source is
+a package. It persists as `"enableDragDrop": true` in the package's
+`package.json`.
+
+**How the panel is wired now:**
+
+```
+profile/foo_spider_monkey_panel/packages/{2E378163-F294-4F57-A2C5-8D1FFE198AEE}/
+    package.json   -- "name": "Caelestia Playlist", "enableDragDrop": true
+    main.js        -- the one-line bootstrap, include()ing profile/caelestia/playlist.js
+```
+
+`Deploy-Panels.ps1` is UNCHANGED and still writes `profile/caelestia/playlist.js`;
+the package's `main.js` only bootstraps it. `explorer.js` and `topbar.js` remain
+in-memory panels, because only the DROP TARGET has to be a package.
+
+**Switching a panel's script source DESTROYS its script**, with a warning that
+means it literally. The bootstrap now lives in `foobar2000/smp/bootstrap.js` --
+recovered out of SMP's own editor immediately before making that switch, and it
+existed nowhere else on disk or in this repo.
+
+**Verified live:** dragging ARCAEA out of the library shows foobar's own drag
+image reading "20 tracks", the cursor reads "+ Copy" over the playlist, a 2px
+accent line marks the insertion point between rows, and on release all 20 tracks
+land at that position -- selected, with the pre-existing item still at the top.
+
 ## What is genuinely unfinished
 
 Establish this yourself rather than trusting this list — it is inferred from
