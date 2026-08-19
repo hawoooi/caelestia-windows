@@ -375,6 +375,13 @@ function on_paint(gr) {
         hThumb = { x: tx, w: thumbW, y: by, h: E.scrollW, trackX: trackX, trackW: trackW };
     }
 
+    // THE BOTTOM CLIP. There is no clipping region in GdiGraphics, so a row that
+    // is only partly inside the tree still gets drawn in FULL -- it just runs
+    // past the card's bottom edge and into the panel's own margin. The footer
+    // used to hide that, and removing the footer exposed it: the last row bled
+    // out under the card. Repainting the margin as panel ground is the clip.
+    gr.FillSolidRect(0, cardFoot(), VW, VH - cardFoot(), THEME.surface);
+
     // Header drawn AFTER the tree and painting its own ground: a scrolled row
     // that is only partly inside the tree region still gets drawn (there is no
     // clipping region in GdiGraphics), and would otherwise bleed into it --
