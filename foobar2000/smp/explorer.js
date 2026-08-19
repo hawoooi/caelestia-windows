@@ -218,7 +218,43 @@ function fillRoundE(gr, x, y, w, h, r, colour) {
 // has. Divider width 0 looks cleaner but makes panels impossible to resize --
 // there is nothing to grab -- so 4px of it is the price of a draggable split.
 var IN = { l: 8, t: 3, r: 3, b: 8 };
-var CARD = { r: 0, headH: 28, footH: 29 };   // square backgrounds; E.radius still rounds highlights
+// footH is 0: the "view / by folder structure" footer is gone. It spent a whole
+// 29px band restating one word that changes maybe twice a year, and that band is
+// better spent on the tree. The setting now lives as an icon at the right of the
+// LIBRARY label, which is where the mockup put it.
+var CARD = { r: 0, headH: 28, footH: 0 };   // square backgrounds; E.radius still rounds highlights
+
+var GLYPH_VIEW = String.fromCharCode(0xF1DE);   // fa-sliders
+var VIEW_BTN = { w: 24, h: 20, pad: 8 };
+var hoverView = false;
+
+// Only the folder view is implemented. The others are listed but disabled
+// rather than hidden, so the menu says what this control is FOR -- offering
+// them as if they worked would be worse than showing they are not built yet.
+var VIEW_MODES = ['By folder structure', 'By album', 'By artist', 'By genre'];
+var viewMode = 0;
+
+function viewBtnRect() {
+    var cw = VW - IN.l - IN.r;
+    return { x: IN.l + cw - VIEW_BTN.pad - VIEW_BTN.w,
+             y: IN.t + Math.floor((CARD.headH - VIEW_BTN.h) / 2),
+             w: VIEW_BTN.w, h: VIEW_BTN.h };
+}
+function inViewBtn(x, y) {
+    var r = viewBtnRect();
+    return x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h;
+}
+function showViewMenu() {
+    var r = viewBtnRect();
+    var m = window.CreatePopupMenu();
+    for (var i = 0; i < VIEW_MODES.length; i++) {
+        // 1 = MF_GRAYED, 8 = MF_CHECKED
+        m.AppendMenuItem(i === viewMode ? 0 : 1, i + 1, VIEW_MODES[i]);
+        if (i === viewMode) m.CheckMenuRadioItem(1, VIEW_MODES.length, i + 1);
+    }
+    m.TrackPopupMenu(r.x, r.y + r.h);
+    window.Repaint();
+}
 
 function cardTop()  { return IN.t + CARD.headH + 1; }
 function cardFoot() { return VH - IN.b - CARD.footH; }
@@ -347,25 +383,14 @@ function on_paint(gr) {
     fillRoundE(gr, cx, cy, cw, CARD.headH + CARD.r, CARD.r, THEME.surface_container);
     gr.GdiDrawText('LIBRARY', f_small, THEME.outline, cx + 14, cy, cw - 28, CARD.headH,
                    DTX.SINGLELINE | DTX.VCENTER | DTX.NOPREFIX);
+
+    var vb = viewBtnRect();
+    if (hoverView) fillRoundE(gr, vb.x, vb.y, vb.w, vb.h, 4, THEME.surface_container_high);
+    gr.GdiDrawText(GLYPH_VIEW, f_icon, hoverView ? THEME.on_surface : THEME.outline,
+                   vb.x, vb.y, vb.w, vb.h,
+                   DTX.SINGLELINE | DTX.VCENTER | DTX.NOPREFIX | 0x1);
+
     gr.FillSolidRect(cx, cardTop() - 1, cw, 1, THEME.rule);
-
-    drawFooterE(gr, cx, cw);
-}
-
-// Drawn LAST and painting its own ground: a tree row that straddles the
-// boundary would otherwise show through it, which is exactly what happened --
-// file names were overlapping "view by folder structure". Extended upward by
-// the card radius so the card's BOTTOM corners stay round while this fill's own
-// top edge is hidden inside the card.
-function drawFooterE(gr, cx, cw) {
-    var fy = cardFoot();
-    fillRoundE(gr, cx, fy - CARD.r, cw, CARD.footH + CARD.r, CARD.r, THEME.surface_container);
-    gr.FillSolidRect(cx, fy - 1, cw, 1, THEME.rule);
-    gr.GdiDrawText('view', f_small, THEME.outline, cx + 14, fy, 40, CARD.footH,
-                   DTX.SINGLELINE | DTX.VCENTER | DTX.NOPREFIX);
-    gr.GdiDrawText('by folder structure', f_ui, THEME.on_surface_variant,
-                   cx + 54, fy, cw - 68, CARD.footH,
-                   DTX.SINGLELINE | DTX.VCENTER | DTX.NOPREFIX | DTX.END_ELLIPSIS);
 }
 
 // -------------------------------------------------------------------- input --
@@ -419,10 +444,14 @@ function on_mouse_move(x, y, mask) {
             return;
         }
     }
+    var v = inViewBtn(x, y);
+    if (v !== hoverView) { hoverView = v; window.Repaint(); }
     var i = rowAtE(y);
     if (i !== hover) { hover = i; window.Repaint(); }
 }
-function on_mouse_leave() { if (hover !== -1) { hover = -1; window.Repaint(); } }
+function on_mouse_leave() {
+    if (hover !== -1 || hoverView) { hover = -1; hoverView = false; window.Repaint(); }
+}
 function on_mouse_lbtn_up(x, y) { pressAt = null; if (hDrag) { hDrag = null; window.Repaint(); } }
 
 function on_mouse_wheel(step) {
@@ -436,6 +465,7 @@ function on_mouse_wheel_h(step) {
 }
 
 function on_mouse_lbtn_down(x, y) {
+    if (inViewBtn(x, y)) { showViewMenu(); return; }
     // the horizontal thumb first: it overlaps the bottom row band, and a grab
     // there must scroll rather than select whatever row is behind it
     if (hThumb && y >= hThumb.y && y < hThumb.y + hThumb.h) {
