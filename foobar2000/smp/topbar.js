@@ -114,7 +114,7 @@ var MENUS = ['File', 'Edit', 'View', 'Playback', 'Library', 'Help'];
 // runs before the hook exists and fails silently, forever. Retry on a timer.
 // See docs/foobar2000-briefing.md.
 
-var f_ui, f_icon, f_small;
+var f_ui, f_icon, f_small, f_badge;
 var TW = 0, TH = 0;
 var hoverBtn = -1, hoverMenu = -1;
 var dragging = null;
@@ -256,6 +256,21 @@ function on_paint(gr) {
         var col = (bt.id === 'play') ? THEME.on_surface
                 : (b === hoverBtn || on) ? THEME.on_surface : THEME.on_surface_variant;
         gr.GdiDrawText(glyph, f_icon, col, bt.x, c.y, bt.w, c.h, DTT_C);
+
+        // Repeat-playlist and repeat-track share one glyph, because Font
+        // Awesome v4 -- the only icon set 0xProto Nerd Font embeds (see GL
+        // above) -- has no repeat-one glyph at all. Without something here the
+        // two states are pixel-identical and the button appears to do nothing
+        // on its second press.
+        //
+        // So state 2 gets a small bold "1" badge, low and right of the loop,
+        // which is the same device foobar's own status bar and every phone
+        // player uses. Drawn in the button's CURRENT colour rather than an
+        // accent: it is part of the icon, not a separate signal, and the lit
+        // pill behind it already says "this mode is on".
+        if (bt.id === 'order' && plman.PlaybackOrder === 2) {
+            gr.GdiDrawText('1', f_badge, col, bt.x + bt.w - 13, c.y + 6, 10, c.h, DTT_C);
+        }
     }
 
     gr.FillSolidRect(L.sep1, c.y + 8, 1, c.h - 16, THEME.rule);
@@ -360,7 +375,24 @@ function on_mouse_lbtn_down(x, y) {
     else if (id === 'prev') fb.Prev();
     else if (id === 'next') fb.Next();
     else if (id === 'play') { if (fb.IsPlaying) fb.PlayOrPause(); else fb.Play(); }
-    else if (id === 'order') plman.PlaybackOrder = (plman.PlaybackOrder === 1) ? 0 : 1;
+    // Three states, not two. This used to be a plain 0 <-> 1 toggle, which made
+    // foobar's "Repeat (track)" order UNREACHABLE from this bar -- reported as
+    // "foobar misses an option to repeat one track". Repeat-one is the mode
+    // people actually reach for, so it cannot be the one that needs the native
+    // Playback menu.
+    //
+    // plman.PlaybackOrder is foobar's own enum: 0 Default, 1 Repeat (playlist),
+    // 2 Repeat (track), 3 Random, 4+ the shuffle modes.
+    //
+    // Cycle: off -> repeat playlist -> repeat track -> off. Coming from any
+    // shuffle order it enters at repeat-playlist rather than jumping straight
+    // to repeat-track, so the sequence is the same wherever you start.
+    else if (id === 'order') {
+        var ord = plman.PlaybackOrder;
+        if (ord === 1)      plman.PlaybackOrder = 2;
+        else if (ord === 2) plman.PlaybackOrder = 0;
+        else                plman.PlaybackOrder = 1;
+    }
     else if (id === 'shuffle') plman.PlaybackOrder = (plman.PlaybackOrder >= 3) ? 0 : 4;
     window.Repaint();
 }
@@ -413,6 +445,9 @@ function on_playback_order_changed() { window.Repaint(); }
 f_ui    = gdi.Font('0xProto Nerd Font', 11, 0);   // menus: 11px, tighter padding
 f_icon  = gdi.Font('0xProto Nerd Font', 12, 0);
 f_small = gdi.Font('0xProto Nerd Font', 11, 0);
+// 8px bold: the repeat-one badge. Small enough to read as part of the repeat
+// glyph rather than as a second icon beside it -- see where it is drawn.
+f_badge = gdi.Font('0xProto Nerd Font', 8, 1);
 
 // The app mark, copied next to the scripts by Deploy-Panels.ps1. Loaded once --
 // gdi.Image hits the disk, and this is a paint path.
