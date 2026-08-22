@@ -407,6 +407,35 @@ async function init() {
     });
   }
 
+  // PLACED FIRST, before any provider, DOM or shell work below.
+  //
+  // This call used to live at the very END of init(), ~250 lines down, after
+  // the item store, the preview card, every listener and the first render().
+  // That made correct PLACEMENT depend on all of that succeeding, and the
+  // failure it produced was the worst-looking one available: the window stays
+  // at the zpack preset's declared 48x6 at (0,0), so the dock appears as a
+  // sliver welded to the top-left corner of the screen rather than sitting at
+  // the bottom next to the bar. Reported as zebar "not auto navigating into
+  // the correct page on start". Seen twice, both times after an unhealthy
+  // start -- once with an orphaned process holding the asset-server socket,
+  // once with the disk at 99.2% full -- because anything that stalls the
+  // widget's own setup also strands its window at the origin.
+  //
+  // Placement depends on nothing but `win`, `monitor` and `px`, all of which
+  // exist by this line, so there is no reason for it to wait behind work that
+  // can fail. Doing it here downgrades a broken start from "the dock is in
+  // the wrong place" to "the dock is in the right place with some content
+  // missing", which is both less alarming and far easier to diagnose.
+  //
+  // Fail-soft, matching dashboard.js, which already placed itself early and
+  // is why it was never affected: a placement error is logged, and the rest
+  // of init still runs rather than the whole dock dying on it.
+  try {
+    await placeWindow();
+  } catch (e) {
+    console.error('dock: could not place the window', e);
+  }
+
   // With the window static, these are ordinary hover events again: nothing
   // moves under the cursor, so nothing fires spuriously and nothing is
   // swallowed. No polling, no coordinate guards, no settle windows.
@@ -662,8 +691,9 @@ async function init() {
   });
 
   render();
-  // Placed once, and never again -- see placeWindow.
-  await placeWindow();
+  // The window was already placed at the TOP of init, deliberately -- see the
+  // comment on that call. It is placed once and never again, so there is
+  // nothing to do here.
 
   // Disappear entirely when something goes fullscreen, exactly like the bar
   // and the frame -- a hot zone that pops a dock over a fullscreen game would
