@@ -1,4 +1,4 @@
-import { register, create } from './registry.js';
+import { register } from './registry.js';
 import { statusRows } from '../../status-catalogue.js';
 import { STATUS_CMD_KEY, STATUS_ACK_KEY, PANELS_CMD_KEY, PANELS_ACK_KEY, createChannel } from '../../widget-channel.js';
 
@@ -69,11 +69,11 @@ register('statusCluster', (ctx) => {
   pinnedEl.className = 'status-icons';
   el.appendChild(pinnedEl);
 
-  // vesktop keeps its own separately registered, separately tested factory
-  // and its own DOM node -- composed via the registry's create(), never
-  // duplicated here.
-  const vesktop = create('vesktop', ctx);
-  el.appendChild(vesktop.el);
+  // vesktop USED to be composed in here. It now has its own group (see
+  // entries/discord.js) on direct user feedback -- one pill per kind of thing,
+  // and a single app's live notification count is not a system readout like
+  // the pinned wifi/volume glyphs beside it. The factory is unchanged and
+  // still composed via create(), just from there instead of here.
 
   const controller = createStatusMenuController();
   const channel = createChannel(localStorage, window, {
@@ -243,7 +243,6 @@ register('statusCluster', (ctx) => {
     update(out) {
       lastOut = out;
       renderPinned(out);
-      vesktop.update(out);
       // Live-refresh the open dropdown: cpu/memory move every tick, and a
       // panel frozen at its opening values would be actively misleading.
       if (controller.isOpen()) postOpen();

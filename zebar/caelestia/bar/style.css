@@ -292,24 +292,86 @@ body.fullscreen-hidden #bar { display: none; }
    own box, so both entries occupy the same horizontal footprint inside the
    pill regardless of which is momentarily wider (unpinged vesktop is
    `display: none` and contributes nothing). */
+/* Discord's sub-bubble, inside its own `.status-cluster` group (see
+   entries/discord.js for why it left the shared status pill).
+
+   THE BUBBLE IS ALWAYS PAINTED. It carries the notification state in its
+   background rather than in its presence, which is the whole point of the
+   change -- the previous version removed itself from the DOM flow whenever
+   there was nothing to report, so "quiet" and "broken" looked identical, and
+   everything below it shifted whenever a notification arrived or cleared.
+
+   One step lighter than the cluster it sits in (--surface-container-high on
+   --surface-container), which is this desktop's standard way of saying
+   "raised element on a raised surface" -- the same pair the komorebi border
+   mapping and the dock rows use. Depth comes from surface steps, never from
+   borders or shadows. */
 .vesktop {
+  position: relative;             /* the badge anchors to this */
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: var(--space-sm);
-  min-width: var(--icon-box);
+  width: var(--icon-box);
+  height: var(--icon-box);
+  border-radius: var(--radius-sm);
+  background: var(--surface-container-high);
+  color: var(--on-surface-variant);
   line-height: 1;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
 }
 .vesktop__icon {
   font-size: var(--icon-size);
   line-height: 1;
 }
-.vesktop__count {
-  font-size: 0.7em;
-  line-height: 1;
+
+/* Unread: the one accented thing, per this desktop's "one accent per view"
+   rule. Background flips rather than just the glyph colour, so the state is
+   readable at a glance from the corner of the eye. */
+.vesktop--pinged {
+  background: var(--primary);
+  color: var(--on-primary);
 }
-.vesktop--pinged { color: var(--primary); font-weight: 700; }
+
+/* The poll failed (helper missing, or it threw). Deliberately NOT hidden and
+   deliberately not accented: dimmed to the outline tone so it reads as
+   "no reading available" rather than either "quiet" or "unread". */
+.vesktop--stale { color: var(--outline); }
+
+/* The count badge, in the Windows taskbar's idiom: a small filled pill pinned
+   to the bubble's top-right corner, overhanging it slightly so it reads as
+   attached TO the icon rather than as a second element beside it.
+
+   It paints --surface on --primary (not the other way round) because by the
+   time a badge exists the bubble underneath it is always accented, and an
+   accent-on-accent badge would disappear into it. Hidden by default so an
+   empty badge can never leave a stray dot in the corner. */
+.vesktop__badge {
+  display: none;
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  box-sizing: border-box;
+  border-radius: var(--radius-full);
+  background: var(--surface);
+  color: var(--on-surface);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 14px;
+  text-align: center;
+  /* Tabular figures so 1 and 11 are the same width per digit and the badge
+     does not jitter as the count changes -- the same reason .clock uses them. */
+  font-variant-numeric: tabular-nums lining-nums;
+}
+.vesktop__badge--on { display: block; }
+
+/* A group holding a single sub-bubble does not need the shared pill's taller
+   vertical padding -- that padding exists to space MULTIPLE stacked children.
+   Without this the Discord group stands noticeably taller than the wifi/volume
+   one beside it despite holding less. */
+.status-cluster--solo { padding: var(--space-sm); }
 
 /* Change 1 / change 3: the ONE shared clickable-affordance style in this
    file. Applied ONLY to elements with a real click handler --
@@ -566,10 +628,29 @@ body.fullscreen-hidden #bar { display: none; }
      the pair spaced only by their own padding. It is the one place in this
      bar that overrides the shared rhythm, and it earns it: EN is a caption on
      the clock, not a sibling of it. */
-  padding: 2px var(--space-md);
-  margin-top: calc(-1 * var(--space-md));
+     Direct user feedback, this pass: "the padding between the en and time
+     clock isn't good enough or consistent ... we can fix the inconsistent
+     spacing issue if we add a background that is rounded around the EN text".
+     That diagnosis was right, and the cause was that only ONE of the two
+     states was ever painted: `.evkey--vi` had a background, EN had none. So
+     the element's box existed in both states but was only VISIBLE in one, and
+     the same padding read as generous in Vietnamese and as a stray gap in
+     English. The pill is now always painted and only its COLOUR changes,
+     which is also what makes the mode readable at a glance rather than by
+     reading two letters.
+
+     No monospace declaration is needed for the labels to line up, despite
+     appearances: #bar's own family is already "0xProto Nerd Font", monospace,
+     and `font-family: inherit` above keeps it -- so EN and VI occupy exactly
+     the same width by construction. `min-width: 2ch` is a belt-and-braces
+     floor on that, not the mechanism. */
+  min-width: 2ch;
+  padding: 3px var(--space-sm);
+  margin-top: calc(-1 * var(--space-sm));
   border-radius: var(--radius-sm);
+  background: var(--surface-container);
   color: var(--on-surface-variant);
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
 }
 
 /* Vietnamese is the state you switch INTO and want to notice; English is the
