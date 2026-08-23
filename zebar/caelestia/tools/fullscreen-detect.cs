@@ -88,6 +88,42 @@ class FullscreenDetect
                 className == "Shell_SecondaryTrayWnd")
                 return;
 
+            // THE TASK SWITCHER IS NOT A FULLSCREEN APP EITHER.
+            //
+            // Direct user report: "when i alt tab, why does it hide my zebar
+            // widgets?" Windows 11 hosts Alt+Tab and Task View in an
+            // explorer.exe window of class XamlExplorerHostIslandWindow, and
+            // on this machine it measures exactly 0,0 2560x1440 -- a perfect
+            // monitor cover, so it satisfies the containment test below and
+            // trips the gate the moment Alt is held down. The whole frame then
+            // vanishes for as long as the switcher is up, which is precisely
+            // when you are looking at the screen.
+            //
+            // Excluded by CLASS, not by process: explorer.exe also owns real
+            // File Explorer windows, and blanket-excluding the process would
+            // silently stop a genuinely fullscreen one from counting. This is
+            // the same reasoning that made Progman/WorkerW class checks rather
+            // than a shell-process check, and the same reasoning that keeps
+            // TextInputHost a process check rather than a CoreWindow class
+            // check further down.
+            //
+            // ForegroundStaging is the transition window Windows parks the
+            // outgoing app in during the switch. It measures 0x0 while idle,
+            // so it cannot trip the test in that state -- but it is monitor
+            // sized mid-animation, which is exactly when it is foreground.
+            //
+            // MultitaskingViewFrame and TaskSwitcherWnd/TaskSwitcherOverlayWnd
+            // are the Windows 10 era equivalents. Neither exists on this
+            // machine (enumerated, only the two above were found); they are
+            // listed defensively because they cost one string compare each and
+            // would reproduce this exact bug on a different Windows build.
+            if (className == "XamlExplorerHostIslandWindow" ||  // Win11 Alt+Tab / Task View
+                className == "ForegroundStaging" ||             // switch transition host
+                className == "MultitaskingViewFrame" ||         // legacy Task View
+                className == "TaskSwitcherWnd" ||               // legacy Alt+Tab
+                className == "TaskSwitcherOverlayWnd")
+                return;
+
             uint pid;
             GetWindowThreadProcessId(hWnd, out pid);
             using (var proc = Process.GetProcessById((int)pid))
