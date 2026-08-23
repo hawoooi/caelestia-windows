@@ -129,6 +129,30 @@ excluded from tiling. Applied at runtime *and* persisted, the same dual approach
 the border colours use. Backup at `~/komorebi.json.bak-before-foobar-ignore`.
 Full account: `docs/foobar2000-briefing.md`.
 
+**`ignore_rules` ALONE DOES NOT STOP komorebi TOUCHING A WINDOW.** Reported as
+"komorebi handling is broken on foobar again", weeks after the ignore rule was
+added and while that rule was demonstrably working -- `komorebic state` listed
+chrome, wezterm, vesktop, mpv and pomelofizz-ui as managed and no foobar at all.
+The second setting is `unmanaged_window_operation_behaviour`, which defaults to
+`Op`: komorebi still performs window operations on the FOCUSED window even when
+that window is unmanaged. So the ignore rule stops a window being *tiled*, and
+`Op` quietly lets komorebi keep moving and resizing it anyway.
+
+The tell is geometry, not state: foobar sat at 116,422 measuring **1242x697** --
+an exact komorebi tile size at a position that is not a tile slot, i.e. a window
+komorebi had sized but was not placing. Set to `NoOp` at runtime
+(`komorebic unmanaged-window-operation-behaviour no-op`) and persisted into
+`~/komorebi.json` with the same parse-mutate-serialize + atomic rename pattern
+the border colours use; the key was ABSENT from the file, so it had been running
+on the default. Backup at `~/komorebi.json.bak-before-noop`. Aero Snap was ruled
+out first (`WindowArrangementActive = 0`).
+
+**A verification lesson worth keeping:** the ignore rule was earlier reported as
+"confirmed working" on the strength of a `komorebic state` check that ran while
+NO foobar was running at all. That check could not have failed and proved
+nothing. Any "is X excluded from tiling" check must assert that X is actually
+running first.
+
 In-repo, `zebar/caelestia/komorebi-commands.js` moved to the same real-binary
 path, so the bar's workspace buttons and the dashboard's workspace pane stop
 paying the shim cost too. `KOMOREBIC_PATH` and the `shellCommands` allowlists
