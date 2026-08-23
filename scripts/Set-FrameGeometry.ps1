@@ -407,8 +407,28 @@ function Set-FrameGeometry {
     # human tuning a visual gap by hand.
     $G = [int][math]::Round($Thickness * $GapRatio, 0, [MidpointRounding]::AwayFromZero)
     $P = $Thickness + $G
-    $workspacePadding = [int][math]::Ceiling($P / 2.0)
-    $containerPadding = [int][math]::Floor($P / 2.0)
+
+    # The SPLIT of P between workspace and container padding is not free, and
+    # an even 50/50 split -- which is what this used to do -- is wrong.
+    #
+    # komorebi applies workspace padding once at the edge of the work area and
+    # container padding around every container, so the two wallpaper gaps a
+    # user actually sees are:
+    #
+    #     gap at the frame  = workspacePadding + containerPadding - Thickness
+    #                       = P - Thickness = G          (independent of the split)
+    #     gap BETWEEN windows = 2 * containerPadding     (all of it the split)
+    #
+    # With T=8, G=8, P=16, a 50/50 split gave containerPadding=8 and therefore
+    # 16px between windows against 8px at the frame -- a 2:1 mismatch, measured
+    # on screen (window borders 16px apart, but 8px from the bar and bands).
+    # The frame's whole premise is that every wallpaper gap is the same width,
+    # so the split has to be derived from G rather than from P:
+    $containerPadding = [int][math]::Round($G / 2.0, 0, [MidpointRounding]::AwayFromZero)
+    $workspacePadding = $P - $containerPadding
+    # An odd G cannot halve exactly, so the between-windows gap lands on the
+    # nearest even number instead. Say so rather than silently missing by 1px.
+    $interWindowGap = 2 * $containerPadding
 
     if (-not (Test-Path $ZpackPath)) { throw "Set-FrameGeometry: zpack.json not found at $ZpackPath" }
     $zpack = [System.IO.File]::ReadAllText($ZpackPath) | ConvertFrom-Json
@@ -436,6 +456,7 @@ function Set-FrameGeometry {
         TotalPadding      = $P
         WorkspacePadding  = $workspacePadding
         ContainerPadding  = $containerPadding
+        InterWindowGap    = $interWindowGap
         BarWidth          = $barWidth
         ScreenWidth       = $screen.Width
         ScreenHeight      = $screen.Height
@@ -446,6 +467,7 @@ function Set-FrameGeometry {
         Write-Output "Set-FrameGeometry -DryRun -- computed geometry (nothing written):"
         Write-Output "  Thickness=$Thickness Gap=$G (ratio $GapRatio) Radius=$Radius CornerSize=$($Thickness + $Radius)"
         Write-Output "  komorebi padding: workspace=$workspacePadding container=$containerPadding (total=$P, gap == total - thickness == $($P - $Thickness))"
+        Write-Output "  wallpaper gaps:   at the frame=$G, between windows=$interWindowGap$(if ($interWindowGap -ne $G) { "  <-- differ, because gap $G cannot halve exactly" })"
         $table | Format-Table -AutoSize | Out-String | Write-Output
         return $summary
     }

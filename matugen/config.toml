@@ -17,6 +17,15 @@ output_path = 'C:\Users\PC\Documents\git\setup\state\staging\palette.lua'
 input_path = 'C:\Users\PC\Documents\git\setup\matugen\templates\starship.toml'
 output_path = 'C:\Users\PC\Documents\git\setup\state\staging\starship.toml'
 
+# A cava colour theme, NOT a cava config -- cava's `[color] theme = '<name>'`
+# key loads a small colour-only file from ~/.config/cava/themes/<name>, which
+# is how this pipeline stays out of the 13 KB config where sensitivity, bar
+# count, output mode and shader choice live. That file is hand-owned; only
+# `theme = 'wallpaper'` in it points here.
+[templates.cava]
+input_path = 'C:\Users\PC\Documents\git\setup\matugen\templates\cava.theme'
+output_path = 'C:\Users\PC\Documents\git\setup\state\staging\cava.theme'
+
 [templates.zebar]
 input_path = 'C:\Users\PC\Documents\git\setup\matugen\templates\zebar.theme.css'
 output_path = 'C:\Users\PC\Documents\git\setup\state\staging\theme.css'
@@ -39,3 +48,15 @@ output_path = 'C:\Users\PC\Documents\git\setup\state\staging\komorebi-colours.js
 [templates.windows]
 input_path = 'C:\Users\PC\Documents\git\setup\matugen\templates\windows-accent.json'
 output_path = 'C:\Users\PC\Documents\git\setup\state\staging\windows-accent.json'
+
+# Also NOT one of $script:Targets, for the same reason as the two above: there
+# is no single live config FILE to copy or roll back. foobar2000's colours are
+# baked into the panel scripts at DEPLOY time -- Apply-Theme's
+# Update-FoobarTheme step hands this staged palette to Deploy-Panels.ps1, which
+# renders it to theme.js (ARGB integers, since GdiGraphics takes no strings) and
+# theme.css, concatenates each panel with it and writes the result into the
+# DUPLICATE install's profile. The panels themselves contain zero colour
+# literals, which is what makes eight values enough.
+[templates.foobar]
+input_path = 'C:\Users\PC\Documents\git\setup\matugen\templates\foobar-palette.json'
+output_path = 'C:\Users\PC\Documents\git\setup\state\staging\foobar-palette.json'

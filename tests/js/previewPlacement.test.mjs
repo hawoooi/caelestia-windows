@@ -4,6 +4,8 @@ import assert from 'node:assert/strict';
 import {
   previewPlacement,
   previewBox,
+  menuPlacement,
+  DOCK_RESERVED_H,
   PREVIEW_GAP_PX,
   PREVIEW_RISE_PX,
   PREVIEW_MAX_W,
@@ -155,4 +157,40 @@ test('every box stays inside its bounds and is integral', () => {
 test('a square window comes out square', () => {
   const b = previewBox(1440, 1440);
   assert.equal(b.width, b.height);
+});
+
+// --- menuPlacement keeps bar flyouts clear of the dock -----------------------
+
+test('a bar flyout never reaches into the dock window', () => {
+  // The dock's window is a permanent footprint that swallows clicks and opens
+  // on hover. A flyout whose bottom landed inside it was unreachable: reaching
+  // for the last item both missed and popped the dock out.
+  const p = menuPlacement({
+    anchorX: 52, anchorY: 1380,          // a button near the bottom of the bar
+    panelWidth: 220, panelHeight: 300,
+    monitor: MON,
+  });
+  const dockTop = MON.height - DOCK_RESERVED_H;
+  assert.ok(p.y + p.height <= dockTop,
+    `flyout bottom ${p.y + p.height} must clear the dock top ${dockTop}`);
+});
+
+test('a flyout with room to centre is left where it was', () => {
+  const p = menuPlacement({
+    anchorX: 52, anchorY: 400,
+    panelWidth: 220, panelHeight: 300,
+    monitor: MON,
+  });
+  assert.equal(p.y, 400 - 150);
+});
+
+test('a flyout taller than the usable space pins to the TOP, not the bottom', () => {
+  // Clipped at the bottom keeps the first items and the active marker visible;
+  // clipped at the top would hide exactly what you came to read.
+  const p = menuPlacement({
+    anchorX: 52, anchorY: 700,
+    panelWidth: 220, panelHeight: 5000,
+    monitor: MON,
+  });
+  assert.equal(p.y, MON.y);
 });

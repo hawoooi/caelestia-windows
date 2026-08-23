@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Seekbar variations — Caelestia</title>
+<link rel="stylesheet" href="theme.css">
+<link rel="stylesheet" href="vendor/fontawesome/fontawesome.css">
+<style>
+/* =============================================================================
+   SEEKBAR AND VOLUME — variations to pick from.
+
+   Three things are being varied, and they are independent, so they can be mixed:
+     THICKNESS   4px hairline .. 20px slab
+     RADIUS      pill (half the thickness) .. fully square
+     BREATHING   how much clear space sits either side of each bar
+
+   Every strip below is a real 32px top bar at the real width, with the real
+   neighbours (transport, times, volume) present -- because a bar judged on its
+   own always looks fine, and the question here is how it sits against the things
+   crowding it.
+
+   Zero colour literals: every colour is var(--role) from theme.css.
+   ========================================================================== */
+
+:root {
+  --rule:   color-mix(in srgb, var(--outline) 22%, transparent);
+  --track:  color-mix(in srgb, var(--outline) 20%, transparent);
+  --guide:  color-mix(in srgb, var(--outline) 32%, transparent);
+  --mono: "0xProto Nerd Font", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  --ms: 120ms; --ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; background: var(--surface); color: var(--on-surface);
+  font-family: var(--mono); font-size: 12px; font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+}
+body { padding: 36px 28px 72px; }
+button { border: 0; background: transparent; font: inherit; color: inherit; cursor: pointer; padding: 0; }
+.fa { font-family: "Font Awesome 6 Free"; font-weight: 900; font-style: normal; line-height: 1; }
+
+h1 { font-size: 13px; font-weight: 400; letter-spacing: .12em; text-transform: uppercase;
+     color: var(--primary); margin: 0 0 6px; }
+.sub { color: var(--on-surface-variant); margin: 0 0 30px; max-width: 74ch; line-height: 1.6; }
+
+.case { margin: 0 0 26px; }
+.case__h { display: flex; align-items: baseline; gap: 12px; margin: 0 0 7px; }
+.case__k { font-size: 11px; letter-spacing: .11em; text-transform: uppercase; color: var(--primary); }
+.case__d { font-size: 11px; color: var(--outline); }
+
+/* ---------------------------------------------------------- the top bar --- */
+
+.topbar {
+  width: 1180px; height: 32px; background: var(--surface-container);
+  border-radius: 8px; display: flex; align-items: center; padding: 0 5px; gap: 4px;
+}
+.tbtn { width: 28px; height: 22px; border-radius: 4px; color: var(--on-surface-variant);
+        display: grid; place-items: center; font-size: 12px; flex: 0 0 auto; }
+.tbtn.lead { color: var(--on-surface); }
+.tsep { width: 1px; height: 16px; background: var(--rule); flex: 0 0 auto; }
+.tm { font-size: 11px; color: var(--outline); flex: 0 0 auto; }
+
+/* PAD is the clear space either side of a bar. It is a variable so each case can
+   move it independently of thickness -- they read as one thing but are not.    */
+.seek { flex: 1 1 auto; display: flex; align-items: center; min-width: 0;
+        padding: 0 var(--pad, 14px); }
+.vol  { flex: 0 0 auto; display: flex; align-items: center;
+        padding: 0 var(--pad, 14px) 0 10px; }
+
+.bar { position: relative; background: var(--track);
+       height: var(--h, 8px); border-radius: var(--r, 4px); width: 100%; }
+.bar i { position: absolute; inset: 0 auto 0 0; width: var(--w, 33%);
+         background: var(--primary); border-radius: inherit; }
+.vol .bar { width: 92px; }
+.vol .bar i { background: var(--outline); width: 62%; }
+.volbar { width: 112px !important; }
+/* The icon rides inside the bar, over the filled part, so it takes the dark
+   foreground. At zero volume there is no fill beneath it -- that state swaps to
+   the muted glyph in var(--on-surface-variant) instead. */
+.volicon { position: absolute; left: 8px; top: 50%; transform: translateY(-50%);
+           font-size: 10px; color: var(--surface-container); pointer-events: none; }
+
+/* the handle, used only by the cases that declare it */
+.knob { position: absolute; top: 50%; left: var(--w, 33%);
+        width: var(--kb, 10px); height: var(--kb, 10px); border-radius: 50%;
+        background: var(--on-surface); transform: translate(-50%, -50%); }
+.knob--sq { border-radius: 2px; width: 4px; height: calc(var(--h) + 8px); }
+
+/* case F draws the times INSIDE the bar, so it needs its own inner type */
+.inbar { position: absolute; inset: 0; display: flex; align-items: center;
+         justify-content: space-between; padding: 0 9px; font-size: 11px;
+         pointer-events: none; }
+.inbar b { font-weight: 400; color: var(--on-primary); }
+.inbar s { text-decoration: none; color: var(--on-surface-variant); }
+
+/* case G: stepped segments rather than a continuous track */
+.seg { display: flex; gap: 2px; width: 100%; height: var(--h); }
+.seg span { flex: 1 1 0; background: var(--track); border-radius: var(--r); }
+.seg span.on { background: var(--primary); }
+
+/* ------------------------------------------------------------- the notes -- */
+.notes { max-width: 96ch; margin: 42px 0 0; color: var(--on-surface-variant); line-height: 1.6; }
+.notes h2 { font-size: 12px; letter-spacing: .1em; text-transform: uppercase;
+            color: var(--primary); margin: 26px 0 8px; font-weight: 400; }
+.notes p { margin: 0 0 10px; }
+.notes b { color: var(--on-surface); font-weight: 700; }
+.notes code { color: var(--on-surface); }
+</style>
+</head>
+<body>
+
+<h1>Seekbar &amp; volume — variations</h1>
+<p class="sub">
+  Each strip is a real 32px top bar at the real width, with the real neighbours
+  present. Thickness, corner radius and side padding vary independently, so any
+  two can be mixed — pick by letter, or name a combination.
+</p>
+
+<!-- CHOSEN ------------------------------------------------------------------ -->
+<div class="case">
+  <div class="case__h"><span class="case__k">&#10003; chosen · F refined</span>
+    <span class="case__d">20px · radius 2 · 8px breathing · both clocks AND the volume icon inside their bars</span></div>
+  <div class="topbar">
+    <button class="tbtn"><span class="fa">&#xf04d;</span></button>
+    <button class="tbtn"><span class="fa">&#xf048;</span></button>
+    <button class="tbtn lead"><span class="fa">&#xf04c;</span></button>
+    <button class="tbtn"><span class="fa">&#xf051;</span></button>
+    <span class="tsep"></span>
+    <button class="tbtn"><span class="fa">&#xf01e;</span></button>
+    <button class="tbtn"><span class="fa">&#xf074;</span></button>
+    <span class="tsep"></span>
+    <div class="seek" style="--pad:8px">
+      <div class="bar" style="--h:20px;--r:2px;--w:33%"><i></i>
+        <div class="inbar"><b>0:56</b><s>2:48</s></div></div>
+    </div>
+    <span class="tsep"></span>
+    <div class="vol" style="--pad:8px;padding-left:0">
+      <div class="bar volbar" style="--h:20px;--r:2px"><i></i>
+        <span class="fa volicon">&#xf028;</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- A ---------------------------------------------------------------------- -->
+<div class="case">
+  <div class="case__h"><span class="case__k">A · current</span>
+    <span class="case__d">8px tall · pill radius 4 · 4px breathing — the one you have</span></div>
+  <div class="topbar">
+    <button class="tbtn"><span class="fa">&#xf04d;</span></button>
+    <button class="tbtn"><span class="fa">&#xf048;</span></button>
+    <button class="tbtn lead"><span class="fa">&#xf04c;</span></button>
+    <button class="tbtn"><span class="fa">&#xf051;</span></button>
+    <span class="tsep"></span>
+    <button class="tbtn"><span class="fa">&#xf074;</span></button>
+    <span class="tsep"></span>
+    <span class="tm">0:56</span>
+    <div class="seek" style="--pad:4px"><div class="bar" style="--h:8px;--r:4px;--w:33%"><i></i></div></div>
+    <span class="tm">2:48</span>
+    <span class="tsep"></span>
+    <div class="vol" style="--pad:4px"><span class="fa" style="color:var(--on-surface-variant);margin-right:8px">&#xf028;</span>
+      <div class="bar" style="--h:8px;--r:4px"><i></i></div></div>
+  </div>
+</div>
+
+<!-- B ---------------------------------------------------------------------- -->
+<div class="case">
+  <div class="case__h"><span class="case__k">B · breathing only</span>
+    <span class="case__d">same 8px bar, 16px either side — isolates what the padding alone fixes</span></div>
+  <div class="topbar">
+    <button class="tbtn"><span class="fa">&#xf04d;</span></button>
+    <button class="tbtn"><span class="fa">&#xf048;</span></button>
+    <button class="tbtn lead"><span class="fa">&#xf04c;</span></button>
+    <button class="tbtn"><span class="fa">&#xf051;</span></button>
+    <span class="tsep"></span>
+    <button class="tbtn"><span class="fa">&#xf074;</span></button>
+    <span class="tsep"></span>
+    <span class="tm">0:56</span>
+    <div class="seek" style="--pad:16px"><div class="bar" style="--h:8px;--r:4px"><i></i></div></div>
+    <span class="tm">2:48</span>
+    <span class="tsep"></span>
+    <div class="vol" style="--pad:16px"><span class="fa" style="color:var(--on-surface-variant);margin-right:10px">&#xf028;</span>
+      <div class="bar" style="--h:8px;--r:4px"><i></i></div></div>
+  </div>
+</div>
+
+<!-- C ---------------------------------------------------------------------- -->
+<div class="case">
+  <div class="case__h"><span class="case__k">C · thick, softened corners</span>
+    <span class="case__d">14px tall · radius 3 · 16px breathing</span></div>
+  <div class="topbar">
+    <button class="tbtn"><span class="fa">&#xf04d;</span></button>
+    <button class="tbtn"><span class="fa">&#xf048;</span></button>
+    <button class="tbtn lead"><span class="fa">&#xf04c;</span></button>
+    <button class="tbtn"><span class="fa">&#xf051;</span></button>
+    <span class="tsep"></span>
+    <button class="tbtn"><span class="fa">&#xf074;</span></button>
+    <span class="tsep"></span>
+    <span class="tm">0:56</span>
+    <div class="seek" style="--pad:16px"><div class="bar" style="--h:14px;--r:3px"><i></i></div></div>
+    <span class="tm">2:48</span>
+    <span class="tsep"></span>
+    <div class="vol" style="--pad:16px"><span class="fa" style="color:var(--on-surface-variant);margin-right:10px">&#xf028;</span>
+      <div class="bar" style="--h:14px;--r:3px"><i></i></div></div>
+  </div>
+</div>
+
+<!-- D ---------------------------------------------------------------------- -->
+<div class="case">
+  <div class="case__h"><span class="case__k">D · thick, square</span>
+    <span class="case__d">14px tall · radius 0 · 16px breathing — no rounding at all</span></div>
+  <div class="topbar">
+    <button class="tbtn"><span class="fa">&#xf04d;</span></button>
+    <button class="tbtn"><span class="fa">&#xf048;</span></button>
+    <button class="tbtn lead"><span class="fa">&#xf04c;</span></button>
+    <button class="tbtn"><span class="fa">&#xf051;</span></button>
+    <span class="tsep"></span>
+    <button class="tbtn"><span class="fa">&#xf074;</span></button>
+    <span class="tsep"></span>
+    <span class="tm">0:56</span>
+    <div class="seek" style="--pad:16px"><div class="bar" style="--h:14px;--r:0px"><i></i></div></div>
+    <span class="tm">2:48</span>
+    <span class="tsep"></span>
+    <div class="vol" style="--pad:16px"><span class="fa" style="color:var(--on-surface-variant);margin-right:10px">&#xf028;</span>
+      <div class="bar" style="--h:14px;--r:0px"><i></i></div></div>
+  </div>
+</div>
+
+<!-- E ---------------------------------------------------------------------- -->
+<div class="case">
+  <div class="case__h"><span class="case__k">E · slab</span>
+    <span class="case__d">20px tall · radius 2 · fills most of the bar's height</span></div>
+  <div class="topbar">
+    <button class="tbtn"><span class="fa">&#xf04d;</span></button>
+    <button class="tbtn"><span class="fa">&#xf048;</span></button>
+    <button class="tbtn lead"><span class="fa">&#xf04c;</span></button>
+    <button class="tbtn"><span class="fa">&#xf051;</span></button>
+    <span class="tsep"></span>
+    <button class="tbtn"><span class="fa">&#xf074;</span></button>
+    <span class="tsep"></span>
+    <span class="tm">0:56</span>
+    <div class="seek" style="--pad:16px"><div class="bar" style="--h:20px;--r:2px"><i></i></div></div>
+    <span class="tm">2:48</span>
+    <span class="tsep"></span>
+    <div class="vol" style="--pad:16px"><span class="fa" style="color:var(--on-surface-variant);margin-right:10px">&#xf028;</span>
+      <div class="bar" style="--h:20px;--r:2px"><i></i></div></div>
+  </div>
+</div>
+
+<!-- F ---------------------------------------------------------------------- -->
+<div class="case">
+  <div class="case__h"><span class="case__k">F · slab, times inside</span>
+    <span class="case__d">20px · radius 2 · the clock moves into the bar, which buys back all its width</span></div>
+  <div class="topbar">
+    <button class="tbtn"><span class="fa">&#xf04d;</span></button>
+    <button class="tbtn"><span class="fa">&#xf048;</span></button>
+    <button class="tbtn lead"><span class="fa">&#xf04c;</span></button>
+    <button class="tbtn"><span class="fa">&#xf051;</span></button>
+    <span class="tsep"></span>
+    <button class="tbtn"><span class="fa">&#xf074;</span></button>
+    <span class="tsep"></span>
+    <div class="seek" style="--pad:16px">
+      <div class="bar" style="--h:20px;--r:2px;--w:33%"><i></i>
+        <div class="inbar"><b>0:56</b><s>2:48</s></div></div>
+    </div>
+    <span class="tsep"></span>
+    <div class="vol" style="--pad:16px"><span class="fa" style="color:var(--on-surface-variant);margin-right:10px">&#xf028;</span>
+      <div class="bar" style="--h:20px;--r:2px"><i></i></div></div>
+  </div>
+</div>
+
+<!-- G ---------------------------------------------------------------------- -->
+<div class="case">
+  <div class="case__h"><span class="case__k">G · thick with a marker</span>
+    <span class="case__d">12px · radius 2 · a square 4px marker at the play head</span></div>
+  <div class="topbar">
+    <button class="tbtn"><span class="fa">&#xf04d;</span></button>
+    <button class="tbtn"><span class="fa">&#xf048;</span></button>
+    <button class="tbtn lead"><span class="fa">&#xf04c;</span></button>
+    <button class="tbtn"><span class="fa">&#xf051;</span></button>
+    <span class="tsep"></span>
+    <button class="tbtn"><span class="fa">&#xf074;</span></button>
+    <span class="tsep"></span>
+    <span class="tm">0:56</span>
+    <div class="seek" style="--pad:16px">
+      <div class="bar" style="--h:12px;--r:2px;--w:33%"><i></i><span class="knob knob--sq"></span></div>
+    </div>
+    <span class="tm">2:48</span>
+    <span class="tsep"></span>
+    <div class="vol" style="--pad:16px"><span class="fa" style="color:var(--on-surface-variant);margin-right:10px">&#xf028;</span>
+      <div class="bar" style="--h:12px;--r:2px"><i></i></div></div>
+  </div>
+</div>
+
+<!-- H ---------------------------------------------------------------------- -->
+<div class="case">
+  <div class="case__h"><span class="case__k">H · segmented</span>
+    <span class="case__d">12px · radius 1 · 40 discrete cells, a nod to the cava bars elsewhere in the theme</span></div>
+  <div class="topbar">
+    <button class="tbtn"><span class="fa">&#xf04d;</span></button>
+    <button class="tbtn"><span class="fa">&#xf048;</span></button>
+    <button class="tbtn lead"><span class="fa">&#xf04c;</span></button>
+    <button class="tbtn"><span class="fa">&#xf051;</span></button>
+    <span class="tsep"></span>
+    <button class="tbtn"><span class="fa">&#xf074;</span></button>
+    <span class="tsep"></span>
+    <span class="tm">0:56</span>
+    <div class="seek" style="--pad:16px"><div class="seg" id="seg" style="--h:12px;--r:1px"></div></div>
+    <span class="tm">2:48</span>
+    <span class="tsep"></span>
+    <div class="vol" style="--pad:16px"><span class="fa" style="color:var(--on-surface-variant);margin-right:10px">&#xf028;</span>
+      <div class="seg" id="segv" style="--h:12px;--r:1px;width:92px"></div></div>
+  </div>
+</div>
+
+<!-- ==================================================================== -->
+<div class="notes">
+  <h2>What each knob actually costs</h2>
+  <p>
+    <b>Breathing.</b> B changes nothing but the padding, so it is the honest
+    control: if B already looks right, the bar was never too thin, it was too
+    crowded. The times sat 4px from the track, which at 11px type reads as
+    touching. 16px either side is the same rhythm the rest of the window uses.
+  </p>
+  <p>
+    <b>Radius.</b> A pill radius is half the thickness, and it is what makes a
+    thick bar read as a lozenge rather than a track. Dropping to 2–3px keeps the
+    corner from looking cut while letting the bar stay rectangular; 0 (case D) is
+    the sharpest and sits closest to the square corners on the transport glyphs.
+    Note the filled part inherits the radius, so at 0 the play head is a hard
+    vertical edge — which is either precise or blunt depending on taste.
+  </p>
+  <p>
+    <b>Thickness.</b> Past about 14px the bar stops reading as a line and starts
+    reading as a container, which is what makes F work: once it is a container,
+    putting the times inside it is natural rather than crowded, and the seekbar
+    reclaims the ~90px the two clocks were spending. E is the same slab without
+    that move, for comparison.
+  </p>
+  <p>
+    <b>G and H are the risky ones.</b> G's marker gives an unambiguous play head
+    at any thickness, but adds a moving part. H trades exact position for the
+    same stepped texture the cava visualiser has elsewhere in this theme — it is
+    the most characterful and the least precise, since a 40-cell bar quantises a
+    3-minute track to about 4.5 seconds per cell.
+  </p>
+
+  <h2>Recommendation</h2>
+  <p>
+    <b>C</b> for the safe pick — thick enough to grab, 3px corners, and the
+    padding fixed. <b>F</b> if you want the top bar to feel deliberately
+    designed rather than merely tidy: it is the only option that gets the
+    seekbar more width instead of less.
+  </p>
+</div>
+
+<script>
+"use strict";
+// H's cells are generated rather than written out, so the count can be changed
+// in one place while judging it.
+function fill(el, cells, on) {
+  var html = "";
+  for (var i = 0; i < cells; i++) html += '<span class="' + (i < on ? "on" : "") + '"></span>';
+  el.innerHTML = html;
+}
+fill(document.getElementById("seg"), 40, 13);
+fill(document.getElementById("segv"), 12, 7);
+</script>
+</body>
+</html>

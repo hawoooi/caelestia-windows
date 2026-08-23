@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="theme.css">
+<link rel="stylesheet" href="fontawesome.css">
+<style>
+/* =============================================================================
+   foobar2000 / Caelestia — NOW PLAYING panel, for foo_uie_webview 0.2.1.0.
+
+   Identity anchored left, facts anchored right, cover art filling the right
+   edge with square corners. Everything shown is read from the host object:
+
+     getFormattedText(<titleformat>)  — title, artist, album, date, codec,
+                                        bitrate, samplerate, channels
+     getArtwork("front")              — cover, as a data: URI
+     getPlaylistItemCount(index)      — how many items are in the playlist
+     getPlaylistName(index)           — which playlist
+
+   ONE THING THE MOCKUP SHOWS THAT CANNOT BE BUILT: the playlist's total
+   duration ("2:16:12"). Total length needs per-item metadata, and
+   getPlaylistItems() returns only { path, subsong } — there is no
+   per-item titleformat call in the component. Rather than print a number that
+   is quietly wrong, this shows the playlist NAME beside the item count, which
+   is real. See docs/foobar2000-briefing.md, "The host API".
+
+   Colours: zero literals. Every one is var(--role) from theme.css.
+   ========================================================================== */
+
+:root {
+  --rule:  color-mix(in srgb, var(--outline) 22%, transparent);
+  --cell: 20px;
+  --u: 8px;
+  --listpad: 12px;
+  --mono: "0xProto Nerd Font", ui-monospace, "Cascadia Mono", Consolas,
+          "Yu Gothic UI", "Malgun Gothic", monospace;
+  --ms: 140ms;
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0; padding: 0; height: 100%;
+  background: var(--surface-container);
+  color: var(--on-surface);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: var(--cell);
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+  -webkit-user-select: none; user-select: none;
+  overflow: hidden;
+}
+
+.fa { font-family: "Font Awesome 6 Free"; font-weight: 900; font-style: normal;
+      line-height: 1; text-rendering: auto; -webkit-font-smoothing: antialiased; }
+
+/* The cover reaches the panel's own right and bottom edges, so .np carries no
+   padding there; the text block supplies its own. Square corners throughout —
+   the only curve is whatever the host window clips. */
+.np {
+  height: 100%;
+  display: flex; align-items: stretch; gap: calc(var(--u) * 1.5);
+  padding: 0 0 0 var(--listpad);
+}
+
+.np__id { flex: 1 1 auto; min-width: 0; align-self: center; }
+.np__t {
+  color: var(--on-surface); font-weight: 700;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.np__a {
+  color: var(--on-surface-variant);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.np__a i, .np__facts i { font-style: normal; color: var(--outline); margin: 0 7px; }
+
+.np__facts { flex: 0 0 auto; text-align: right; align-self: center; padding-right: 2px; }
+.np__facts .a { color: var(--on-surface-variant); }
+.np__facts .b { font-size: 11px; color: var(--outline); }
+
+.np__cover {
+  flex: 0 0 auto; align-self: stretch; aspect-ratio: 1;
+  overflow: hidden;
+  background: var(--surface-container-high) center / cover no-repeat;
+  display: grid; place-items: center;
+}
+.np__cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.np__cover img[hidden] { display: none; }
+.np__cover .ph { font-size: 19px; color: var(--outline); }
+
+/* Idle: silence should not pretend to be a track. */
+.np[data-idle="1"] .np__t { color: var(--on-surface-variant); font-weight: 400; }
+
+/* Narrow host: drop the facts before the identity, and the cover last. */
+@media (max-width: 520px) { .np__facts .b { display: none; } }
+@media (max-width: 400px) { .np__facts { display: none; } }
+</style>
+</head>
+<body>
+
+<div class="np" id="np" data-idle="1">
+  <div class="np__id">
+    <div class="np__t" id="title">Nothing playing</div>
+    <div class="np__a" id="sub"></div>
+  </div>
+  <div class="np__facts">
+    <div class="a" id="factA"></div>
+    <div class="b" id="factB"></div>
+  </div>
+  <div class="np__cover" id="cover">
+    <img id="art" hidden alt="">
+    <span class="fa ph" id="artph">&#xf001;</span>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+function FB() { try { return chrome.webview.hostObjects.sync.foo_uie_webview; } catch (e) { return null; } }
+var $ = function (id) { return document.getElementById(id); };
+
+/* Join the non-empty parts with a dimmed separator, so an absent tag collapses
+   instead of leaving a stray dot. */
+function setJoined(el, parts) {
+  var kept = parts.filter(function (p) { return p && p.length; });
+  el.textContent = "";
+  kept.forEach(function (p, i) {
+    if (i) { var sep = document.createElement("i"); sep.textContent = "·"; el.appendChild(sep); }
+    el.appendChild(document.createTextNode(p));
+  });
+}
+
+function tf(fb, format) {
+  try { return (fb.getFormattedText(format) || "").trim(); } catch (e) { return ""; }
+}
+
+function renderArtwork(fb) {
+  var uri = "";
+  try { uri = fb.getArtwork("front") || ""; } catch (e) { uri = ""; }
+  if (uri.length) {
+    $("art").src = uri; $("art").hidden = false; $("artph").style.display = "none";
+  } else {
+    $("art").hidden = true; $("art").removeAttribute("src"); $("artph").style.display = "";
+  }
+}
+
+/* The right-hand facts. Item count and playlist name are real; the playlist's
+   total duration is NOT obtainable (see the header comment) and is not faked. */
+function renderFacts(fb) {
+  var count = "", name = "";
+  try {
+    var pi = fb.activePlaylist;
+    count = fb.getPlaylistItemCount(pi);
+    name = fb.getPlaylistName(pi);
+  } catch (e) {}
+  setJoined($("factA"), [name, (count === "" ? "" : count + " items")]);
+
+  setJoined($("factB"), [
+    tf(fb, "[%codec%]"),
+    tf(fb, "[%bitrate% kbps]"),
+    tf(fb, "[%samplerate% Hz]"),
+    tf(fb, "[$caps(%channels%)]")
+  ]);
+}
+
+function renderTrack() {
+  var fb = FB(); if (!fb) return;
+
+  var title  = tf(fb, "[%title%]") || tf(fb, "[%filename_ext%]");
+  var artist = tf(fb, "[%artist%]");
+  var album  = tf(fb, "[%album%]");
+  var year   = tf(fb, "[$year(%date%)]");
+
+  $("np").dataset.idle = title ? "0" : "1";
+  $("title").textContent = title || "Nothing playing";
+  setJoined($("sub"), [artist, album, year]);
+
+  renderArtwork(fb);
+  renderFacts(fb);
+}
+
+function clearTrack() {
+  var fb = FB();
+  $("np").dataset.idle = "1";
+  $("title").textContent = "Nothing playing";
+  $("sub").textContent = "";
+  $("factB").textContent = "";
+  $("art").hidden = true; $("art").removeAttribute("src"); $("artph").style.display = "";
+  if (fb) renderFacts(fb);
+}
+
+/* ------------------------------------------------- host callbacks (fb2k) -- */
+
+function onPlaybackNewTrack()         { renderTrack(); }
+function onPlaybackStarting(c, p)     { renderTrack(); }
+function onPlaybackStop(reason)       { clearTrack(); }
+function onPlaybackEdited()           { renderTrack(); }
+function onPlaybackDynamicInfo()      { renderTrack(); }
+function onPlaybackDynamicTrackInfo() { renderTrack(); }
+
+/* The facts pane follows the playlist, not playback, so it has to listen to the
+   playlist events too or the item count goes stale the moment anything edits. */
+function onPlaylistActivated(a, b)          { var fb = FB(); if (fb) renderFacts(fb); }
+function onPlaylistItemsAdded()             { var fb = FB(); if (fb) renderFacts(fb); }
+function onPlaylistItemsRemoved()           { var fb = FB(); if (fb) renderFacts(fb); }
+function onPlaylistItemsReplaced()          { var fb = FB(); if (fb) renderFacts(fb); }
+function onPlaylistRenamed(i, name)         { var fb = FB(); if (fb) renderFacts(fb); }
+function onPlaylistsRemoved()               { var fb = FB(); if (fb) renderFacts(fb); }
+
+/* ------------------------------------------------------------------ init -- */
+
+(function init() {
+  var fb = FB();
+  if (!fb) return;                 // design preview in a browser
+  if (fb.isPlaying) renderTrack(); else clearTrack();
+})();
+</script>
+</body>
+</html>

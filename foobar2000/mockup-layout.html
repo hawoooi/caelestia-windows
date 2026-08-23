@@ -1,0 +1,1000 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>foobar2000 — Caelestia, layout study</title>
+<link rel="stylesheet" href="theme.css">
+<link rel="stylesheet" href="vendor/fontawesome/fontawesome.css">
+<style>
+/* =============================================================================
+   foobar2000 / Caelestia — LAYOUT STUDY.
+
+   Not a repaint of the current build: a proposal for the three things that are
+   actually wrong with it, worked out here rather than live.
+
+     1. The playlist is grouped by album. This library is almost entirely
+        ONE-TRACK albums, so a section header per album doubles the line count
+        and puts a header above nearly every row. Finder's list view is a FLAT
+        TABLE with an Album column -- the album is visible per row, so grouping
+        earns nothing. Flat is the proposal.
+     2. Tabs are pills floating on a strip. Chrome's tabs work because the
+        ACTIVE tab is the same surface as the content and merges into it, so the
+        tab strip and the list read as one object.
+     3. Library -> playlist has no drag and drop, and double-clicking a folder
+        REPLACES the playlist, which is destructive. Both are addressed below.
+
+   Zero colour literals: every colour is var(--role) from theme.css.
+   ========================================================================== */
+
+:root {
+  --rule:   color-mix(in srgb, var(--outline) 22%, transparent);
+  --track:  color-mix(in srgb, var(--outline) 20%, transparent);
+  --guide:  color-mix(in srgb, var(--outline) 32%, transparent);
+  --stripe: color-mix(in srgb, var(--outline) 7%, transparent);
+  --raised-hover: color-mix(in srgb, var(--outline) 18%, var(--surface-container-high));
+
+  --gap: 8px;
+  --r-card: 8px;
+  --r-row: 5px;
+  --row: 24px;
+
+  --mono: "0xProto Nerd Font", ui-monospace, "Cascadia Mono", Consolas,
+          "Yu Gothic UI", "Malgun Gothic", monospace;
+  --ms: 120ms;
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; padding: 0; min-height: 100%;
+  background: var(--surface); color: var(--on-surface);
+  font-family: var(--mono); font-size: 12px; line-height: var(--row);
+  font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased;
+}
+body { display: block; padding: 32px 16px 64px; }
+button { border: 0; background: transparent; font: inherit; color: inherit; cursor: pointer; padding: 0; }
+.fa { font-family: "Font Awesome 6 Free"; font-weight: 900; font-style: normal; line-height: 1; }
+.lab { font-size: 11px; letter-spacing: .11em; text-transform: uppercase; color: var(--outline); }
+
+/* ============================================================== THE WINDOW == */
+
+.win {
+  width: 1280px; height: 720px; margin: 0 auto;
+  display: grid; grid-template-rows: auto 1fr;
+  background: var(--surface);
+  border: 4px solid var(--surface-container-high);
+  border-radius: 16px; overflow: hidden;
+}
+
+/* ------------------------------------------------------------- top bar ---- */
+/* The bar no longer spans the full width: the strip is bar + window controls,
+   and the controls sit on the WINDOW ground rather than inside the bar. That
+   is what frees the native title bar to disappear -- see the note on this. */
+
+.topstrip { display: flex; align-items: center; gap: var(--gap);
+            margin: var(--gap) var(--gap) 0; }
+.topbar {
+  flex: 1 1 auto; min-width: 0;
+  height: 32px;
+  background: var(--surface-container); border-radius: var(--r-card);
+  display: flex; align-items: center; gap: 4px;
+  /* right padding 13, not 8: the ghost's ink is 12px inside an 18px box, so it
+     carries ~3px of side bearing. Equal INK gaps of 16px need
+     left  = rightgrp gap 10 + margin 3 + bearing 3
+     right = bearing 3 + padding 13.
+     Spacing the boxes evenly instead left 18 against 11. */
+  padding: 0 13px 0 8px;
+}
+/* The window controls get their own card, the same height and radius as the bar
+   -- they are a group in their own right, and left bare on the window ground
+   they read as three glyphs dropped in the corner rather than a control. */
+.wincontrols {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 2px;
+  height: 32px; padding: 0 5px;
+  background: var(--surface-container); border-radius: var(--r-card);
+}
+/* Drawn as shapes, not Font Awesome glyphs. FA's window-minimize and
+   window-maximize are pictures OF a window -- a filled body with a title bar --
+   so at 10px they read as two heavy blobs rather than the thin geometric marks
+   every OS uses. A rule, a square and a cross are three lines of CSS and are
+   unmistakable at any size. */
+.wbtn { width: 28px; height: 22px; border-radius: 4px; display: grid; place-items: center;
+        color: var(--on-surface-variant); position: relative; }
+.wbtn:hover { background: var(--surface-container-high); color: var(--on-surface); }
+.wbtn i { display: block; }
+.wbtn--min i { width: 10px; height: 1px; background: currentColor; }
+.wbtn--max i { width: 9px; height: 9px; border: 1px solid currentColor; border-radius: 1px; }
+.wbtn--x i { width: 11px; height: 11px; position: relative; }
+.wbtn--x i::before, .wbtn--x i::after {
+  content: ""; position: absolute; left: 0; top: 50%; width: 11px; height: 1px;
+  background: currentColor;
+}
+.wbtn--x i::before { transform: rotate(45deg); }
+.wbtn--x i::after  { transform: rotate(-45deg); }
+
+/* Menu: 11px with tight padding. At 12px/9px it was spending a quarter of the
+   bar on six words that are read once and then never again. */
+.menu { display: flex; align-items: center; }
+.menu button { padding: 0 6px; height: 22px; border-radius: 4px; font-size: 11px;
+               color: var(--on-surface-variant); }
+.menu button:hover { background: var(--surface-container-high); color: var(--on-surface); }
+.tsep { width: 1px; height: 16px; background: var(--rule); margin: 0 5px; }
+.tbtn {
+  width: 28px; height: 22px; border-radius: 4px; color: var(--on-surface-variant);
+  display: grid; place-items: center; font-size: 12px;
+}
+.tbtn:hover { background: var(--surface-container-high); color: var(--on-surface); }
+.tbtn.lead { color: var(--on-surface); }
+.tbtn.on { background: var(--surface-container-high); color: var(--on-surface); }
+/* SEEKBAR: option F. At 20px the bar stops reading as a line and starts reading
+   as a container, which is what lets the clocks live inside it -- and that is
+   the whole point of the choice, because it hands the seekbar back the ~90px
+   the two outside clocks were spending. Radius 2, not a pill: a pill radius is
+   half the thickness, which at 20px would make it a lozenge. */
+.bar { flex: 1 1 auto; height: 20px; border-radius: 2px;
+       background: var(--track); position: relative; min-width: 0; }
+.bar i { position: absolute; inset: 0 auto 0 0; border-radius: inherit; background: var(--primary); }
+
+/* right side flush: the 10px to the volume bar is owned by .rightgrp, so it is
+   not paid for twice */
+.seekwrap { flex: 1 1 auto; min-width: 0; display: flex; align-items: center;
+            padding: 0 0 0 8px; }
+/* padding-top 3 against a centred 20px box drops the clocks ~1.5px, which is
+   what stops them reading as sitting on the top edge of the fill. Optical, not
+   arithmetic -- the digits have no descenders, so a mathematically centred line
+   box looks high here for exactly the reason the playlist rows did. */
+.inbar { position: absolute; inset: 0; display: flex; align-items: center;
+         justify-content: space-between; padding: 3px 8px 0; font-size: 11px;
+         pointer-events: none; }
+/* elapsed sits ON the fill, remaining sits on the empty track -- so they need
+   different foregrounds. One shared colour is unreadable on one side or other. */
+.inbar b { font-weight: 400; color: var(--on-primary); }
+.inbar s { text-decoration: none; color: var(--on-surface-variant); }
+
+/* The right group owns its own rhythm: ONE gap value between seekbar, volume
+   and the logo, so the spacing either side of the volume bar is identical.
+   Previously a divider plus the strip's own 4px gap made the left side 17px and
+   the right side 5px -- which is what read as lopsided. The divider is gone
+   too: the volume bar's own track already separates it from the seekbar. */
+/* margin 6 + the strip's own 4px gap = the same 10px that separates volume
+   from the logo. Both sides of the volume bar are therefore identical. */
+.rightgrp { flex: 0 0 auto; display: flex; align-items: center; gap: 10px; margin-left: 6px; }
+.volwrap { flex: 0 0 auto; display: flex; align-items: center; }
+.volbar { width: 112px; flex: 0 0 auto; }
+/* The logo caps the row so the volume bar is not left sitting against the
+   bar's own rounded corner, which had nothing to square up against.
+   Drawn as the Font Awesome ghost rather than the extracted .exe icon: the real
+   icon is a raster bitmap that cannot follow the wallpaper palette, and this is
+   the one mark in the bar that should. */
+/* Given its own centred box and extra left margin. The glyph's side bearing is
+   narrow, so an even 10px gap measured box-to-box still read as crowded against
+   the volume bar -- the ink is what the eye spaces, not the layout box. */
+.fblogo { font-size: 14px; color: var(--on-surface-variant); flex: 0 0 auto;
+          line-height: 1; width: 18px; text-align: center; margin-left: 3px; }
+.volbar i { background: var(--outline); }
+/* The icon rides inside the bar, over the filled part, so it takes the dark
+   foreground. At zero volume there is no fill beneath it -- that state swaps to
+   the muted glyph in var(--on-surface-variant) instead. */
+.volicon { position: absolute; left: 8px; top: 50%; transform: translateY(-50%);
+           font-size: 10px; color: var(--surface-container); pointer-events: none; }
+
+/* ----------------------------------------------------------- the body ----- */
+/* Panels are laid out here with an explicit resizer, because that is what the
+   real thing should be: see "One panel, not three" in the notes.             */
+
+.body {
+  display: grid; grid-template-columns: 300px 8px 1fr;
+  padding: var(--gap); gap: 0; min-height: 0;
+}
+
+.resizer { cursor: col-resize; position: relative; }
+.resizer::after {
+  content: ""; position: absolute; left: 50%; top: 6px; bottom: 6px; width: 1px;
+  transform: translateX(-50%); background: transparent;
+  transition: background var(--ms) var(--ease);
+}
+.resizer:hover::after { background: var(--guide); }
+
+.card {
+  background: var(--surface-container); border-radius: var(--r-card);
+  display: grid; min-height: 0; min-width: 0; overflow: hidden;
+}
+
+/* --------------------------------------------------------- the sidebar ---- */
+
+/* The header row is 32px to match .content's tab strip exactly, so the library's
+   rule lands on the same scanline as the bottom of the tab strip. At 28px it sat
+   4px high -- close enough to look like a mistake rather than a decision. The two
+   values are a matched pair: change one and the other has to follow. */
+/* The visualiser card that used to sit beneath the library is CUT. There is no
+   audio source for it: SMP has no audio API, and the only PCM route on this
+   machine belongs to the WebView host -- a different panel type, and untested.
+   The nine designs are kept in mockup-visualizer.html rather than deleted, the
+   same way this project keeps the unwired tacky-borders template: the work is
+   recoverable if a source ever appears. */
+.side { grid-template-rows: 32px 1px 1fr; }
+.side__head { display: flex; align-items: center; gap: 8px; padding: 0 8px 0 14px; }
+.rule { background: var(--rule); }
+
+/* The view control: an icon at the right of the LIBRARY label, opening a menu.
+   "VIEW by folder structure" spent a whole 28px row restating one word that
+   changes maybe twice a year -- and that row is worth more as a visualiser. */
+.viewwrap { position: relative; margin-left: auto; }
+.viewbtn { width: 24px; height: 22px; border-radius: 4px; display: grid; place-items: center;
+           font-size: 11px; color: var(--outline); }
+.viewwrap:hover .viewbtn { background: var(--surface-container-high); color: var(--on-surface); }
+.vmenu { display: none; position: absolute; top: 26px; right: 0; z-index: 30; width: 208px;
+         background: var(--surface-container-high); border-radius: var(--r-card);
+         box-shadow: 0 0 0 1px var(--guide); padding: 4px; text-align: left;
+         font-family: var(--mono); font-size: 12px; text-transform: none; letter-spacing: 0; }
+.viewwrap:hover .vmenu { display: block; }
+.vmenu__i { display: flex; align-items: center; gap: 9px; height: 26px; padding: 0 10px;
+            border-radius: var(--r-row); color: var(--on-surface-variant); white-space: nowrap; }
+.vmenu__i:hover { background: var(--raised-hover); color: var(--on-surface); }
+.vmenu__i .fa { width: 12px; text-align: center; font-size: 10px; color: var(--outline); flex: 0 0 auto; }
+.vmenu__i[aria-selected="true"] { color: var(--on-surface); }
+.vmenu__i[aria-selected="true"] .fa { color: var(--primary); }
+
+/* NO horizontal content scrolling. It was tried and reverted: rows sized with
+   `width: max-content; min-width: 100%` are only as wide as the VIEWPORT when
+   their own name is short, so scrolling right ran them out from under the
+   counts -- the alignment collapsed and the banding went with it. Truncating
+   with an ellipsis keeps every count on the same column at every scroll
+   position, which is the property that actually matters here. */
+.side__body { overflow-x: hidden; overflow-y: auto; padding: 6px 8px;
+              position: relative; z-index: 0; }
+
+/* ------------------------------------------------------------ scrollbars -- */
+/* The native bar is a light slab that belongs to no palette. Thumb only, drawn
+   in the same --track the seekbar uses, with a transparent border clipped to
+   the content box so the thumb reads as inset rather than edge-to-edge. */
+.side__body, .rows, .notes { scrollbar-width: thin; scrollbar-color: var(--track) transparent; }
+.side__body::-webkit-scrollbar,
+.rows::-webkit-scrollbar { width: 10px; height: 10px; }
+.side__body::-webkit-scrollbar-track,
+.rows::-webkit-scrollbar-track { background: transparent; }
+.side__body::-webkit-scrollbar-thumb,
+.rows::-webkit-scrollbar-thumb {
+  background: var(--track); border-radius: 5px;
+  border: 2px solid transparent; background-clip: content-box;
+}
+.side__body::-webkit-scrollbar-thumb:hover,
+.rows::-webkit-scrollbar-thumb:hover {
+  background: var(--guide); background-clip: content-box;
+}
+.side__body::-webkit-scrollbar-corner,
+.rows::-webkit-scrollbar-corner { background: transparent; }
+/* the stepper arrows at each end are still native chrome and cannot be themed,
+   only removed */
+.side__body::-webkit-scrollbar-button,
+.rows::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
+.side__foot { display: flex; align-items: center; gap: 8px; padding: 0 14px; color: var(--on-surface-variant); }
+
+.node {
+  display: flex; align-items: center; gap: 8px;
+  height: var(--row); padding: 0 8px 0 6px; border-radius: var(--r-row);
+  white-space: nowrap; cursor: default; position: relative; min-width: 0;
+}
+.node > .tw + .fa { margin-left: -2px; }   /* caret and folder read as one unit */
+
+/* Finder banding, matching the playlist. The band must span the FULL sidebar
+   width, but a nested node lives inside an indented .kids container, so its own
+   background would start at the indent and the banding would look like steps.
+   A pseudo-element bled 200px past both edges and clipped by .side__body's
+   overflow gives a full-width band at any depth. It sits at z-index -1 so hover
+   and selection, which are ordinary backgrounds on .node, still paint over it.
+   In the real panel this is simpler: rows are drawn from a FLATTENED list, so
+   the band is just every other visible index -- which is also why the class is
+   applied here by visual order, not by :nth-child (that restarts inside every
+   nesting level and would break the alternation at each one).
+   The bleed goes both ways, which is safe only because overflow-x is hidden:
+   a right-hand bleed IS real overflow, and with `overflow-x: auto` it grew a
+   phantom horizontal scrollbar for content nobody could reach. */
+.node--band::before {
+  content: ""; position: absolute; inset: 0 -200px;
+  background: var(--stripe); z-index: -1;
+}
+.node:hover { background: var(--surface-container-high); }
+.node[aria-selected="true"] { background: var(--raised-hover); }
+.node .fa { width: 13px; text-align: center; font-size: 11px; color: var(--outline); flex: 0 0 auto; }
+
+/* DISCLOSURE CARET. folder vs folder-open differ by a few pixels of flap, which
+   at 11px is not a difference anyone can see -- shape cannot carry this. A caret
+   can, because it is read by ROTATION, not by silhouette, and 90 degrees is
+   unmistakable at any size. The folder glyph stays beside it so a directory is
+   still identifiable as one; the caret only says open or closed. */
+.node .tw { width: 9px; font-size: 9px; text-align: center; flex: 0 0 auto;
+            color: var(--outline); }
+.node--file .tw { visibility: hidden; }   /* spacer, so names still line up */
+.node[aria-selected="true"] .tw { color: var(--on-surface); }
+.node--dir .fa { color: var(--on-surface-variant); }
+.node__n { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.node--dir .node__n { color: var(--on-surface); }
+.node--file .node__n { color: var(--on-surface-variant); }
+.node__c { font-size: 11px; color: var(--outline); flex: 0 0 auto; padding-left: 12px; }
+.kids { position: relative; padding-left: 17px; }
+.kids::before {
+  content: ""; position: absolute; left: 9px; top: 2px; bottom: 2px; width: 1px;
+  background: var(--guide);
+}
+
+/* --------------------------------------------------------- CHROME TABS ---- */
+/* The active tab IS the content surface and merges into it. That is the whole
+   trick: the strip sits on the ground colour, and only the active tab is
+   raised, so the tab and the list below read as one continuous object.       */
+
+.content { display: grid; grid-template-rows: 32px 1fr; min-height: 0; }
+
+.tabs {
+  display: flex; align-items: flex-end; gap: 2px;
+  background: var(--surface); padding-left: 2px;
+}
+/* EVERY TAB IS THE SAME WIDTH, the way Sublime and VS Code do it: one flex
+   basis shared by all of them, shrink 1, grow 0. Sizing a tab to its own label
+   (which is what min-width/max-width plus auto basis does) makes the strip
+   ragged and moves a tab's position whenever a playlist is renamed. With an
+   identical basis they stay equal at rest AND shrink equally when crowded,
+   because flex distributes shrinkage in proportion to the basis. */
+.tab {
+  position: relative; display: flex; align-items: center; gap: 8px;
+  height: 28px; padding: 0 10px 0 12px;
+  flex: 0 1 168px; min-width: 0;
+  border-radius: var(--r-card) var(--r-card) 0 0;
+  color: var(--on-surface-variant); white-space: nowrap; cursor: default;
+}
+.tab__n { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; }
+.tab:not([aria-selected="true"]):hover { background: var(--stripe); color: var(--on-surface); }
+.tab[aria-selected="true"] {
+  background: var(--surface-container); color: var(--on-surface); height: 32px;
+}
+/* the hairline between two inactive tabs, Chrome-style */
+.tab + .tab:not([aria-selected="true"])::before {
+  content: ""; position: absolute; left: -1px; top: 8px; bottom: 8px; width: 1px;
+  background: var(--rule);
+}
+.tab__x {
+  width: 16px; height: 16px; border-radius: 3px; display: grid; place-items: center;
+  font-size: 9px; color: var(--outline); opacity: 0; flex: 0 0 auto;
+}
+.tab:hover .tab__x, .tab[aria-selected="true"] .tab__x { opacity: 1; }
+.tab__x:hover { background: var(--surface-container-high); color: var(--on-surface); }
+/* the trailing + is a control, not a tab -- it opts out of the shared basis */
+.tab--add {
+  flex: 0 0 28px; width: 28px; padding: 0; justify-content: center;
+  border-radius: var(--r-row); height: 24px; margin-bottom: 2px; color: var(--outline);
+}
+.tab--add:hover { background: var(--stripe); color: var(--on-surface); }
+
+/* The two playlist controls live at the LEFT end of the strip, before any tab,
+   because they act on the set of playlists rather than on any one of them.   */
+.tabtool {
+  width: 26px; height: 24px; margin-bottom: 3px; border-radius: var(--r-row);
+  display: grid; place-items: center; color: var(--outline); font-size: 11px;
+  flex: 0 0 auto; position: relative;
+}
+.tabtool:hover, .tabtool[aria-expanded="true"] { background: var(--stripe); color: var(--on-surface); }
+.tabsep { width: 1px; height: 16px; background: var(--rule); margin: 0 5px 7px; flex: 0 0 auto; align-self: flex-end; }
+
+/* The folder button's own dropdown. "Open from file..." is the last entry, not
+   the only route -- the point is that the common case never opens a file
+   dialog at all.                                                             */
+.tabtool-wrap { position: relative; display: flex; flex: 0 0 auto; }
+/* closed by default -- open it with the toggle under the window, so the demo
+   state does not permanently cover the first three rows it sits above */
+.plmenu { display: none; }
+body[data-menu="1"] .plmenu { display: block; }
+.plmenu {
+  position: absolute; top: 30px; left: 0; z-index: 30; width: 236px;
+  background: var(--surface-container-high); border-radius: var(--r-card);
+  box-shadow: 0 0 0 1px var(--guide); padding: 4px; text-align: left;
+  font-family: var(--mono); font-size: 12px; text-transform: none; letter-spacing: 0;
+}
+.plmenu__h { padding: 4px 10px 6px; }
+.plmenu__i { display: flex; align-items: center; gap: 9px; height: 26px; padding: 0 10px;
+             border-radius: var(--r-row); color: var(--on-surface-variant); white-space: nowrap; }
+.plmenu__i:hover { background: var(--raised-hover); color: var(--on-surface); }
+/* The icon is itself a <span class="fa">, so a bare `.plmenu__i span` rule has
+   the same specificity as `.plmenu__i .fa` and, coming later, wins -- which
+   handed `flex: 1 1 auto` to the ICON as well. Both spans then grew and split
+   the row between them, so each label was pushed right by an amount that varied
+   with its own length. Exclude the icon explicitly and pin it at its own width. */
+.plmenu__i .fa { color: var(--outline); font-size: 10px; width: 12px;
+                 text-align: center; flex: 0 0 12px; }
+.plmenu__i span:not(.fa) { flex: 1 1 auto; min-width: 0; text-align: left;
+                           overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plmenu__i em { font-style: normal; color: var(--outline); font-size: 11px; }
+.plmenu__r { height: 1px; background: var(--rule); margin: 4px 6px; }
+
+/* The folder view is a pinned first tab -- it is where a library double-click
+   lands, so it can be replaced freely without ever touching a user playlist. */
+.tab--folder .fa { font-size: 10px; color: var(--outline); flex: 0 0 auto; }
+/* a tab lights up as a drop target while dragging */
+body[data-drag="1"] .tab:not([aria-selected="true"]) { background: var(--stripe); }
+body[data-drag="1"] .tab--target { background: var(--surface-container-high); color: var(--on-surface); box-shadow: inset 0 -2px 0 var(--primary); }
+
+/* ------------------------------------------------------- the flat table --- */
+
+.list { background: var(--surface-container); border-radius: 0 var(--r-card) var(--r-card) var(--r-card);
+        display: grid; grid-template-rows: 26px 1px 1fr 1px auto; min-height: 0;
+        position: relative; }
+
+/* The row shape from the reference: index, cover, Title stacked over Artist,
+   then Album, then Type (where the reference had Date added), then Time.
+   Stacking title and artist is what buys the wide columns their room -- the
+   two facts that always travel together take one column instead of two.      */
+.cols, .row {
+  display: grid;
+  grid-template-columns: 26px 34px minmax(0,1.7fr) minmax(0,1.2fr) 54px 48px;
+  gap: 12px; align-items: center; padding: 0 12px;
+}
+.cols { color: var(--outline); }
+.cols .r, .row .r { text-align: right; }
+/* text-transform and letter-spacing are inherited properties, but Chrome's UA
+   stylesheet sets them on <button>, so they have to be re-inherited explicitly
+   or the sortable headers render mixed-case beside the non-sortable ones. */
+.cols button { color: inherit; font: inherit; text-align: left;
+               text-transform: inherit; letter-spacing: inherit; }
+.cols .sorted { color: var(--on-surface-variant); }
+
+.rows { overflow: auto; padding: 4px 0; min-height: 0; }
+.row { height: 44px; cursor: default; line-height: 1.35; }
+.row:nth-child(even) { background: var(--stripe); }
+.row:hover { background: var(--surface-container-high); }
+.row[aria-selected="true"] { background: var(--raised-hover); }
+.row__art { width: 34px; height: 34px; border-radius: 3px; background: var(--surface-container-high) center/cover no-repeat; }
+/* The index is zero-padded to a FIXED width for the whole playlist: 2 digits
+   normally (01, 02 ...), 3 once the playlist reaches 100 items (001, 002 ...).
+   Padding to a fixed width is what keeps the column a clean right-aligned block
+   instead of a ragged edge that shifts when the list crosses 9 or 99. It is set
+   at 12px -- the body size, same as the title -- because nothing constrains it
+   to be smaller, and at 11px it read as a footnote rather than a column. */
+.row__n { color: var(--outline); font-size: 12px; }
+.row__id { min-width: 0; display: flex; flex-direction: column; justify-content: center; }
+/* Explicit, tighter line-heights (16 + 14 = 30 in a 44px row).
+   The default 1.35 leading reserved more descender space than the glyphs used,
+   so the pair floated high: measured on the rendered page, ink sat 9px from the
+   top of the row and 11px from the bottom, against a perfectly centred 5/5 for
+   the artwork beside it.
+   A fixed 1px nudge was tried and REVERTED -- it fixed rows whose artist has no
+   descender ("TUYU": 9/11 -> 11/10) and broke rows where one does ("yeule":
+   9/9 -> 11/8). Ink position necessarily varies with the glyphs; the right
+   target is a centred line box, not a centred bounding box, which is what this
+   now is. Remaining variation is +/-1px and reads as even. */
+.row__t { color: var(--on-surface); line-height: 16px;
+          overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row__a { color: var(--on-surface-variant); font-size: 11px; line-height: 14px;
+          overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row__al { color: var(--on-surface-variant); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row__d { color: var(--on-surface-variant); font-size: 11px; }
+.row--playing .row__t, .row--playing .row__d, .row--playing .row__n { color: var(--primary); }
+.row--playing .row__t { font-weight: 700; }
+
+/* Type is a fact, not a badge -- it gets the same dimmed treatment as every
+   other secondary column. Making it a coloured chip would give a codec more
+   visual weight than the track title, which is backwards.                    */
+.row__ty { color: var(--outline); font-size: 11px; letter-spacing: .06em; }
+
+/* the drop indicator: a line BETWEEN rows, not a highlight on one */
+.dropline { height: 0; position: relative; }
+.dropline::after {
+  content: ""; position: absolute; left: 12px; right: 12px; top: -1px; height: 2px;
+  background: var(--primary); border-radius: 1px; opacity: 0;
+}
+body[data-drag="1"] .dropline--active::after { opacity: 1; }
+
+/* --------------------------------------------------------- now playing ---- */
+
+.np { display: flex; align-items: stretch; }
+.np__id { flex: 1 1 auto; min-width: 0; align-self: center; padding-left: 12px; }
+.np__t { color: var(--on-surface); font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.np__s { color: var(--on-surface-variant); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.np__f { flex: 0 0 auto; align-self: center; text-align: right; padding-right: 12px; }
+.np__f .a { color: var(--on-surface-variant); }
+.np__f .b { font-size: 11px; color: var(--outline); }
+.np__c { width: 64px; height: 64px; flex: 0 0 auto; background: var(--surface-container-high) center/cover no-repeat; }
+
+/* --------------------------------------------------------- drag ghost ----- */
+
+/* Anchored INSIDE the list, at the drop line. It was position:fixed, which
+   pinned it to the viewport -- so it hung over the notes as the page scrolled,
+   detached from the thing it is supposed to be illustrating. */
+.ghost {
+  position: absolute; left: 300px; top: 104px; z-index: 20; pointer-events: none;
+  display: none; align-items: center; gap: 8px;
+  padding: 0 12px; height: 28px; border-radius: 999px;
+  background: var(--surface-container-high); color: var(--on-surface);
+  box-shadow: 0 0 0 1px var(--guide);
+}
+body[data-drag="1"] .ghost { display: flex; }
+.ghost .fa { color: var(--primary); font-size: 11px; }
+
+/* ================================================================ NOTES === */
+
+.notes { width: 1280px; margin: 24px auto 0; color: var(--on-surface-variant); line-height: 1.55; }
+.notes h2 { font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--primary);
+            margin: 24px 0 8px; font-weight: 400; }
+.notes p { margin: 0 0 10px; }
+.notes b { color: var(--on-surface); font-weight: 700; }
+.notes code { color: var(--on-surface); }
+.ab { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 12px 0 4px; }
+.ab > div { background: var(--surface-container); border-radius: var(--r-card); padding: 10px; }
+.ab h3 { margin: 0 0 8px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--outline); font-weight: 400; }
+.filled { background: var(--surface-container-high); border-radius: var(--r-row); }
+
+/* menu treatments, drawn at real size against the real bar colour */
+.mvar { margin: 0 0 10px; }
+.mvar__k { font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
+           color: var(--primary); margin: 0 0 5px; }
+.mvar__k em { font-style: normal; text-transform: none; letter-spacing: 0;
+              color: var(--outline); }
+.mvar__b { display: inline-flex; align-items: center; height: 32px; padding: 0 8px;
+           background: var(--surface-container); border-radius: var(--r-card); }
+.menu--icon button { width: 30px; padding: 0; display: grid; place-items: center; font-size: 12px; }
+.toggle {
+  height: 26px; padding: 0 12px; border-radius: 999px; background: var(--surface-container);
+  color: var(--on-surface-variant); font-size: 11px; letter-spacing: .06em; text-transform: uppercase;
+}
+.toggle:hover, .toggle[aria-pressed="true"] { background: var(--surface-container-high); color: var(--on-surface); }
+</style>
+</head>
+<body>
+
+<div class="win">
+  <!-- ------------------------------------------------------------ top bar -->
+  <div class="topstrip">
+  <div class="topbar">
+    <nav class="menu">
+      <button>File</button><button>Edit</button><button>View</button>
+      <button>Playback</button><button>Library</button><button>Help</button>
+    </nav>
+    <span class="tsep"></span>
+    <button class="tbtn"><span class="fa">&#xf04d;</span></button>
+    <button class="tbtn"><span class="fa">&#xf048;</span></button>
+    <button class="tbtn lead"><span class="fa">&#xf04c;</span></button>
+    <button class="tbtn"><span class="fa">&#xf051;</span></button>
+    <span class="tsep"></span>
+    <button class="tbtn on"><span class="fa">&#xf01e;</span></button>
+    <button class="tbtn"><span class="fa">&#xf074;</span></button>
+    <span class="tsep"></span>
+    <div class="seekwrap">
+      <div class="bar"><i style="width:33%"></i>
+        <div class="inbar"><b>0:56</b><s>2:48</s></div>
+      </div>
+    </div>
+    <div class="rightgrp">
+      <div class="volwrap">
+        <div class="bar volbar"><i style="width:62%"></i>
+          <span class="fa volicon">&#xf028;</span>
+        </div>
+      </div>
+      <span class="fa fblogo" title="foobar2000">&#xf6e2;</span>
+    </div>
+  </div>
+
+    <div class="wincontrols">
+      <button class="wbtn wbtn--min" title="Minimise"><i></i></button>
+      <button class="wbtn wbtn--max" title="Maximise"><i></i></button>
+      <button class="wbtn wbtn--x" title="Close"><i></i></button>
+    </div>
+  </div>
+
+  <!-- --------------------------------------------------------------- body -->
+  <div class="body">
+
+    <!-- sidebar: FLAT Finder rows, not filled blocks. See the A/B in the notes. -->
+    <div class="card side">
+      <div class="side__head">
+        <span class="lab">Library</span>
+        <span class="viewwrap">
+          <button class="viewbtn fa" title="View: by folder structure">&#xf1de;</button>
+          <div class="vmenu">
+            <div class="vmenu__i" aria-selected="true"><span class="fa">&#xf00c;</span><span>By folder structure</span></div>
+            <div class="vmenu__i"><span class="fa">&#xf00c;</span><span>By album</span></div>
+            <div class="vmenu__i"><span class="fa">&#xf00c;</span><span>By artist</span></div>
+            <div class="vmenu__i"><span class="fa">&#xf00c;</span><span>By genre</span></div>
+            <div class="vmenu__i"><span class="fa">&#xf00c;</span><span>By year</span></div>
+          </div>
+        </span>
+      </div>
+      <div class="rule"></div>
+      <div class="side__body">
+        <!-- node--band alternates by VISUAL order across nesting levels; see the
+             note on .node--band for why :nth-child cannot do this job. Open
+             folders take &#xf07c; (folder-open), closed ones &#xf07b;. -->
+        <div class="node node--dir"><span class="fa tw">&#xf0da;</span><span class="fa">&#xf07b;</span><span class="node__n">ARCAEA</span><span class="node__c">20</span></div>
+        <div class="node node--dir node--band"><span class="fa tw">&#xf0da;</span><span class="fa">&#xf07b;</span><span class="node__n">CHUNITHM</span><span class="node__c">10</span></div>
+        <div class="node node--dir"><span class="fa tw">&#xf0da;</span><span class="fa">&#xf07b;</span><span class="node__n">ENG</span><span class="node__c">165</span></div>
+        <div class="node node--dir node--band"><span class="fa tw">&#xf0da;</span><span class="fa">&#xf07b;</span><span class="node__n">INSTRUMENTAL</span><span class="node__c">48</span></div>
+        <div class="node node--dir" aria-selected="true"><span class="fa tw">&#xf0d7;</span><span class="fa">&#xf07c;</span><span class="node__n">JP</span><span class="node__c">94</span></div>
+        <div class="kids">
+          <div class="node node--dir node--band"><span class="fa tw">&#xf0da;</span><span class="fa">&#xf07b;</span><span class="node__n">Covers</span><span class="node__c">6</span></div>
+          <div class="node node--dir"><span class="fa tw">&#xf0da;</span><span class="fa">&#xf07b;</span><span class="node__n">cyber milk chan</span><span class="node__c">4</span></div>
+          <div class="node node--dir node--band"><span class="fa tw">&#xf0da;</span><span class="fa">&#xf07b;</span><span class="node__n">La prière</span><span class="node__c">3</span></div>
+          <div class="node node--dir"><span class="fa tw">&#xf0d7;</span><span class="fa">&#xf07c;</span><span class="node__n">TUYU</span><span class="node__c">38</span></div>
+          <div class="kids">
+            <div class="node node--file node--band"><span class="fa tw">&#xf0da;</span><span class="fa">&#xf001;</span><span class="node__n">01 - Absolute zero.flac</span></div>
+            <div class="node node--file"><span class="fa tw">&#xf0da;</span><span class="fa">&#xf001;</span><span class="node__n">02 - Tsukinami.flac</span></div>
+            <div class="node node--file node--band"><span class="fa tw">&#xf0da;</span><span class="fa">&#xf001;</span><span class="node__n">06 - Odorouze.flac</span></div>
+            <div class="node node--file"><span class="fa tw">&#xf0da;</span><span class="fa">&#xf001;</span><span class="node__n">1.07 - Naul (나얼) - 바람기억 (Reminiscence).flac</span></div>
+          </div>
+        </div>
+        <div class="node node--dir"><span class="fa tw">&#xf0da;</span><span class="fa">&#xf07b;</span><span class="node__n">MAIMAI</span><span class="node__c">53</span></div>
+        <div class="node node--dir node--band"><span class="fa tw">&#xf0da;</span><span class="fa">&#xf07b;</span><span class="node__n">VOCALOID</span><span class="node__c">11</span></div>
+      </div>
+    </div>
+
+    <div class="resizer" title="Drag to resize"></div>
+
+    <!-- content: Chrome tab strip + flat Finder table -->
+    <div class="content">
+      <div class="tabs">
+        <button class="tabtool fa" title="New playlist">&#xf067;</button>
+        <span class="tabtool-wrap">
+          <button class="tabtool fa" title="Open a saved playlist" aria-expanded="true">&#xf07b;</button>
+          <div class="plmenu" id="plmenu">
+            <div class="plmenu__h lab">Saved playlists</div>
+            <div class="plmenu__i"><span class="fa">&#xf03a;</span><span>Shoegaze</span><em>84</em></div>
+            <div class="plmenu__i"><span class="fa">&#xf03a;</span><span>Rhythm games</span><em>212</em></div>
+            <div class="plmenu__i"><span class="fa">&#xf03a;</span><span>late night</span><em>37</em></div>
+            <div class="plmenu__i"><span class="fa">&#xf03a;</span><span>바람기억 &amp; friends</span><em>9</em></div>
+            <div class="plmenu__r"></div>
+            <div class="plmenu__i"><span class="fa">&#xf07c;</span><span>Open from file&hellip;</span></div>
+          </div>
+        </span>
+        <span class="tabsep"></span>
+
+        <div class="tab tab--folder"><span class="fa">&#xf07b;</span><span class="tab__n">JP / TUYU</span></div>
+        <div class="tab" aria-selected="true"><span class="tab__n">Default Playlist</span><span class="tab__x fa">&#xf00d;</span></div>
+        <div class="tab tab--target"><span class="tab__n">Shoegaze</span><span class="tab__x fa">&#xf00d;</span></div>
+        <div class="tab"><span class="tab__n">Rhythm games</span><span class="tab__x fa">&#xf00d;</span></div>
+        <button class="tab tab--add fa" title="New playlist">&#xf067;</button>
+      </div>
+
+      <div class="list">
+        <div class="cols lab">
+          <div class="r">#</div>
+          <div></div>
+          <div><button class="sorted">Title &#9650;</button></div>
+          <div><button>Album</button></div>
+          <div><button>Type</button></div>
+          <div class="r">Time</div>
+        </div>
+        <div class="rule"></div>
+
+        <div class="rows">
+          <div class="row row--playing">
+            <div class="row__n r">01</div>
+            <div class="row__art" style="background-image:url('art/trk-angel-girl.jpg')"></div>
+            <div class="row__id"><div class="row__t">Knock Yourself Out XD</div><div class="row__a">Porter Robinson</div></div>
+            <div class="row__al">SMILE! :D</div>
+            <div class="row__ty">FLAC</div>
+            <div class="row__d r">2:48</div>
+          </div>
+          <div class="row">
+            <div class="row__n r">02</div>
+            <div class="row__art" style="background-image:url('art/trk-cyber-meat.jpg')"></div>
+            <div class="row__id"><div class="row__t">it gets lonely</div><div class="row__a">kmoe</div></div>
+            <div class="row__al">it gets lonely</div>
+            <div class="row__ty">FLAC</div>
+            <div class="row__d r">3:07</div>
+          </div>
+          <div class="dropline dropline--active"></div>
+          <div class="row">
+            <div class="row__n r">03</div>
+            <div class="row__art" style="background-image:url('art/trk-spinning.jpg')"></div>
+            <div class="row__id"><div class="row__t">Crush</div><div class="row__a">kmoe</div></div>
+            <div class="row__al">Crush</div>
+            <div class="row__ty">MP3</div>
+            <div class="row__d r">2:30</div>
+          </div>
+          <div class="row" aria-selected="true">
+            <div class="row__n r">04</div>
+            <div class="row__art" style="background-image:url('art/trk-dontbesohard.jpg')"></div>
+            <div class="row__id"><div class="row__t">You Only Live Twice</div><div class="row__a">Drake</div></div>
+            <div class="row__al">Certified Lover Boy</div>
+            <div class="row__ty">M4A</div>
+            <div class="row__d r">3:33</div>
+          </div>
+          <div class="row">
+            <div class="row__n r">05</div>
+            <div class="row__art"></div>
+            <div class="row__id"><div class="row__t">Internet</div><div class="row__a">Post Malone</div></div>
+            <div class="row__al">Hollywood&rsquo;s Bleeding</div>
+            <div class="row__ty">M4A</div>
+            <div class="row__d r">2:03</div>
+          </div>
+          <div class="row">
+            <div class="row__n r">06</div>
+            <div class="row__art" style="background-image:url('art/JP-TUYU-It-s-Raining-After-All.jpg')"></div>
+            <div class="row__id"><div class="row__t">Perhaps I&rsquo;ll be able to become the Sun.</div><div class="row__a">TUYU</div></div>
+            <div class="row__al">It&rsquo;s Raining After All</div>
+            <div class="row__ty">FLAC</div>
+            <div class="row__d r">4:04</div>
+          </div>
+          <div class="row">
+            <div class="row__n r">07</div>
+            <div class="row__art" style="background-image:url('art/JP-TUYU-I-ll-put-you-in-misery.jpg')"></div>
+            <div class="row__id"><div class="row__t">Faithful dog &ldquo;Hachi&rdquo;</div><div class="row__a">TUYU</div></div>
+            <div class="row__al">I&rsquo;ll put you in misery</div>
+            <div class="row__ty">FLAC</div>
+            <div class="row__d r">3:01</div>
+          </div>
+          <div class="row">
+            <div class="row__n r">08</div>
+            <div class="row__art" style="background-image:url('art/ENG-yeule.jpg')"></div>
+            <div class="row__id"><div class="row__t">Saiko</div><div class="row__a">yeule</div></div>
+            <div class="row__al">Evangelic Girl Is a Gun</div>
+            <div class="row__ty">MP3</div>
+            <div class="row__d r">3:30</div>
+          </div>
+          <div class="row">
+            <div class="row__n r">09</div>
+            <div class="row__art" style="background-image:url('art/ENG-quadeca-SCRAPYARD.jpg')"></div>
+            <div class="row__id"><div class="row__t">DUSTCUTTER</div><div class="row__a">Quadeca</div></div>
+            <div class="row__al">SCRAPYARD</div>
+            <div class="row__ty">FLAC</div>
+            <div class="row__d r">2:44</div>
+          </div>
+        </div>
+
+        <div class="rule"></div>
+        <div class="np">
+          <div class="np__id">
+            <div class="np__t">Knock Yourself Out XD</div>
+            <div class="np__s">Porter Robinson &nbsp;·&nbsp; SMILE! :D &nbsp;·&nbsp; 2024</div>
+          </div>
+          <div class="np__f">
+            <div class="a">Default Playlist &nbsp;·&nbsp; 165 items &nbsp;·&nbsp; 8:35:38</div>
+            <div class="b">FLAC &nbsp;·&nbsp; 1091 kbps &nbsp;·&nbsp; 44100 Hz</div>
+          </div>
+          <div class="np__c" style="background-image:url('art/trk-angel-girl.jpg')"></div>
+        </div>
+
+        <div class="ghost"><span class="fa">&#xf07b;</span><span>TUYU — 38 tracks</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================================================================== -->
+<div class="notes">
+  <button class="toggle" id="dragBtn" aria-pressed="true">Toggle drag state</button>
+  <button class="toggle" id="menuBtn" aria-pressed="false">Toggle saved-playlist menu</button>
+
+  <h2>1 — The playlist should be a flat table, not grouped</h2>
+  <p>
+    The current build puts an album section header above each group. In
+    <b>this</b> library that is close to worst-case: Porter Robinson, kmoe,
+    kmoe, Drake, Post Malone, 8485, kuru and underscores each contribute
+    <b>one</b> track, so the list becomes header/row/header/row and the line
+    count roughly doubles. Finder's list view is a flat table with a column per
+    attribute; the album is right there on the row, so grouping buys nothing.
+  </p>
+  <p>
+    The row shape follows the reference you sent, with one substitution:
+    <b>#, cover, Title over Artist, Album, Type, Time</b> — Type where the
+    reference had Date added. Stacking title and artist is what pays for the
+    wide columns: the two facts that always travel together take one column
+    instead of two, so Album gets real room instead of being crushed to an
+    ellipsis. Rows are 44px, with a barely-there stripe on alternates.
+  </p>
+  <p>
+    Type is set as plain dimmed text rather than a coloured badge. A badge would
+    give the codec more visual weight than the track title, and in a library
+    that is mostly FLAC it would tile the whole column in one colour.
+  </p>
+
+  <h2>2 — Tabs that behave like Chrome's</h2>
+  <p>
+    The trick is not the shape, it is that the <b>active tab is the same
+    surface as the content and merges into it</b>: the strip sits on the ground
+    colour, only the active tab is raised, and it has no bottom radius, so tab
+    and list read as one object. Inactive tabs are flat text separated by
+    hairlines, with a close affordance that appears on hover, and a
+    <code>+</code> at the end. Toggle the drag state to see a tab act as a drop
+    target.
+  </p>
+
+  <h2>3 — Drag and drop, and not destroying playlists</h2>
+  <p>
+    Today double-clicking a folder calls <code>plman.ClearPlaylist</code> and
+    refills it — it <b>silently discards whatever was in your playlist</b>.
+    That should never have been the default. Proposal:
+  </p>
+  <p>
+    &nbsp;• <b>Double-click a folder</b> → send to a dedicated <code>Library</code>
+    playlist and play. Your own playlists are never touched.<br>
+    &nbsp;• <b>Drag onto a tab</b> → append to that playlist.<br>
+    &nbsp;• <b>Drag into the list</b> → insert at the drop position, shown as a
+    2px accent line <i>between</i> rows rather than a highlight on one.<br>
+    &nbsp;• The drag itself carries a pill showing what is being moved.
+  </p>
+
+  <h2>3b — Two kinds of playlist, and how they are opened</h2>
+  <p>
+    The strip holds two different things and should look like it:
+  </p>
+  <p>
+    &nbsp;• <b>The folder view</b> — one pinned tab, first in the strip, marked
+    with a folder glyph and no close button. This is where a library
+    double-click lands. Because it is understood to be scratch, replacing its
+    contents is not destructive and needs no confirmation.<br>
+    &nbsp;• <b>Real playlists</b> — Default Playlist (the fast one you never
+    have to name) plus any saved playlist, each closable and reorderable.
+  </p>
+  <p>
+    Two controls sit at the left end of the strip, before any tab, because they
+    act on the <i>set</i> of playlists rather than on any one of them:
+    <b>+</b> creates one, and the <b>folder button</b> opens its own dropdown
+    listing what is already saved. The dropdown is the point — the common case
+    picks a name from a list and never sees a file dialog.
+    <b>Open from file&hellip;</b> is the last entry, the fallback, not the only
+    route. (A duplicate <b>+</b> is also drawn at the far end of the strip, as
+    Chrome does; if that reads as clutter, the left one is the keeper, because
+    it sits with the folder button it belongs beside.)
+  </p>
+  <p>
+    <b>Save format: <code>.m3u8</code>, not <code>.m3u</code>.</b> This matters
+    concretely here rather than in theory: plain <code>.m3u</code> is written in
+    the system ANSI code page, so <code>1.07 - Naul (나얼) - 바람기억.flac</code>
+    — a real file in your library — comes back mangled or unresolvable. The
+    <code>8</code> in <code>m3u8</code> means UTF-8, which round-trips Korean,
+    Japanese and every punctuation mark intact. It is also plain text, so a
+    playlist stays readable and editable outside foobar, which foobar's own
+    binary <code>.fpl</code> is not.
+  </p>
+
+  <h2>3c — The menu: three treatments</h2>
+  <p>
+    The window above uses <b>M1</b>. All three are drawn at real size against the
+    real bar, because the only thing that matters here is how much of the strip
+    the menu spends.
+  </p>
+  <div class="mvar">
+    <div class="mvar__k">M1 · tight text <em>— 11px, 6px padding · 208px</em></div>
+    <div class="mvar__b">
+      <nav class="menu"><button>File</button><button>Edit</button><button>View</button>
+        <button>Playback</button><button>Library</button><button>Help</button></nav>
+    </div>
+  </div>
+  <div class="mvar">
+    <div class="mvar__k">M2 · icons only <em>— 156px, and six glyphs nobody can name</em></div>
+    <div class="mvar__b">
+      <nav class="menu menu--icon">
+        <button title="File"><span class="fa">&#xf07b;</span></button>
+        <button title="Edit"><span class="fa">&#xf044;</span></button>
+        <button title="View"><span class="fa">&#xf06e;</span></button>
+        <button title="Playback"><span class="fa">&#xf001;</span></button>
+        <button title="Library"><span class="fa">&#xf02d;</span></button>
+        <button title="Help"><span class="fa">&#xf059;</span></button>
+      </nav>
+    </div>
+  </div>
+  <div class="mvar">
+    <div class="mvar__k">M3 · one button <em>— 30px; everything moves into a single menu</em></div>
+    <div class="mvar__b">
+      <nav class="menu menu--icon"><button title="Menu"><span class="fa">&#xf0c9;</span></button></nav>
+    </div>
+  </div>
+  <p>
+    <b>M2 is the one I would argue against.</b> Icons work when the thing they
+    stand for has a picture — play, mute, a folder. "Edit", "View" and "Help" do
+    not, so the row becomes six glyphs that have to be learned and then hovered
+    to confirm, and it only saves ~50px. M3 saves real space and is honest about
+    it: one recognisable affordance instead of six ambiguous ones. M1 costs the
+    most width but is the only one you can read.
+  </p>
+
+  <h2>3d — Window controls, and what they imply</h2>
+  <p>
+    The bar no longer spans the full width; minimise, maximise and close sit to
+    its right on the window ground, and the native title bar is gone. That is
+    the design — but it is worth being explicit that <b>this part is not proven
+    yet</b>. It needs foobar's own frame hidden, and nothing in Columns UI
+    exposes that as a setting. Until that is confirmed, treat the strip as the
+    target and the title bar as possibly still there.
+  </p>
+
+  <h2>4 — Sidebar: filled folder rows, or flat Finder rows?</h2>
+  <p>
+    These conflict, and both came from you: earlier "folders should have a
+    coloured background… highlighting that they are a folder", now "the look of
+    macOS Finder". Finder's sidebar has no per-row fill — the icon and the
+    disclosure do that job, and fills are reserved for selection. The window
+    above uses <b>flat</b>. Side by side:
+  </p>
+  <div class="ab">
+    <div>
+      <h3>A — filled (current build)</h3>
+      <div class="node node--dir filled"><span class="fa">&#xf07b;</span><span class="node__n">ARCAEA</span><span class="node__c">20</span></div>
+      <div class="node node--dir filled"><span class="fa">&#xf07b;</span><span class="node__n">CHUNITHM</span><span class="node__c">10</span></div>
+      <div class="node node--file"><span class="fa">&#xf001;</span><span class="node__n">08 - Saiko.mp3</span></div>
+    </div>
+    <div>
+      <h3>B — flat (Finder)</h3>
+      <div class="node node--dir"><span class="fa">&#xf07b;</span><span class="node__n">ARCAEA</span><span class="node__c">20</span></div>
+      <div class="node node--dir" aria-selected="true"><span class="fa">&#xf07b;</span><span class="node__n">CHUNITHM</span><span class="node__c">10</span></div>
+      <div class="node node--file"><span class="fa">&#xf001;</span><span class="node__n">08 - Saiko.mp3</span></div>
+    </div>
+  </div>
+  <p>
+    A gives every folder equal visual weight, so a long list becomes a wall of
+    bars. B keeps the surface quiet and spends contrast only on the selected
+    row. B is the recommendation, but it is your call.
+  </p>
+  <p>
+    <b>Open state is shown by a caret, not by the folder glyph.</b>
+    <code>folder</code> and <code>folder-open</code> differ by a few pixels of
+    flap, which at 11px is not a difference anyone can see — shape cannot carry
+    that job at this size. A caret can, because it is read by <i>rotation</i>,
+    and 90° is unmistakable however small it gets. The folder glyph stays beside
+    it so a directory is still identifiable as one; the caret only says open or
+    closed. Files get an invisible caret as a spacer so every name still lines up.
+  </p>
+  <p>
+    <b>Row banding also runs through the library now</b>, matching the playlist,
+    and the scrollbars are themed to the same <code>--track</code> the seekbar
+    uses — the native bar is a light slab that belongs to no palette.
+  </p>
+
+  <h2>5 — One panel, not three</h2>
+  <p>
+    The sidebar, tabs and list are drawn here as one continuous thing, and that
+    is also the architectural recommendation: make the whole body a
+    <b>single</b> Spider Monkey Panel rather than two panels either side of a
+    Columns UI splitter. Three consequences, all of which are current problems:
+  </p>
+  <p>
+    &nbsp;• <b>Drag and drop becomes possible at all.</b> Two SMP panels are
+    separate windows; dragging between them is an OS-level drag. Inside one
+    panel it is just state.<br>
+    &nbsp;• <b>The divider becomes ours.</b> Columns UI paints its splitter in a
+    hardcoded <code>#333333</code>. That is measured, not assumed: setting
+    <i>both</i> the Global and the Core element to a Custom scheme with a
+    <code>surface</code> background and re-scanning the pixels left the splitter
+    unchanged. Worse, its width is also the only drag target, so 0px means an
+    invisible divider that cannot be resized — the two things you asked for are
+    mutually exclusive under Columns UI. The live build is at 2px as the
+    compromise: measured grabbable, half the grey of 4px. Our own divider would
+    be neither — background-coloured, and a hover-highlighted hairline.<br>
+    &nbsp;• <b>Gaps stop being arithmetic.</b> Per-side insets exist only
+    because each panel paints its own margin and shared edges double up.
+  </p>
+</div>
+
+<script>
+"use strict";
+var btn = document.getElementById("dragBtn");
+document.body.setAttribute("data-drag", "1");
+btn.addEventListener("click", function () {
+  var on = btn.getAttribute("aria-pressed") === "true";
+  btn.setAttribute("aria-pressed", on ? "false" : "true");
+  document.body.setAttribute("data-drag", on ? "0" : "1");
+});
+
+var mbtn = document.getElementById("menuBtn");
+document.body.setAttribute("data-menu", "0");
+mbtn.addEventListener("click", function () {
+  var on = mbtn.getAttribute("aria-pressed") === "true";
+  mbtn.setAttribute("aria-pressed", on ? "false" : "true");
+  document.body.setAttribute("data-menu", on ? "0" : "1");
+});
+
+
+// the resizer is real, so the proportions can be judged rather than imagined
+(function () {
+  var body = document.querySelector(".body");
+  var rz = document.querySelector(".resizer");
+  var dragging = false;
+  rz.addEventListener("mousedown", function (e) { dragging = true; e.preventDefault(); });
+  window.addEventListener("mousemove", function (e) {
+    if (!dragging) return;
+    var r = body.getBoundingClientRect();
+    var w = Math.max(180, Math.min(560, e.clientX - r.left - 8));
+    body.style.gridTemplateColumns = w + "px 8px 1fr";
+  });
+  window.addEventListener("mouseup", function () { dragging = false; });
+})();
+</script>
+</body>
+</html>

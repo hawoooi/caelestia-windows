@@ -1,0 +1,28 @@
+format = """[\u256D\u2500 ](fg:#899393)$directory$git_branch$git_status$line_break[\u2570\u2500](fg:#899393)$character"""
+
+[directory]
+style = "fg:#80d4d9"
+format = "[$path ]($style)"
+truncation_length = 0
+truncate_to_repo = false
+
+[git_branch]
+symbol = "\uF418 "
+style = "fg:#bec8c9"
+format = '[$symbol$branch ]($style)'
+
+[git_status]
+style = "fg:#899393"
+format = '[($all_status$ahead_behind )]($style)'
+
+[line_break]
+disabled = false
+
+[character]
+success_symbol = "[\u276F](bold fg:#80d4d9)"
+error_symbol = "[\u276F](bold fg:#ffb4ab)"
+
+[cmd_duration]
+min_time = 2000
+format = "took $duration "
+style = "fg:#899393"

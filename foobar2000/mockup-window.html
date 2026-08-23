@@ -1,0 +1,814 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>foobar2000 — Caelestia, whole-window mockup</title>
+<link rel="stylesheet" href="theme.css">
+<link rel="stylesheet" href="vendor/fontawesome/fontawesome.css">
+<style>
+/* =============================================================================
+   foobar2000 / Caelestia — the WHOLE WINDOW.
+
+   WHAT HTML CAN AND CANNOT OWN
+   foo_uie_webview's host object exposes playback only: metadata, artwork,
+   position/length, transport, volume, seek. It exposes NO playlist and NO
+   library. So HTML owns the top control bar and the now-playing bar; the
+   library tree and the playlist between them stay Columns UI's own views,
+   themed through its Preferences colour slots. Press the toggle under the
+   window to see the split.
+
+   RULES THIS FILE HOLDS TO
+   1. ONE typeface for text: 0xProto Nerd Font. (CJK has no mono cut, so
+      Japanese and Korean fall through to the system face — a fallback, not a
+      second face.)
+   2. ONE type size: 12px. Hierarchy comes from colour and weight only.
+   3. ONE vertical cell: 20px. Every row and control is a multiple of it.
+   4. ONE icon set: Font Awesome 6 Free Solid, vendored under vendor/ from the
+      same release the zebar pack uses. No inline SVG, no CDN.
+   5. ONE surface per pane. Sections inside a pane are split by a hairline
+      rule, never by a second background.
+   6. Bars are THICK: 8px, so they read as objects rather than hairlines.
+   7. ONE row of chrome. Menu, transport, seek and volume share a single bar.
+   8. Zero colour literals. Every colour is var(--role) from theme.css, or a
+      color-mix of those roles, or `transparent`.
+   9. --primary means "now": the play button, the seek fill, the playing row.
+   ========================================================================== */
+
+:root {
+  /* derived from the eight roles — still no literals */
+  --rule:  color-mix(in srgb, var(--outline) 22%, transparent);
+  --guide: color-mix(in srgb, var(--outline) 32%, transparent);
+  --track: color-mix(in srgb, var(--outline) 20%, transparent);
+  --raised-hover: color-mix(in srgb, var(--outline) 18%, var(--surface-container-high));
+
+  --cell: 20px;      /* the cell everything snaps to */
+  --u: 8px;          /* spacing unit */
+
+  /* playlist geometry — the header and every row derive from these, so the
+     art column and the # column can never drift apart */
+  /* VERTICAL RHYTHM. The album title row and a track row are the SAME height,
+     which is what makes the three gaps in the list agree:
+
+       album title -> first track   = 17px of ink-to-ink space
+       track       -> track         = 17px
+       last track  -> next album    = 34px  (exactly 2x, so the group break
+                                             reads as deliberate, not as drift)
+
+     Before this they were 15 / 21 / 24 — three different numbers, which is
+     what made the list feel arbitrary. Both rows being --rowh is the whole
+     trick; the cover column then has to be 2 x --rowh to stay square. */
+  /* Library tree spine. These two were once locked at 2:1 (9 / 4.5), but a
+     4.5px right gap reads as the line touching the folder blocks. The left
+     inset is what controls how far each level indents, so it stays small; the
+     right gap is pure clearance and is tuned on its own. */
+  --guide-in:  9px;   /* block edge -> spine  (also the per-level indent) */
+  --guide-out: 8px;   /* spine -> the folder blocks it brackets */
+
+  --rowh: 28px;
+  --groupgap: 17px;  /* 34 - half a row above - half a row below */
+
+  /* The cover SLOT is still group title (28) + first track (28) = 56, but the
+     cover itself is inset inside it by exactly the gap that separates one
+     cover from the next, so the artwork column reads as evenly spaced squares
+     rather than a near-continuous strip. 56 - 17 = 39. */
+  --artslot: calc(var(--rowh) * 2);
+  --art: calc(var(--artslot) - var(--groupgap));
+  --artgap: 10px;
+  --rowpad: 10px;    /* breathing room inside the highlight, always present */
+  --listpad: 12px;
+
+  --r-win:   16px;
+  --r-card:  12px;
+  --r-box:   8px;
+  --r-row:   6px;
+  --r-btn:   4px;    /* buttons stay near-square — nothing in the chrome is a pill */
+  --r-full:  999px;
+
+  --mono: "0xProto Nerd Font", ui-monospace, "Cascadia Mono", Consolas,
+          "Yu Gothic UI", "Malgun Gothic", monospace;
+
+  --ms: 140ms;
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0; padding: 0; min-height: 100%;
+  background: var(--surface);
+  color: var(--on-surface);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: var(--cell);
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Block layout with auto margins rather than flex centring: when the browser
+   window is narrower than the mockup, auto margins collapse to 0 and the page
+   simply scrolls. Flex centring would push the left edge out of reach. */
+body { display: block; padding: calc(var(--u) * 4) calc(var(--u) * 2); }
+
+button {
+  border: 0; background: transparent; padding: 0; margin: 0;
+  font: inherit; color: inherit; cursor: pointer;
+  display: grid; place-items: center; border-radius: var(--r-btn);
+}
+button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+/* Font Awesome call site: the vendored stylesheet supplies the family and the
+   weight, this only sizes it. Colour is always inherited. */
+.fa { font-family: "Font Awesome 6 Free"; font-weight: 900; font-style: normal;
+      line-height: 1; text-rendering: auto; -webkit-font-smoothing: antialiased; }
+
+.lab { font-size: 11px; letter-spacing: 0.11em; text-transform: uppercase; color: var(--outline); }
+
+/* a hairline that cuts a card into sections instead of starting a new box */
+.rule { height: 1px; background: var(--rule); }
+
+/* ===========================================================================
+   THE WINDOW
+   Drawn at the user's real window size, inside the 4px rounded border komorebi
+   paints around it, so the mockup is judged in the place it will live.
+   ======================================================================== */
+
+/* FIXED SIZE, always. The mockup is 1268x697 because that is the user's real
+   foobar2000 window; it never scales to the browser pane, so what is on screen
+   is always the same size and can be compared between passes. */
+.win {
+  width: 1268px; height: 697px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-rows: 24px auto 1fr;
+  background: var(--surface);
+  border: 4px solid var(--surface-container-high);   /* komorebi, focused */
+  border-radius: var(--r-win);
+  overflow: hidden;
+  flex: 0 0 auto;
+}
+
+/* ------------------------------------------------------------- title bar -- */
+
+/* Inset 6px above the text and 6px below it (the .actions margin below matches),
+   so the title sits in an even band instead of the 5-above / 13-below it had.
+   The name is set at the menu's own 12px, and starts at 16px — the same x as
+   "File" on the line beneath it. */
+.title-bar {
+  display: flex; align-items: flex-start; gap: var(--u);
+  padding: 6px 12px 0 16px;
+}
+.title-bar__name {
+  flex: 1 1 auto; min-width: 0; font-size: 12px; line-height: 18px;
+  color: var(--on-surface-variant);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.title-bar__name b { color: var(--on-surface); font-weight: 400; }
+.wc { display: flex; gap: 2px; flex: 0 0 auto; }
+.wc button {
+  width: 26px; height: 18px; border-radius: var(--r-btn); color: var(--outline);
+  font-size: 10px;
+  transition: background var(--ms) var(--ease), color var(--ms) var(--ease);
+}
+.wc button:hover { background: var(--surface-container); color: var(--on-surface); }
+
+/* ===========================================================================
+   THE TOP BAR — menu, transport, seek and volume, all on one line.
+   foo_uie_webview #1 (the menu is foobar's own; drawn here so the line reads
+   correctly, and in the build it sits beside the panel, not inside it).
+   ======================================================================== */
+
+.actions {
+  position: relative;
+  height: 44px;
+  display: flex; align-items: center; gap: 5px;
+  margin: 6px var(--u) 0;      /* matches the title bar's 6px top inset */
+  padding: 0 var(--u);
+  background: var(--surface-container);
+  border-radius: var(--r-card);
+}
+
+.menu { display: flex; align-items: center; gap: 1px; flex: 0 0 auto; }
+.menu button {
+  height: 26px; padding: 0 8px; border-radius: var(--r-btn);
+  color: var(--on-surface-variant);
+  transition: background var(--ms) var(--ease), color var(--ms) var(--ease);
+}
+.menu button:hover { background: var(--surface-container-high); color: var(--on-surface); }
+
+/* Transport matches the desktop theme's own .iconbtn: a bare glyph on a
+   transparent ground, picking up a background only on hover. Same Font Awesome
+   codepoints the zebar dashboard uses (U+F048 / U+F04B / U+F04C / U+F051), so
+   the player and the shell draw the same controls. */
+.btn {
+  width: 28px; height: 26px; border-radius: var(--r-btn); font-size: 12px;
+  color: var(--on-surface-variant); flex: 0 0 auto;
+  transition: background var(--ms) var(--ease), color var(--ms) var(--ease);
+}
+.btn:hover { background: var(--surface-container-high); color: var(--on-surface); }
+.btn[aria-pressed="true"] { background: var(--surface-container-high); color: var(--on-surface); }
+
+/* Play/pause is the primary control, so it is brighter — not filled. The teal
+   is already spoken for by the seek bar directly beside it. */
+.btn--play { color: var(--on-surface); }
+
+.sep { width: 1px; height: 20px; background: var(--rule); flex: 0 0 auto; margin: 0 5px; }
+
+/* thick bars — 8px, per the rule above */
+.bar { position: relative; height: var(--cell); display: flex; align-items: center; cursor: pointer; }
+.bar__track { width: 100%; height: 8px; border-radius: 4px; background: var(--track); }
+.bar__fill {
+  position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+  height: 8px; border-radius: 4px; background: var(--primary);   /* "now" #2 */
+}
+.bar__knob {
+  position: absolute; top: 50%; width: 14px; height: 14px; margin-left: -7px;
+  border-radius: 50%; background: var(--primary);
+  transform: translateY(-50%) scale(0);
+  transition: transform var(--ms) var(--ease);
+}
+.bar:hover .bar__knob { transform: translateY(-50%) scale(1); }
+
+.seek { flex: 1 1 auto; min-width: 90px; display: flex; align-items: center; gap: var(--u); }
+.seek .bar { flex: 1 1 auto; }
+.seek .t { flex: 0 0 auto; font-size: 11px; color: var(--outline); }
+.seek .t--now { color: var(--on-surface-variant); }
+
+.vol { display: flex; align-items: center; gap: var(--u); flex: 0 0 auto; }
+.vol .fa { font-size: 12px; color: var(--on-surface-variant); flex: 0 0 auto; width: 14px; text-align: center; }
+.vol .bar { width: 96px; flex: 0 0 auto; }
+.vol .bar__fill, .vol .bar__knob { background: var(--outline); }
+.vol .bar:hover .bar__fill, .vol .bar:hover .bar__knob { background: var(--on-surface-variant); }
+
+/* ===========================================================================
+   BODY — one card per pane, sections split by a rule
+   ======================================================================== */
+
+.body {
+  display: grid; grid-template-columns: 252px 1fr;
+  gap: var(--u); padding: var(--u); min-height: 0;
+}
+
+.card {
+  display: grid; min-height: 0; min-width: 0;
+  background: var(--surface-container);
+  border-radius: var(--r-card);
+  overflow: hidden;
+}
+.lib { grid-template-rows: 28px 1px 1fr 1px auto; }
+.pl  { grid-template-rows: 34px 1px 28px 1px 1fr 1px auto; }
+
+.head { display: flex; align-items: center; gap: 3px; }
+.head--tabs { padding: 0 6px; }
+
+.tab {
+  height: 22px; padding: 0 12px; border-radius: var(--r-row);
+  display: inline-flex; align-items: center;
+  color: var(--on-surface-variant); white-space: nowrap; cursor: default;
+  transition: background var(--ms) var(--ease), color var(--ms) var(--ease);
+}
+.tab:hover { background: var(--surface-container-high); color: var(--on-surface); }
+.tab[aria-selected="true"] { background: var(--surface-container-high); color: var(--on-surface); font-weight: 700; }
+
+.scroll { overflow-y: auto; min-height: 0; }
+
+/* --------------------------------------------------------------- library --
+   A folder is a raised, rounded block with a folder glyph; a file is a plain
+   indented line. The folder icon carries open/closed, so there is no separate
+   chevron doing the same job twice.
+
+   An open folder's children sit in their own block with a guide line down the
+   left, struck exactly through the parent glyph's centre (12px node padding +
+   half of the 13px glyph = 18px), so the spine points at the folder it belongs
+   to instead of floating at an arbitrary indent. It nests: a child folder's
+   own guide lands 20px further in, by the same arithmetic.                   */
+
+.lib .head { padding: 0 18px; }
+.lib .scroll { padding: var(--u) 12px; }
+
+.node {
+  display: flex; align-items: center; gap: 9px;
+  height: var(--cell); padding: 0 12px; border-radius: var(--r-row);
+  margin-bottom: 2px; white-space: nowrap; cursor: default;
+  transition: background var(--ms) var(--ease), color var(--ms) var(--ease);
+}
+.node .fa { flex: 0 0 auto; width: 13px; text-align: center; font-size: 11px; color: var(--outline); }
+.node__name { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; }
+.node__n { flex: 0 0 auto; font-size: 11px; color: var(--outline); }
+
+.node--dir {
+  background: var(--surface-container-high);
+  color: var(--on-surface);
+}
+.node--dir .fa { color: var(--on-surface-variant); }
+.node--dir:hover { background: var(--raised-hover); }
+.node--dir[aria-selected="true"] .node__name { font-weight: 700; }
+
+.node--file {
+  padding-left: 34px;                 /* = folder padding + glyph + gap, so a
+                                         file's name aligns with a folder's */
+  color: var(--on-surface-variant);
+}
+.node--file:hover { background: var(--surface-container-high); color: var(--on-surface); }
+
+/* Guide geometry: --guide-in to the left of the spine, --guide-out to its
+   right, so the line never runs into the blocks it brackets. Vertically it
+   insets by the same 2px a node carries as margin, so it starts and ends level
+   with the first and last child rather than overshooting. */
+.children {
+  position: relative;
+  padding-left: calc(var(--guide-in) + var(--guide-out));
+}
+.children::before {
+  content: ""; position: absolute; left: var(--guide-in); top: 2px; bottom: 2px;
+  width: 1px; background: var(--guide);
+}
+
+.lib__foot { display: grid; }
+.field {
+  display: flex; align-items: center; gap: 9px;
+  height: 28px; padding: 0 18px; color: var(--on-surface-variant);
+}
+.field + .field { border-top: 1px solid var(--rule); }
+.field .fa { font-size: 11px; color: var(--outline); flex: 0 0 auto; width: 13px; text-align: center; }
+.field .v { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; }
+.field .k { color: var(--outline); font-size: 11px; }
+
+/* -------------------------------------------------------------- playlist --
+   Two levels. The OUTER grid is [cover | everything else], and the cover spans
+   the album title AND its first track, so the artwork is the height of the
+   thing it labels. The INNER grid is the columns; it carries the highlight,
+   which therefore runs from # to Time and never touches the cover. Its padding
+   is permanent, so highlighting shifts nothing.                              */
+
+.grid {
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr) 52px 52px;
+  gap: var(--u); align-items: center;
+}
+.grid .r { text-align: right; }
+
+.head--cols {
+  display: grid; grid-template-columns: var(--art) 1fr; column-gap: var(--artgap);
+  padding: 0 var(--listpad); align-items: center;
+}
+.cols__art { text-align: center; }
+.cols__body { padding: 0 var(--rowpad); }
+
+.list { padding: var(--u) var(--listpad); }
+
+.group {
+  display: grid; grid-template-columns: var(--art) 1fr; column-gap: var(--artgap);
+}
+.group + .group { margin-top: var(--groupgap); }
+
+.group__art {
+  grid-column: 1; grid-row: 1 / span 2;
+  align-self: center; height: var(--art);      /* square, centred in the slot */
+  border-radius: var(--r-box); overflow: hidden;
+  background: var(--surface-container-high) center / cover no-repeat;
+  display: grid; place-items: center;
+}
+.group__art .fa { font-size: 17px; color: var(--outline); }
+
+.group__head {
+  grid-column: 2; grid-row: 1;
+  display: flex; align-items: center; gap: var(--u);
+  height: var(--rowh); padding: 0 var(--rowpad);
+}
+.group__label { flex: 0 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.group__label b { color: var(--on-surface); font-weight: 700; }
+.group__label span { color: var(--on-surface-variant); }
+.group__label em { font-style: normal; font-size: 11px; color: var(--outline); }
+/* separators live in CSS so the markup stays content-only */
+.group__label em::before,
+.group__label span::before { content: "\00b7"; color: var(--outline); margin: 0 7px; }
+.group__rule { flex: 1 1 auto; min-width: 12px; height: 1px; background: var(--rule); }
+
+.row {
+  grid-column: 2;
+  height: var(--rowh); padding: 0 var(--rowpad); border-radius: var(--r-row);
+  color: var(--on-surface-variant); cursor: default;
+  transition: background var(--ms) var(--ease);
+}
+.row:hover, .row[aria-selected="true"] { background: var(--surface-container-high); }
+
+.row__n  { text-align: right; font-size: 11px; color: var(--outline); }
+.row__ti { color: var(--on-surface); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.row__ti i { font-style: normal; color: var(--on-surface-variant); }
+.row__pc { text-align: right; font-size: 11px; color: var(--outline); }
+.row__du { text-align: right; font-size: 11px; color: var(--on-surface-variant); }
+
+/* "now" #3 */
+.row--playing .row__ti { color: var(--primary); font-weight: 700; }
+
+.meter { display: inline-flex; align-items: flex-end; gap: 2px; height: 11px; }
+.meter i { width: 2px; height: 11px; border-radius: 1px; background: var(--primary); display: block; transform-origin: bottom; }
+.meter i:nth-child(1) { animation: bounce 900ms var(--ease) infinite alternate; }
+.meter i:nth-child(2) { animation: bounce 620ms var(--ease) 120ms infinite alternate; }
+.meter i:nth-child(3) { animation: bounce 780ms var(--ease) 60ms infinite alternate; }
+@keyframes bounce { from { transform: scaleY(0.25); } to { transform: scaleY(1); } }
+
+/* ===========================================================================
+   THE BOTTOM BAR — now playing.  foo_uie_webview #2
+   ======================================================================== */
+
+/* The cover fills the card's bottom-right corner outright: flush to the right
+   edge, flush to the bottom, and flush up to the rule above it, with square
+   corners of its own — the only curve on it is the card's bottom-right radius
+   clipping it. That is why .np carries no padding on the right or the bottom;
+   the text block supplies its own. */
+.np {
+  position: relative; min-height: 56px;
+  display: flex; align-items: stretch; gap: calc(var(--u) * 1.5);
+  padding: 0 0 0 var(--listpad);
+}
+
+.np__id { flex: 1 1 auto; min-width: 0; align-self: center; }
+.np__t { color: var(--on-surface); font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.np__a { color: var(--on-surface-variant); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.np__a i, .np__facts i { font-style: normal; color: var(--outline); margin: 0 7px; }
+.np__facts { flex: 0 0 auto; text-align: right; align-self: center; }
+.np__facts .a { color: var(--on-surface-variant); }
+.np__facts .b { font-size: 11px; color: var(--outline); }
+
+.np__cover {
+  flex: 0 0 auto; align-self: stretch; aspect-ratio: 1;
+  border-radius: 0;            /* square on every corner it owns; the card's
+                                  own radius still clips the bottom-right */
+  overflow: hidden;
+  background: var(--surface-container-high) center / cover no-repeat;
+  display: grid; place-items: center;
+}
+.np__cover .fa { font-size: 19px; color: var(--outline); }
+
+/* ------------------------------------------------------------ scrollbars -- */
+
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--track); border-radius: var(--r-full);
+  border: 2px solid transparent; background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--outline); background-clip: content-box; }
+
+/* ===========================================================================
+   THE CAPTION — what ships as HTML, and what does not
+   ======================================================================== */
+
+.caption {
+  width: 1268px; margin: calc(var(--u) * 2) auto 0;
+  display: flex; align-items: center; gap: calc(var(--u) * 2);
+  color: var(--on-surface-variant); line-height: 1.5;
+}
+.caption p { margin: 0; flex: 1 1 auto; }
+.caption b { color: var(--on-surface); font-weight: 700; }
+
+.toggle {
+  flex: 0 0 auto; height: 30px; padding: 0 14px; border-radius: var(--r-full);
+  background: var(--surface-container); color: var(--on-surface-variant);
+  font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase;
+  transition: background var(--ms) var(--ease), color var(--ms) var(--ease);
+}
+.toggle:hover, .toggle[aria-pressed="true"] { background: var(--surface-container-high); color: var(--on-surface); }
+
+body[data-explain="1"] .actions,
+body[data-explain="1"] .np { outline: 2px dashed var(--primary); outline-offset: -2px; }
+body[data-explain="1"] .head, body[data-explain="1"] .scroll,
+body[data-explain="1"] .lib__foot { opacity: 0.4; }
+body[data-explain="1"] .owner { opacity: 1; }
+.owner {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  opacity: 0; pointer-events: none;
+  font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--primary);
+  transition: opacity var(--ms) var(--ease);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation: none !important; }
+}
+</style>
+</head>
+<body>
+
+<div class="win">
+
+  <!-- ------------------------------------------------------- title bar -->
+  <div class="title-bar">
+    <div class="title-bar__name">cyber milk chan &mdash; <b>angel girl is a slut</b></div>
+    <div class="wc">
+      <button aria-label="Minimise"><span class="fa">&#xf2d1;</span></button>
+      <button aria-label="Maximise"><span class="fa">&#xf2d0;</span></button>
+      <button aria-label="Close"><span class="fa">&#xf00d;</span></button>
+    </div>
+  </div>
+
+  <!-- ================== TOP BAR — menu, transport, seek, volume, one line -->
+  <div class="actions">
+    <span class="owner">foo_uie_webview</span>
+
+    <nav class="menu">
+      <button>File</button><button>Edit</button><button>View</button>
+      <button>Playback</button><button>Library</button><button>Help</button>
+    </nav>
+
+    <span class="sep"></span>
+
+    <button class="btn" aria-label="Stop"><span class="fa">&#xf04d;</span></button>
+    <button class="btn" aria-label="Previous"><span class="fa">&#xf048;</span></button>
+    <button class="btn btn--play" aria-label="Pause"><span class="fa">&#xf04c;</span></button>
+    <button class="btn" aria-label="Next"><span class="fa">&#xf051;</span></button>
+
+    <span class="sep"></span>
+
+    <button class="btn" aria-pressed="true" aria-label="Repeat playlist"><span class="fa">&#xf363;</span></button>
+    <button class="btn" aria-label="Shuffle"><span class="fa">&#xf074;</span></button>
+    <button class="btn" aria-label="Playback follows cursor"><span class="fa">&#xf05b;</span></button>
+
+    <span class="sep"></span>
+
+    <div class="seek">
+      <span class="t t--now">1:42</span>
+      <div class="bar" aria-label="Seek">
+        <div class="bar__track"></div>
+        <div class="bar__fill" style="width:68.5%"></div>
+        <div class="bar__knob" style="left:68.5%"></div>
+      </div>
+      <span class="t">2:29</span>
+    </div>
+
+    <span class="sep"></span>
+
+    <div class="vol">
+      <span class="fa">&#xf028;</span>
+      <div class="bar" aria-label="Volume">
+        <div class="bar__track"></div>
+        <div class="bar__fill" style="width:62%"></div>
+        <div class="bar__knob" style="left:62%"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================= BODY -->
+  <div class="body">
+
+    <!-- ---------------------------------------- library: one card -->
+    <div class="card lib">
+      <div class="head"><span class="lab">Library</span></div>
+      <div class="rule"></div>
+
+      <!-- No "All Music" root: it is the whole library, so it says nothing and
+           costs every real entry one level of indent. -->
+      <div class="scroll">
+        <div class="node node--file"><span class="node__name">00 - yeule - Anthems For A Seventeen Year-Old Girl.flac</span></div>
+        <div class="node node--file"><span class="node__name">1.07 - Naul (나올) - 바람기억.flac</span></div>
+        <div class="node node--file"><span class="node__name">02 - RIGHT LIGHT RISE.flac</span></div>
+        <div class="node node--file"><span class="node__name">03 - ivri - tower of memories.m4a</span></div>
+        <div class="node node--file"><span class="node__name">04 Fake Plastic Trees.m4a</span></div>
+        <div class="node node--file"><span class="node__name">08 - Saiko.mp3</span></div>
+
+        <div class="node node--dir"><span class="fa">&#xf07b;</span><span class="node__name">ARCAEA</span><span class="node__n">20</span></div>
+        <div class="node node--dir"><span class="fa">&#xf07b;</span><span class="node__name">CHUNITHM</span><span class="node__n">10</span></div>
+        <div class="node node--file"><span class="node__name">Coldplay - A Rush of Blood to the Head - 04 - The Scientist.flac</span></div>
+        <div class="node node--file"><span class="node__name">Coldplay - Parachutes - 05 - Yellow.flac</span></div>
+        <div class="node node--dir"><span class="fa">&#xf07b;</span><span class="node__name">ENG</span><span class="node__n">14</span></div>
+        <div class="node node--dir"><span class="fa">&#xf07b;</span><span class="node__name">GAMES&amp;VARIETY</span><span class="node__n">9</span></div>
+        <div class="node node--dir"><span class="fa">&#xf07b;</span><span class="node__name">INSTRUMENTAL</span><span class="node__n">12</span></div>
+        <div class="node node--file"><span class="node__name">ivri - the star factory - 07 - owls eye.flac</span></div>
+
+        <div class="node node--dir" aria-selected="true"><span class="fa">&#xf07c;</span><span class="node__name">JP</span><span class="node__n">29</span></div>
+        <div class="children">
+          <div class="node node--dir"><span class="fa">&#xf07b;</span><span class="node__name">Covers</span><span class="node__n">4</span></div>
+          <div class="node node--dir"><span class="fa">&#xf07b;</span><span class="node__name">MUTO</span><span class="node__n">3</span></div>
+          <div class="node node--dir"><span class="fa">&#xf07c;</span><span class="node__name">TUYU</span><span class="node__n">9</span></div>
+          <div class="children">
+            <div class="node node--dir"><span class="fa">&#xf07b;</span><span class="node__name">It&rsquo;s Raining After All</span><span class="node__n">4</span></div>
+            <div class="node node--dir"><span class="fa">&#xf07b;</span><span class="node__name">I&rsquo;ll put you in misery</span><span class="node__n">3</span></div>
+            <div class="node node--dir"><span class="fa">&#xf07b;</span><span class="node__name">Under Mentality</span><span class="node__n">2</span></div>
+          </div>
+          <div class="node node--dir"><span class="fa">&#xf07b;</span><span class="node__name">cyber milk chan</span><span class="node__n">2</span></div>
+          <div class="node node--dir"><span class="fa">&#xf07b;</span><span class="node__name">La prière</span><span class="node__n">5</span></div>
+          <div class="node node--dir"><span class="fa">&#xf07b;</span><span class="node__name">_JAZZFUSION</span><span class="node__n">3</span></div>
+          <div class="node node--dir"><span class="fa">&#xf07b;</span><span class="node__name">_SHOEGAZE</span><span class="node__n">3</span></div>
+        </div>
+
+        <div class="node node--dir"><span class="fa">&#xf07b;</span><span class="node__name">MAIMAI</span><span class="node__n">52</span></div>
+        <div class="node node--dir"><span class="fa">&#xf07b;</span><span class="node__name">MEGAREX</span><span class="node__n">6</span></div>
+        <div class="node node--dir"><span class="fa">&#xf07b;</span><span class="node__name">ONGEKI</span><span class="node__n">6</span></div>
+        <div class="node node--dir"><span class="fa">&#xf07b;</span><span class="node__name">TOUHOU</span><span class="node__n">18</span></div>
+        <div class="node node--dir"><span class="fa">&#xf07b;</span><span class="node__name">VOCALOID</span><span class="node__n">31</span></div>
+      </div>
+
+      <div class="rule"></div>
+      <div class="lib__foot">
+        <div class="field"><span class="k">view</span><span class="v">by folder structure</span></div>
+        <div class="field"><span class="fa">&#xf002;</span><span class="v">f</span></div>
+      </div>
+    </div>
+
+    <!-- --------------------------------------- playlist: one card -->
+    <div class="card pl">
+
+      <div class="head head--tabs">
+        <div class="tab" aria-selected="true">Default Playlist</div>
+        <div class="tab">New Playlist</div>
+      </div>
+      <div class="rule"></div>
+
+      <div class="head--cols">
+        <div class="cols__art lab">Art</div>
+        <div class="cols__body grid lab">
+          <div class="r">#</div><div>Title / track artist</div>
+          <div class="r">Plays</div><div class="r">Time</div>
+        </div>
+      </div>
+      <div class="rule"></div>
+
+      <div class="scroll list">
+
+        <section class="group">
+          <div class="group__art" style="background-image:url('art/trk-angel-girl.jpg')"></div>
+          <div class="group__head">
+            <div class="group__label"><b>cyber milk chan</b><em>2022</em><span>angel girl is a slut</span></div>
+            <div class="group__rule"></div>
+          </div>
+          <div class="row grid row--playing">
+            <div class="row__n"><span class="meter"><i></i><i></i><i></i></span></div>
+            <div class="row__ti">angel girl is a slut</div>
+            <div class="row__pc">26</div>
+            <div class="row__du">2:29</div>
+          </div>
+        </section>
+
+        <section class="group">
+          <div class="group__art"><span class="fa">&#xf001;</span></div>
+          <div class="group__head">
+            <div class="group__label"><b>Coldplay</b><em>2016</em><span>A Rush of Blood to the Head</span></div>
+            <div class="group__rule"></div>
+          </div>
+          <div class="row grid">
+            <div class="row__n">1.04</div>
+            <div class="row__ti">The Scientist</div>
+            <div class="row__pc">1</div>
+            <div class="row__du">5:09</div>
+          </div>
+        </section>
+
+        <section class="group">
+          <div class="group__art" style="background-image:url('art/trk-cyber-meat.jpg')"></div>
+          <div class="group__head">
+            <div class="group__label"><b>yeule</b><em>2023</em><span>softscars</span></div>
+            <div class="group__rule"></div>
+          </div>
+          <div class="row grid">
+            <div class="row__n">1.11</div>
+            <div class="row__ti">cyber meat</div>
+            <div class="row__pc">6</div>
+            <div class="row__du">3:07</div>
+          </div>
+          <div class="row grid">
+            <div class="row__n">1.04</div>
+            <div class="row__ti">4ui12</div>
+            <div class="row__pc">4</div>
+            <div class="row__du">2:44</div>
+          </div>
+        </section>
+
+        <section class="group">
+          <div class="group__art" style="background-image:url('art/trk-spinning.jpg')"></div>
+          <div class="group__head">
+            <div class="group__label"><b>Glaive, kurtains</b><em>2026</em><span>God Save The Three</span></div>
+            <div class="group__rule"></div>
+          </div>
+          <div class="row grid" aria-selected="true">
+            <div class="row__n">1.05</div>
+            <div class="row__ti">Spinning Around <i>// Glaive &amp; kurtains</i></div>
+            <div class="row__pc">4</div>
+            <div class="row__du">2:42</div>
+          </div>
+        </section>
+
+        <section class="group">
+          <div class="group__art" style="background-image:url('art/trk-dontbesohard.jpg')"></div>
+          <div class="group__head">
+            <div class="group__label"><b>yeule</b><em>2021</em><span>Don&rsquo;t Be So Hard on Your Own Beauty</span></div>
+            <div class="group__rule"></div>
+          </div>
+          <div class="row grid">
+            <div class="row__n">1.01</div>
+            <div class="row__ti">Don&rsquo;t Be So Hard on Your Own Beauty</div>
+            <div class="row__pc">5</div>
+            <div class="row__du">3:12</div>
+          </div>
+        </section>
+
+        <section class="group">
+          <div class="group__art" style="background-image:url('art/JP-TUYU-It-s-Raining-After-All.jpg')"></div>
+          <div class="group__head">
+            <div class="group__label"><b>TUYU</b><em>2020</em><span>It&rsquo;s Raining After All</span></div>
+            <div class="group__rule"></div>
+          </div>
+          <div class="row grid">
+            <div class="row__n">1.07</div>
+            <div class="row__ti">Perhaps I&rsquo;ll be able to become the Sun.</div>
+            <div class="row__pc">34</div>
+            <div class="row__du">4:04</div>
+          </div>
+          <div class="row grid">
+            <div class="row__n">1.05</div>
+            <div class="row__ti">Aoi</div>
+            <div class="row__pc">12</div>
+            <div class="row__du">3:36</div>
+          </div>
+        </section>
+
+        <section class="group">
+          <div class="group__art" style="background-image:url('art/JP-TUYU-I-ll-put-you-in-misery.jpg')"></div>
+          <div class="group__head">
+            <div class="group__label"><b>TUYU</b><em>2021</em><span>I&rsquo;ll put you in misery</span></div>
+            <div class="group__rule"></div>
+          </div>
+          <div class="row grid">
+            <div class="row__n">1.08</div>
+            <div class="row__ti">Faithful dog &ldquo;Hachi&rdquo;</div>
+            <div class="row__pc">41</div>
+            <div class="row__du">3:01</div>
+          </div>
+        </section>
+
+        <section class="group">
+          <div class="group__art"><span class="fa">&#xf001;</span></div>
+          <div class="group__head">
+            <div class="group__label"><b>Tracy Chapman</b><em>1988</em><span>Tracy Chapman</span></div>
+            <div class="group__rule"></div>
+          </div>
+          <div class="row grid">
+            <div class="row__n">1.02</div>
+            <div class="row__ti">Fast Car</div>
+            <div class="row__pc">41</div>
+            <div class="row__du">4:57</div>
+          </div>
+        </section>
+
+        <section class="group">
+          <div class="group__art" style="background-image:url('art/ENG-yeule.jpg')"></div>
+          <div class="group__head">
+            <div class="group__label"><b>yeule</b><em>2025</em><span>Evangelic Girl Is a Gun</span></div>
+            <div class="group__rule"></div>
+          </div>
+          <div class="row grid">
+            <div class="row__n">1.08</div>
+            <div class="row__ti">Saiko</div>
+            <div class="row__pc">3</div>
+            <div class="row__du">3:30</div>
+          </div>
+        </section>
+
+      </div>
+
+      <!-- ================================= BOTTOM BAR — now playing -->
+      <div class="rule"></div>
+      <div class="np">
+        <span class="owner">foo_uie_webview</span>
+
+        <div class="np__id">
+          <div class="np__t">angel girl is a slut</div>
+          <div class="np__a">cyber milk chan<i>&middot;</i>angel girl is a slut<i>&middot;</i>2022</div>
+        </div>
+        <div class="np__facts">
+          <div class="a">36 items<i>&middot;</i>2:16:12</div>
+          <div class="b">FLAC<i>&middot;</i>790 kbps<i>&middot;</i>44100 Hz<i>&middot;</i>stereo</div>
+        </div>
+
+        <div class="np__cover" style="background-image:url('art/trk-angel-girl.jpg')"></div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ================================================================ CAPTION -->
+<div class="caption" id="caption">
+  <p>
+    <b>One line of chrome, one surface per pane.</b> Menu, transport, seek and
+    volume share the top bar; tabs, columns, list and now-playing are sections
+    of the playlist card, cut by hairlines rather than stacked as separate
+    boxes. Icons are Font Awesome 6 Free Solid, vendored offline. The top bar
+    and the now-playing bar are two <code>foo_uie_webview</code> panels; the
+    library and playlist between them are Columns UI drawing its own views,
+    themed through Preferences.
+  </p>
+  <button class="toggle" id="explain" aria-pressed="false">Show what HTML owns</button>
+</div>
+
+<script>
+"use strict";
+
+var btn = document.getElementById("explain");
+btn.addEventListener("click", function () {
+  var on = btn.getAttribute("aria-pressed") === "true";
+  btn.setAttribute("aria-pressed", on ? "false" : "true");
+  document.body.setAttribute("data-explain", on ? "0" : "1");
+});
+</script>
+</body>
+</html>

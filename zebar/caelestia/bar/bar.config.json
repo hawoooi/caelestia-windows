@@ -6,7 +6,9 @@
     "activeWindow",
     "spacer",
     "clock",
+    "evkey",
     "statusCluster",
+    "discord",
     "trayToggle",
     "layoutToggle",
     "power"

@@ -10,7 +10,7 @@ import {
   fetchIcon,
   createIconController,
 } from '../../zebar/caelestia/bar/entries/activeWindow.js';
-import { pingState } from '../../zebar/caelestia/bar/entries/vesktop.js';
+import { pingState, badgeText } from '../../zebar/caelestia/bar/entries/vesktop.js';
 import {
   LAYOUT_CYCLE,
   currentLayout,
@@ -693,4 +693,41 @@ test('createLayoutMenuController: select() fails soft (warns, never throws) when
   controller.sync('bsp');
   assert.doesNotThrow(() => controller.select('grid'));
   assert.strictEqual(controller.getCurrent(), 'grid', 'tracked locally even though there is nothing to shell out to');
+});
+
+// --- Discord notification badge ------------------------------------------
+// The badge is the taskbar-style count pinned to the Discord bubble's corner
+// (entries/vesktop.js, entries/discord.js). Its cap is a layout constraint on a
+// 52px-wide bar, so the boundary is pinned here rather than eyeballed.
+
+test('badgeText renders a normal count verbatim', () => {
+  assert.strictEqual(badgeText(1), '1');
+  assert.strictEqual(badgeText(7), '7');
+  assert.strictEqual(badgeText(42), '42');
+});
+
+test('badgeText renders nothing when there is nothing to report', () => {
+  // An empty string is what keeps the badge element unpainted -- a "0" badge
+  // would be a permanent dot on the bubble saying nothing.
+  assert.strictEqual(badgeText(0), '');
+  assert.strictEqual(badgeText(-3), '');
+  assert.strictEqual(badgeText(undefined), '');
+  assert.strictEqual(badgeText(null), '');
+  assert.strictEqual(badgeText('nonsense'), '');
+});
+
+test('badgeText saturates past 99 rather than widening the badge', () => {
+  assert.strictEqual(badgeText(99), '99');
+  assert.strictEqual(badgeText(100), '99+');
+  assert.strictEqual(badgeText(4821), '99+');
+});
+
+test('badgeText agrees with pingState across the same input', () => {
+  // The two are always read together in the entry: pingState decides whether
+  // the bubble is accented, badgeText decides what the badge says. They must
+  // never disagree about whether there is anything to show.
+  for (const raw of ['0', '', '1', '5', '250', 'garbage']) {
+    const s = pingState(raw);
+    assert.strictEqual(badgeText(s.count) !== '', s.pinged, `disagreement on '${raw}'`);
+  }
 });

@@ -120,7 +120,7 @@ export const SLIDE_MS = 140;
 // than the dock's own 120ms close grace on purpose: opening the dock and
 // flicking straight to the app you wanted should not leave a trail of
 // screenshots behind it.
-export const PREVIEW_DELAY_MS = 320;
+export const PREVIEW_DELAY_MS = 90;
 
 // Grace after leaving an icon before the card goes. Crossing the 4px gap
 // between two icons must not make it flicker -- the next icon's mouseenter
@@ -295,11 +295,29 @@ function renderItems(items) {
     refs.badge.classList.toggle('dock__badge--hidden', item.count <= 1);
   }
 
-  // Re-append in provider order; appendChild moves existing nodes, so this
-  // keeps the row stable rather than rebuilding it.
-  for (const item of items) {
-    const refs = rendered.get(item.key);
-    if (refs) dock.append(refs.root);
+  // Re-append in provider order -- but ONLY when the order has actually
+  // changed, and that condition is the whole point.
+  //
+  // `appendChild` on a node that is already in the document MOVES it: a remove
+  // followed by an insert. Doing that to the icon under the pointer destroys
+  // its hover state and fires a spurious `mouseleave` on the way past, which
+  // the dock reads as "the pointer left" and starts closing on.
+  //
+  // That is the reported flicker -- "the taskbar sometimes flickers, making do
+  // half the closing animation just to reopen again". Measured with the cursor
+  // verified parked by GetCursorPos: `render` at +87ms, `close` at +146ms.
+  // Opening the dock starts the window-list poll, whose first refresh renders
+  // immediately, which re-appended every icon under a stationary pointer.
+  //
+  // The order almost never changes (dockItems is first-appearance ordered), so
+  // in practice this now moves nothing at all.
+  const desired = items.map((i) => rendered.get(i.key)).filter(Boolean);
+  const current = Array.from(dock.children).filter((el) => el.classList.contains('dock__item'));
+  const orderMatches = desired.length === current.length
+    && desired.every((refs, i) => refs.root === current[i]);
+  if (!orderMatches) {
+    debugLog('reorder');
+    for (const refs of desired) dock.append(refs.root);
   }
   return true;
 }
@@ -389,10 +407,43 @@ async function init() {
     });
   }
 
+  // PLACED FIRST, before any provider, DOM or shell work below.
+  //
+  // This call used to live at the very END of init(), ~250 lines down, after
+  // the item store, the preview card, every listener and the first render().
+  // That made correct PLACEMENT depend on all of that succeeding, and the
+  // failure it produced was the worst-looking one available: the window stays
+  // at the zpack preset's declared 48x6 at (0,0), so the dock appears as a
+  // sliver welded to the top-left corner of the screen rather than sitting at
+  // the bottom next to the bar. Reported as zebar "not auto navigating into
+  // the correct page on start". Seen twice, both times after an unhealthy
+  // start -- once with an orphaned process holding the asset-server socket,
+  // once with the disk at 99.2% full -- because anything that stalls the
+  // widget's own setup also strands its window at the origin.
+  //
+  // Placement depends on nothing but `win`, `monitor` and `px`, all of which
+  // exist by this line, so there is no reason for it to wait behind work that
+  // can fail. Doing it here downgrades a broken start from "the dock is in
+  // the wrong place" to "the dock is in the right place with some content
+  // missing", which is both less alarming and far easier to diagnose.
+  //
+  // Fail-soft, matching dashboard.js, which already placed itself early and
+  // is why it was never affected: a placement error is logged, and the rest
+  // of init still runs rather than the whole dock dying on it.
+  try {
+    await placeWindow();
+  } catch (e) {
+    console.error('dock: could not place the window', e);
+  }
+
   // With the window static, these are ordinary hover events again: nothing
   // moves under the cursor, so nothing fires spuriously and nothing is
   // swallowed. No polling, no coordinate guards, no settle windows.
   let closeTimer = null;
+  // When the slide-in last started. slideOut uses it to refuse to believe a
+  // mouseleave that arrives while the row is still transforming under the
+  // pointer -- see the grace check there.
+  let openedAt = 0;
 
   // --- driving the preview card --------------------------------------------
   //
@@ -437,6 +488,11 @@ async function init() {
         // the bar's right edge (placeWindow), so the item's position inside it
         // is the only variable part.
         anchorX: Math.round(monitor.x + px(BAR_W) + (rect.x + rect.width / 2) * scale),
+        // The dock WINDOW's top, not the row's. The window is ARCH_W taller
+        // (it carries the corner fillet above the row), and the card has to
+        // clear the whole window -- overlapping it put two top_most windows on
+        // top of each other with no defined z-order, which is what made the
+        // dock flicker while the card resized over it.
         dockTop: monitor.y + monitor.height - px(DOCK_H),
         // The card clamps to the DOCK's left edge rather than the screen's, so
         // hovering the first icon does not slide it over the top of the bar.
@@ -537,6 +593,7 @@ async function init() {
     if (closeTimer !== null) { clearTimeout(closeTimer); closeTimer = null; }
     if (open) return;
     open = true;
+    openedAt = Date.now();
     debugLog('open');
     document.body.classList.add('open');
     // The list only has to be current while it is being looked at.
@@ -551,6 +608,62 @@ async function init() {
     closeTimer = setTimeout(() => {
       closeTimer = null;
       if (!open) return;
+
+      // DO NOT TRUST THE mouseleave THAT GOT US HERE.
+      //
+      // Reported as: "when i hover on taskbar to see the preview, the taskbar
+      // sometimes flickers, making do half the closing animation just to
+      // reopen again". That is precisely what a fabricated leave looks like --
+      // the close starts, the slide plays part way, a real mouseenter arrives
+      // and reopens it.
+      //
+      // This pack has measured fabricated leaves before: a dock item fired
+      // mouseleave 12ms after mouseenter with the pointer provably stationary
+      // (GetCursorPos checked), and the dashboard hit the same thing. Every
+      // other close decision here already re-checks; the dock's own was the
+      // last one still taking the event at face value, which is why it was the
+      // one still flickering.
+      //
+      // GRACE WHILE THE SLIDE-IN IS STILL PLAYING.
+      //
+      // Measured, cursor verified parked by GetCursorPos: the dock opens, and
+      // ~150ms later it closes -- which is inside the 140ms slide. The row is
+      // transforming under the pointer during that window, and this pack has
+      // three prior rounds of evidence that a WebView2 hover state does not
+      // survive geometry changing beneath a stationary cursor. `:hover` reports
+      // FALSE at that moment, which is why the re-check below never caught it.
+      //
+      // A hypothesis that DID NOT survive testing, recorded so it is not tried
+      // again: the DOM re-render from the window-list refresh that fires on
+      // open. It correlated beautifully -- `render` at +87ms, `close` at
+      // +146ms, twice -- and skipping that render entirely changed nothing.
+      // The close still landed at +152ms. Correlation, not cause.
+      //
+      // So: during the slide, a leave is not believable. Re-arm and re-decide
+      // once the animation has settled.
+      if (Date.now() - openedAt < SLIDE_MS + 60) {
+        debugLog('close deferred (slide still playing)');
+        slideOut();
+        return;
+      }
+
+      // If the pointer is genuinely still inside the window, the leave was
+      // noise: stay open and let the next real one close us.
+      if (document.body.matches(':hover')) {
+        debugLog('close cancelled (still hovered)');
+        // Re-arm rather than simply returning. If the pointer really has left
+        // and `:hover` is the thing lying, no further mouseleave will ever
+        // arrive -- the pointer is already outside -- and the dock would hang
+        // open forever. Re-checking on the same grace period self-corrects.
+        //
+        // This only loops while a leave has fired AND the document still
+        // claims to be hovered, and it costs one class check per 120ms with no
+        // process spawn. The dock's own window-list poll, running the whole
+        // time it is open, spawns a process every second.
+        slideOut();
+        return;
+      }
+
       open = false;
       debugLog('close');
       document.body.classList.remove('open');
@@ -578,8 +691,9 @@ async function init() {
   });
 
   render();
-  // Placed once, and never again -- see placeWindow.
-  await placeWindow();
+  // The window was already placed at the TOP of init, deliberately -- see the
+  // comment on that call. It is placed once and never again, so there is
+  // nothing to do here.
 
   // Disappear entirely when something goes fullscreen, exactly like the bar
   // and the frame -- a hot zone that pops a dock over a fullscreen game would

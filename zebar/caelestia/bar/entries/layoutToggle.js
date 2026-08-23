@@ -248,6 +248,7 @@ register('layoutToggle', ({ shell }) => {
     }
   });
 
+
   channel.subscribe((ack) => {
     controller.applyAck(ack);
     document.removeEventListener('click', onDocumentClick, true);

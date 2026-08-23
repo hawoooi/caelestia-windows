@@ -1,0 +1,80 @@
+# The leading block is a GHOST, not agnoster's user@host. Direct user request:
+# "for the PC @hwoi part you can simplify into a nerd font ghost character
+# instead" -- prompted by the block reading bare, since it was the only one
+# carrying no icon at all. (Nothing was actually missing: every glyph used here
+# was checked against the font and none falls back to .notdef.)
+#
+# It is literal styled text in the top-level format rather than a module,
+# because no starship module renders a constant. The arrow out of it is drawn
+# here too, for the usual reason -- an arrow belongs to whoever knows the blocks
+# on both of its sides.
+#
+# This must stay a TOML BASIC string (double quotes). In a literal '...' string
+# the \u escape would reach starship's own format parser raw, which rejects it
+# with "expected escaped_char"; in a basic string TOML decodes it to the real
+# character first. That trap has cost this file two rounds already.
+#
+# Cost of the simplification, stated rather than hidden: agnoster shows the user
+# in red when root, via [username]'s style_root. With the module gone there is
+# no root indicator at all.
+format = """[ \uF79F ](bg:#303636 fg:#dde4e4)[\uE0B0](fg:#303636 bg:#80d4d9)$directory$git_branch$character"""
+
+[directory]
+style = "bg:#80d4d9 fg:#0d292b"
+format = '[ $path ]($style)'
+truncation_length = 3
+truncation_symbol = "\u2026/"
+
+[git_branch]
+symbol = "\uF418 "
+style = "bg:#b5c7e9 fg:#0d172b"
+# EVERY ARROW IS DRAWN BY A MODULE THAT KNOWS BOTH SIDES OF IT. That is the
+# rule this file now follows without exception, and it is why the arrow into
+# this segment lives here rather than at the end of the directory segment: an
+# arrow is coloured fg=block-on-its-left, bg=block-on-its-right, so only a
+# module that knows both can get it right.
+# git_branch is the last block inside a repo now that git_status is off, so it
+# owns the CLOSING ARROW. That keeps the arrow deterministic: it is still drawn
+# by a module that knows the block on its left (this one) and what is on its
+# right (the terminal background).
+format = "[\uE0B0](fg:#80d4d9 bg:#b5c7e9)[ $symbol$branch ]($style)[\uE0B0](fg:#b5c7e9)"
+
+[git_status]
+# OFF by direct request -- "remove those marks and show me the prompt again",
+# meaning the !?<arrow>N field. It showed, in order: tracked files with unstaged
+# edits (!), untracked files (?), and commits ahead of the remote (arrow + count).
+#
+# To bring it back, set disabled = false, move the closing arrow from
+# git_branch's format above back onto the end of this one, and restore:
+#     style  = "bg:CLEAN fg:ON_CLEAN"
+#     format = "[ $all_status$ahead_behind ]($style)[SEP](fg:CLEAN)"
+#     ahead / behind / diverged = the SOLID arrows U+2191 / U+2193 / U+2195,
+#       never starship's dashed U+21E1 / U+21E3 defaults -- those measure ~54px
+#       of ink against ~107px for the solid ones and ~71px for a plain "?", and
+#       at terminal size they read as broken glyphs rather than as arrows.
+# The arrow has to move with it, because whichever module renders last must be
+# the one that closes the prompt.
+disabled = true
+
+[character]
+# NO ARROW HERE. It used to close the prompt with an arrow coloured ${clean},
+# but [character] cannot know which block actually rendered last: with changes
+# in the tree the last block was the status one, so the closing arrow came out
+# in the branch colour against a different block -- the mismatch reported as
+# "the arrow's colour isn't the same as the background".
+#
+# starship has no conditional styling and no way to ask "did that module
+# render", so an arrow placed here is guessing. The closing arrow now belongs
+# to git_status, the module that knows it is last. Outside a git repo no
+# closing arrow is drawn at all and the directory block simply ends flat --
+# a slightly shorter silhouette, but never a wrong colour.
+success_symbol = ""
+error_symbol = ""
+
+[line_break]
+disabled = true
+
+[cmd_duration]
+min_time = 2000
+format = " took $duration"
+style = "fg:#899393"

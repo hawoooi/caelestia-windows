@@ -1,8 +1,8 @@
 # Wallpaper-driven theming pipeline — working knowledge
 
 One command extracts a Material You palette from the current Wallpaper Engine wallpaper and
-regenerates the colors of WezTerm, starship, the Zebar sidebar, and komorebi's own window-border
-colours. yasb and tacky-borders were **retired** as theming targets (see "The stack" and "Window borders and gaps" below) --
+regenerates the colors of WezTerm, starship, cava, the Zebar sidebar, foobar2000's Caelestia
+panels, komorebi's own window-border colours and the Windows accent. yasb and tacky-borders were **retired** as theming targets (see "The stack" and "Window borders and gaps" below) --
 the Zebar bar (docked left) replaced yasb as the desktop's only bar, and komorebi's built-in window
 borders (`border`/`border_style`/`border_colours` in `~/komorebi.json`) now do the job the
 tacky-borders template was built for but never actually got to do (tacky-borders was never
@@ -21,8 +21,10 @@ building it — read it before changing anything here.
 | tacky-borders | config + log at `~/.config/tacky-borders/`, **not installed as an executable on this machine** (Task 1 finding, unchanged through Task 10) and **retired as a theming target** on top of that — komorebi's own borders replaced the job this template was built for. The template (`matugen/templates/tacky-borders.yaml`) is kept on disk, unwired from `matugen/config.toml` and from `$script:Targets`, in case it's ever wanted again. |
 | WezTerm | `C:\Program Files\WezTerm\wezterm.exe` — config at `~/.wezterm.lua`, **not under version control** (home directory is not a git repo); the pipeline's two required edits there are recorded in `docs/wezterm-integration.md` because of this |
 | starship | config at `~/.config/starship.toml` |
+| cava (1.0.0) | `C:\Users\PC\AppData\Local\cava\cava.exe`, per-user MSI (`cava_win_x64_install.msi`) from the upstream GitHub release — **not in scoop, and there is no winget on this machine**. The installer appends its directory to the **User** PATH, so `cava` does not resolve in shells that were already open. Config at `~/.config/cava/config` (13 KB, **hand-owned, not version controlled, never written by this pipeline**); the only pipeline-owned thing there is `theme = 'wallpaper'` in its `[color]` section, which points it at `~/.config/cava/themes/wallpaper` — a theming target. See "cava" below. |
 | Wallpaper Engine | `C:\Program Files (x86)\Steam\steamapps\common\wallpaper_engine\` — `wallpaper32.exe` or `wallpaper64.exe` (whichever is the live process; both exist on disk, this machine runs `wallpaper32.exe`) |
 | Zebar (v3.3.1) | `C:\Program Files\glzr.io\Zebar\zebar.exe` — a vertical Caelestia-style bar docked left, and (since yasb's retirement) the **only** bar on the desktop. Pack source tracked at `zebar/caelestia/`, served to Zebar via a junction at `~/.glzr/zebar/caelestia`. The pack declares **nine** widgets -- `bar`, `corners`, `edges`, `layoutmenu`, `statusmenu`, `panels`, `dock`, `dockpreview`, `dashboard` -- each needing its own `startupConfigs` entry per preset (`Install-Config` writes them all). Full detail: `docs/zebar-bar.md`. |
+| foobar2000 (Caelestia) | A DUPLICATE portable install at `~/Music/foobar2000-caelestia` -- **never** the user's live player at `~/Music/foobar2000`. Columns UI hosting three **Spider Monkey Panel** panels (top bar, library tree, playlist) that draw the whole UI themselves, Georgia-ReBORN style. Sources in `foobar2000/smp/`, deployed by `foobar2000/Deploy-Panels.ps1`. Wired into this pipeline since 2026-08-19 -- see `docs/foobar2000-briefing.md`. |
 | komorebi + whkd | `~/komorebi.json`, `~/.config/whkdrc` — the tiling WM driving the desktop (GlazeWM was replaced during this project's pre-flight; see `~/.config/yasb/CLAUDE.md`). Since the borders/yasb-retirement task, komorebi.json also carries `border: true`, `border_style: "Rounded"`, `border_width: 4`, `border_offset: 1`, `default_workspace_padding`/`default_container_padding` of **8/8**, a `global_work_area_offset` of `{left:-8, top:0, right:-8, bottom:0}`, and a themed `border_colours` object -- see "Window borders and gaps" and "The desktop frame" below. |
 | Pester | 6.0.1 and 3.4.0 are both installed; **all tests in this repo are Pester 5+ syntax** (`Should -Be`, not `Should Be`) — `Import-Module Pester -MinimumVersion 5.0.0` before running the suite, or 3.4.0 loads by default and every test errors on syntax it doesn't recognize |
 
@@ -94,6 +96,19 @@ shim on PATH. The two script bindings changed from `Start-Process powershell
 `~/.config/whkdrc.bak-before-cmd-shell`. **whkd must be restarted to pick up
 whkdrc changes** -- it reads the file once at startup.
 
+**That conversion had come undone, and the two script bindings were dead.**
+Found while adding the cava binds: `alt + w` (next wallpaper) and `ctrl + alt + w`
+(retheme) were back to `Start-Process powershell -WindowStyle Hidden
+-ArgumentList ...` while `.shell` was still `cmd` -- and cmd has no
+`Start-Process`, so both hotkeys did nothing at all (`cmd /c Start-Process ...`
+-> "'Start-Process' is not recognized"). Repaired to the `start "" /b powershell
+-NoProfile -ExecutionPolicy Bypass -File "..."` form this section already
+documents. Backup at `~/.config/whkdrc.bak-before-cava-binds`. **The lesson is
+that whkdrc is out of version control and silently drifts** -- when touching it,
+re-check that every binding's syntax matches the `.shell` in force, and test the
+exact command line through `cmd /c` before trusting it, because whkd reports
+nothing when a binding's command is bad.
+
 **`~/komorebi.json` (not version controlled).** Added `{kind: Exe, id:
 zebar.exe}` to `ignore_rules`. `yasb.exe` was already there; yasb was retired
 in favour of the zebar bar and **the ignore rule was never migrated**, so
@@ -105,6 +120,38 @@ test did not reproduce a failure from its absence** -- with the bar focused,
 komorebi still reported the real window as focused and `cycle-focus` still
 worked -- so this is a migration gap closed on correctness grounds, not a
 proven cause of the reported symptom.
+
+**`foobar2000.exe` is also in `ignore_rules`** (added 2026-08-18), so both foobar
+instances float rather than tile. The player's own top bar was briefly made
+frameless via `foo_ui_wizard`, and dragging an 8px caption rim while komorebi
+tried to tile the window was unusable; the frame was reverted and the window
+excluded from tiling. Applied at runtime *and* persisted, the same dual approach
+the border colours use. Backup at `~/komorebi.json.bak-before-foobar-ignore`.
+Full account: `docs/foobar2000-briefing.md`.
+
+**`ignore_rules` ALONE DOES NOT STOP komorebi TOUCHING A WINDOW.** Reported as
+"komorebi handling is broken on foobar again", weeks after the ignore rule was
+added and while that rule was demonstrably working -- `komorebic state` listed
+chrome, wezterm, vesktop, mpv and pomelofizz-ui as managed and no foobar at all.
+The second setting is `unmanaged_window_operation_behaviour`, which defaults to
+`Op`: komorebi still performs window operations on the FOCUSED window even when
+that window is unmanaged. So the ignore rule stops a window being *tiled*, and
+`Op` quietly lets komorebi keep moving and resizing it anyway.
+
+The tell is geometry, not state: foobar sat at 116,422 measuring **1242x697** --
+an exact komorebi tile size at a position that is not a tile slot, i.e. a window
+komorebi had sized but was not placing. Set to `NoOp` at runtime
+(`komorebic unmanaged-window-operation-behaviour no-op`) and persisted into
+`~/komorebi.json` with the same parse-mutate-serialize + atomic rename pattern
+the border colours use; the key was ABSENT from the file, so it had been running
+on the default. Backup at `~/komorebi.json.bak-before-noop`. Aero Snap was ruled
+out first (`WindowArrangementActive = 0`).
+
+**A verification lesson worth keeping:** the ignore rule was earlier reported as
+"confirmed working" on the strength of a `komorebic state` check that ran while
+NO foobar was running at all. That check could not have failed and proved
+nothing. Any "is X excluded from tiling" check must assert that X is actually
+running first.
 
 In-repo, `zebar/caelestia/komorebi-commands.js` moved to the same real-binary
 path, so the bar's workspace buttons and the dashboard's workspace pane stop
@@ -228,6 +275,100 @@ pipeline did not create -- treat it accordingly.
 sliver is covered by the frame, so this retheme mostly shows up in the Start menu, in title bars,
 and while hovering the bottom edge -- not in normal use.
 
+## cava
+
+A terminal audio visualiser, themed from the wallpaper like everything else. Installed as a
+per-user MSI (see "The stack"). Everything below was established on this machine, from cava's own
+source or by running it -- not from its README, which describes the Linux build.
+
+**Why the bars were white before any of this existed.** Every key in the generated config's
+`[color]` block ships commented out, so `foreground = default` -- and "default" is not a colour, it
+tells cava to emit no colour escape at all and let the terminal's own foreground stand. WezTerm's
+foreground is `on_surface`, a near-white. Nothing was broken; cava had never been told a colour.
+
+**The theming seam is a THEME FILE, not the config.** `[color] theme = '<name>'` loads
+`~/.config/cava/themes/<name>` -- a small colour-only file. So the pipeline owns
+`matugen/templates/cava.theme` -> `state/staging/cava.theme` -> `~/.config/cava/themes/wallpaper`,
+and the 13 KB config next to it (sensitivity, bar count, output mode, shader choice) stays
+hand-owned and is never written. The live theme file deliberately has **no extension**: cava builds
+the path as `themes/<name>` verbatim, the same shape as the `solarized_dark`/`tricolor` themes it
+ships with. Theme paths always resolve under `%USERPROFILE%\.config\cava\themes\` regardless of
+where `-p` points the config.
+
+**Named colours ride the WezTerm palette; hex does not.** For the eight named colours cava emits a
+plain `\033[3Xm`, so the *terminal* chooses the pixels -- and `matugen/templates/palette.lua`
+already derives every ANSI slot from the wallpaper (`blue` = `primary`, `cyan`/`green` =
+`tertiary`, `yellow` = `secondary`, `red`/`magenta` = `error`). A single named colour therefore
+follows the wallpaper for free, with no template and no target at all. **Gradients are the reason
+that is not enough**: cava accepts only hex for `gradient_color_N`, which is what forced the
+templated theme file. Hex becomes true 24-bit `\033[38;2;r;g;bm`.
+
+**What the theme actually is.** A recreation of `catppuccin/cava`'s gradient
+(github.com/catppuccin/cava) in this palette. Catppuccin sweeps eight stops at one tone, a pure hue
+walk from calm floor to hot peak; that SHAPE is what is copied. Only three stops are used --
+`primary` -> `tertiary` -> `error` -- because matugen synthesises just four accent hues from one
+wallpaper (palette.lua's header records the same ceiling), and the fourth, `secondary`, is the
+dominant hue desaturated, which renders a muddy grey-cyan across the lower third where the bars
+spend most of their time. Both versions were rendered side by side and looked at before that was
+decided. Three stops costs nothing in smoothness: cava interpolates linearly in RGB between
+consecutive stops, one colour per terminal line. `error` is the stop that keeps the peak hot --
+it is red in every palette matugen builds, whatever the wallpaper.
+
+**Windows-specific traps, all confirmed against cava's own `config.c`:**
+
+- **This build has no ncurses.** `method = ncurses` exits with "cava was built without ncurses
+  support". Output is `noncurses` (default) or `sdl_glsl`. That is *why* hex works cleanly -- the
+  config's warning about needing "a terminal that can change color definitions" describes the
+  ncurses path, which does not exist here.
+- **Input is hard-locked to WASAPI.** Setting any `[input] method` is a fatal error ("on windows
+  changing input method is not supported"). Loopback capture needs no configuration at all.
+- **The config is read by `GetPrivateProfileString`, the Win32 INI API -- not iniparser.** That API
+  honours only `;` as a comment marker. cava's own shipped config uses `#` and gets away with it
+  only because those lines happen to contain no `=`; a `#` comment WITH an `=` would be parsed as a
+  key. The template uses `;` throughout and `Test-StagedFile`'s `cava` case rejects any `#` line.
+- **A bad theme file stops cava from starting**, unlike every other target here, where a bad write
+  is cosmetic. Hence the fuller structural check: `[color]` present, `gradient = 1`, stops numbered
+  1..N contiguously (cava stops reading at the first gap), between 2 and 8 of them (it divides by
+  `gradient_count - 1`, and `MAX_GRADIENT_COLOR_DEFS` is 8), and every non-`gradient` value a
+  quoted 6-digit hex.
+
+**EVERY KEY cava DOCUMENTS IS DEAD ON THIS BUILD.** `cava -h` prints the full list -- Left/Right
+for bar count, Up/Down for sensitivity, `r` reload config, `c` reload colours, `f`/`b` cycle
+colours, `o` orientation, `q` quit -- and **none of them do anything here**, including `q`, so the
+window has to be closed or Ctrl-C'd. That help text is shared across platforms. In cava 1.0.0's
+`cava.c` the variable the key `switch` reads is assigned in exactly two places: one guarded
+`#ifdef NCURSES` (this build has no ncurses -- see above) and one guarded `#ifndef _WIN32`. The
+whole switch is therefore unreachable on Windows. Confirmed against the `1.0.0` tag specifically,
+not master, and falsified by feeding 200 `q` keystrokes on stdin and watching cava keep running.
+**Do not write "press `r` to reload" anywhere.** This was told to the user twice before it was
+checked.
+
+**`live-config = 1` is the only runtime path, and it is enabled** in `~/.config/cava/config`. cava
+polls that file's mtime and size every frame and re-runs its entire config load on a change --
+which re-reads the theme file too. Measured with a control arm: bar count moved 8 -> 16 mid-run
+with it on and stayed at 8 with it off. Two consequences:
+
+- **Editing the config IS the keybind.** `scripts/hotkey-cava-bars.ps1 -Adjust more|fewer` steps
+  `bar_width` in that file (min 1, max 12) and a running cava re-lays out within a frame; bound to
+  `alt + shift + s` / `alt + shift + a` in `~/.config/whkdrc`, mirroring the existing `alt + s` /
+  `alt + a` pair. It moves `bar_width`, not `bars`, for the same reason cava's own dead key handler
+  did (`case 68: p.bar_width++`): a pinned `bars = N` makes cava REFUSE TO START in any pane too
+  narrow for N, which is no way to behave when a global hotkey has no idea how wide the pane is.
+  Verified end to end by screenshotting one cava process before and after the hotkey fired --
+  ~20 bars to ~35, never restarted.
+- **A wallpaper change still cannot reach a running cava**, because live-config watches the
+  *config* file and the pipeline writes the *theme* file. The fix is for `Apply-Theme` to touch
+  `~/.config/cava/config` after the copy -- exactly the trick already used on `~/.wezterm.lua`,
+  which has the same "only notices its own file" behaviour. **Offered and not yet wired up.**
+
+**Verifying it.** cava's `[output] method = raw` with `raw_target = /dev/stdout` and
+`data_format = ascii` prints bar heights as numbers, so audio capture can be proved without looking
+at anything: 0/49 frames non-zero during silence, 53/65 with a sound playing. Colour cannot be
+checked that way -- redirecting stdout leaves cava with a console width of 0 ("window is too narrow
+for number of bars set, maximum is 0") and it renders nothing. Launch it in a plain `cmd` console
+and screenshot that; do NOT spawn a WezTerm window for it, because `wezterm start` may attach to
+the existing GUI process and killing what it returns can take the session's own terminal with it.
+
 ## The desktop frame (branch `feat/corner-overlays`, UNMERGED)
 
 A Caelestia-style coloured frame around the desktop, plus a reworked bar. All of it lives on
@@ -243,7 +384,28 @@ content area reads as a rounded rectangle. Every piece is a separate `top_most` 
 **The one invariant that matters: all four wallpaper gaps must be equal.** Gap = komorebi's total
 padding − band thickness. Top/right/bottom each spend the band out of that padding; the left side
 has no band, so it needs `global_work_area_offset` to compensate. Current values: thickness 8,
-gap 8, radius 16, padding 8/8, offset `{left:-8, top:0, right:-8, bottom:0}`.
+gap 8, radius 16, padding **12/4**, offset `{left:-8, top:0, right:-8, bottom:0}`.
+
+**The invariant covers the gaps BETWEEN windows too, and for a long time it silently did not.**
+The padding was 8/8, an even 50/50 split of the total, and every check in
+`tests/SetFrameGeometry.Tests.ps1` pinned only the gap at the frame -- which the split does not
+affect. The gap between windows is `2 × container_padding`, which the split is entirely
+responsible for, so the desktop ran at **16px between windows against 8px at the frame**, a 2:1
+mismatch nobody's test could see. Reported as "padding between windows are uneven" and confirmed
+by pixel-scanning a screen row (wallpaper visible for 8px at the bar, 16px between window
+borders), not from `komorebic state`. The two formulas:
+
+```
+gap at the frame    = workspace_padding + container_padding - thickness   (= G, split-independent)
+gap between windows = 2 * container_padding                              (= all split)
+```
+
+`Set-FrameGeometry` now derives the split from **G**, not from P: `container = round(G/2)`,
+`workspace = P - container`. Total padding is unchanged, so the offset and every zpack/CSS value
+stay exactly as they were -- only the split moves, and no komorebi restart is needed. An odd G
+cannot halve exactly, so the between-windows gap lands on the nearest even number; the summary
+reports `InterWindowGap` and `-DryRun` prints both gaps side by side rather than letting a 1px
+miss pass silently. **If you retune the frame, check both numbers, not just the frame gap.**
 
 **`scripts/Set-FrameGeometry.ps1` is the only supported way to retune** (`-Thickness -GapRatio
 -Radius`, `-DryRun` to preview). It rewrites the zpack presets, the CSS custom properties, the
@@ -315,6 +477,41 @@ Notable details:
   and no `mouseenter` can follow while the cursor does not move -- so the close decision re-checks
   `:hover` and a `mousemove` listener re-arms, rather than trusting the leave.
 
+## The starship prompt, and one belief that was wrong for a long time
+
+`scripts/Show-PromptCandidates.ps1` prints every candidate in
+`state/prompt-candidates/` into a real terminal with real colour and the real font -- a prompt
+rendered into a transcript loses the colour, and rendered as a PNG is not the terminal. Candidates
+1-8 come from `scripts/build-prompt-candidates.mjs`, 9-10 (agnoster) from
+`scripts/build-agnoster.mjs`. They are PREVIEW configs with the palette baked in as literal hex,
+so they render truthfully **and must never be installed as-is** -- a literal palette stops
+following the wallpaper. The chosen design gets ported into `matugen/templates/starship.toml`,
+where the hex becomes `{{colors.*}}`. The script refuses `-Apply` and says exactly this.
+
+**`cell_width = 0.9` does NOT clip powerline separators.** Candidates 1-8 were all designed under
+the stated constraint that `~/.wezterm.lua`'s `cell_width = 0.9` squeezes `U+E0B0` into the
+doubled chevrons the user once reported as "weird shapes on the arrows". That was **inferred and
+never tested**. Tested at last by rendering agnoster in a real WezTerm at the live setting and
+zooming in: the separators are clean solid triangles, no doubling, no seam. The earlier artifact
+belonged to a different glyph -- the catppuccin-powerline preset also uses the ROUND caps
+`U+E0B4`/`U+E0B6`, a different shape with a different cell fit. **`cell_width` does not need
+changing and no design needs to avoid `U+E0B0`.** What IS wrong at 0.9 is agnoster's own git glyph
+`U+E0A0`, which renders as a thin spindly mark; `U+F418` is the same icon drawn properly and is
+verified present in CartographCF's cmap.
+
+**Powerline arrows have one rule: every arrow must be drawn by a module that knows BOTH sides of
+it**, because its colours are `fg = block on its left`, `bg = block on its right`. A closing arrow
+placed in `[character]` breaks this -- starship has no conditional styling and no way to ask "did
+that module render", so `[character]` cannot know which block came last, and the arrow came out in
+the branch colour while sitting against the status block. Agnoster's git is therefore **one block
+in one colour**, with the closing arrow owned by `git_status` (rendered unwrapped, so inside a repo
+it always renders and is always last). Verify by dumping the raw escapes and checking each
+`U+E0B0`'s preceding SGR pair, not by eye. A consequence worth accepting: outside a git repo no
+closing arrow is drawn at all, which is a shorter silhouette but never a wrong colour. A second
+consequence: agnoster's green-when-clean/yellow-when-dirty cannot be expressed at all, and the
+two-block approximation that tried to was abandoned precisely because it made the closing arrow
+undecidable.
+
 ## Pipeline flow
 
 ```
@@ -324,12 +521,12 @@ Switch-Wallpaper.ps1
   -> Resolve-PreviewImage            (preview.jpg -> preview.gif -> preview.png -> $null)
   -> Apply-Theme.ps1
        -> matugen image <preview> --mode dark --type <scheme> --prefer saturation --config matugen/config.toml
-       -> renders the 3 live targets (wezterm, starship, zebar) PLUS the non-target
+       -> renders the 4 live targets (wezterm, starship, cava, zebar) PLUS the non-target
           komorebi-colours.json into state/staging/ -- yasb/tacky-borders templates are no longer
           in matugen/config.toml, so nothing renders for them at all (see "The stack" above)
        -> Remove-Bom + Test-StagedFile on every staged TARGET file (pre-copy, structural, per-target)
        -> abort here if any target fails -- nothing live has been touched yet
-       -> New-PreApplySnapshot: snapshot the CURRENTLY LIVE content of all 3 targets, PLUS
+       -> New-PreApplySnapshot: snapshot the CURRENTLY LIVE content of all 4 targets, PLUS
           ~/komorebi.json (F2 -- hand-maintained, outside any git repo, and not itself one of
           $script:Targets), into state/pre-apply/ (a directory SEPARATE from state/last-good/ --
           see below)
@@ -355,6 +552,15 @@ Switch-Wallpaper.ps1
           (`komorebic border-colour`, fail-soft) and persisted into ~/komorebi.json's
           border_colours field -- see "Window borders and gaps" above. Entirely fail-soft; never
           affects this run's own Success/Failed result.
+       -> Update-FoobarTheme: re-theme foobar2000's SMP panels from the same
+          palette, by handing state/staging/foobar-palette.json to
+          Deploy-Panels.ps1 -Palette. NOT one of $script:Targets (no single live
+          config file to copy or roll back -- the colours are baked into the
+          panel scripts at deploy time). Entirely fail-soft. Generated theme.js
+          and theme.css go to %TEMP% rather than the repo, so a wallpaper change
+          leaves the working tree clean. THE COLOURS APPLY ON foobar's NEXT
+          START: SMP evaluates a panel script once at load and there is no way
+          to trigger a reload from outside the process.
        -> Update-WindowsAccentTheme: theme the Windows taskbar/Start/title bars from the same
           palette, by writing HKCU accent keys + broadcasting WM_SETTINGCHANGE. Also entirely
           fail-soft. See "The Windows taskbar" below.
@@ -390,6 +596,21 @@ This machine has **no PowerShell 7**. Every script in this repo is 5.1-compatibl
 - `matugen` is not guaranteed to be on `PATH` in a fresh shell (see stack table above).
   `Apply-Theme.ps1` prepends `~/.cargo/bin` defensively at the top of the file if `matugen` isn't
   already resolvable — keep that guard if the script is ever split up.
+- **Capturing a UTF-8 program's stdout needs `[Console]::OutputEncoding` set to UTF-8 FIRST.**
+  PowerShell 5.1 decodes a native program's output using `[Console]::OutputEncoding`, which
+  defaults to the OEM code page (437/850 here), *not* UTF-8. Every multi-byte glyph then arrives
+  shattered into its individual bytes reinterpreted as OEM characters. Confirmed at codepoint
+  level against `starship prompt`: `U+F418 U+276F` (git branch, chevron) became
+  `U+2229 U+00C9 U+00FF U+0393 U+00A5 U+00BB` — on screen, `∩Éÿ` and `Γ¥»`. **It looks exactly
+  like a missing-font problem and is not one**: the bytes are already wrong before anything is
+  asked to draw them, so no font, terminal or config change can fix it downstream. Set it, and
+  restore it afterwards — it is the caller's console, not the script's.
+- **`` `e `` is PowerShell 6+**, so ANSI escapes must be written `[char]27` here. A `` `e ``
+  regex silently matches nothing rather than erroring, which reads as "the program emitted no
+  colour".
+- **Variable names are case-insensitive**: `$w` and `$W` are the same variable. A loop-local
+  `$w` once overwrote an image width `$W` and produced an 18px-wide screenshot that looked like
+  a rendering failure.
 
 ### The BOM rule
 

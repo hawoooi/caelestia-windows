@@ -1,0 +1,11 @@
+{
+  "_comment": "Material You roles for the current wallpaper, as supplied in docs/foobar2000-briefing.md. These change with the wallpaper; this file is the single substitution point for a future matugen template.",
+  "surface": "#0e1415",
+  "surface_container": "#1a2121",
+  "surface_container_high": "#252b2b",
+  "on_surface": "#dde4e4",
+  "on_surface_variant": "#bec8c9",
+  "outline": "#899393",
+  "primary": "#80d4d9",
+  "on_primary": "#003739"
+}

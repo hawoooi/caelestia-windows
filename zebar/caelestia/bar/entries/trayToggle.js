@@ -61,17 +61,23 @@ register('trayToggle', (ctx) => {
     }
   }
 
-  el.addEventListener('click', () => {
-    open = !open;
-    el.textContent = open ? OPEN : CLOSED;
-    if (open) {
-      channel.post({ open: true, panel: 'tray', ...anchor() });
-      document.addEventListener('click', onDocumentClick, true);
-    } else {
-      channel.post({ open: false });
-      document.removeEventListener('click', onDocumentClick, true);
-    }
-  });
+  function show() {
+    if (open) return;
+    open = true;
+    el.textContent = OPEN;
+    channel.post({ open: true, panel: 'tray', ...anchor() });
+    document.addEventListener('click', onDocumentClick, true);
+  }
+
+  function hide() {
+    if (!open) return;
+    open = false;
+    el.textContent = CLOSED;
+    channel.post({ open: false });
+    document.removeEventListener('click', onDocumentClick, true);
+  }
+
+  el.addEventListener('click', () => { if (open) hide(); else show(); });
 
   // The flyout acks every close it performs itself (its dismiss timer, or the
   // "I just restarted" message it posts on startup). Any ack means "not open

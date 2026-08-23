@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Visualiser — nine designs</title>
+<link rel="stylesheet" href="theme.css">
+<style>
+/* =============================================================================
+   VISUALISER — nine designs for the 300x64 card under the library.
+
+   All nine are driven by ONE shared signal so they can be compared fairly, and
+   they ANIMATE, because several of these look fine frozen and frantic in motion
+   -- which is the thing that actually decides between them.
+
+   The signal is deterministic (no Math.random) so two screenshots of this page
+   diff cleanly and a design can be judged twice.
+
+   Form and colour are separate axes: pick a design by number and a ramp by
+   letter. Zero colour literals -- every colour is var(--role) from theme.css.
+   ========================================================================== */
+
+:root {
+  --rule:   color-mix(in srgb, var(--outline) 22%, transparent);
+  --guide:  color-mix(in srgb, var(--outline) 32%, transparent);
+  --stripe: color-mix(in srgb, var(--outline) 7%, transparent);
+  --dim:    color-mix(in srgb, var(--outline) 26%, transparent);
+  --mono: "0xProto Nerd Font", ui-monospace, "Cascadia Mono", Consolas, monospace;
+
+  /* RAMP A (default): muted body, accent only at the tips. */
+  --viz-lo: var(--outline);
+  --viz-hi: var(--primary);
+}
+body[data-ramp="B"] { --viz-lo: var(--primary);                --viz-hi: var(--primary); }
+body[data-ramp="C"] { --viz-lo: var(--surface-container-high); --viz-hi: var(--outline); }
+
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; background: var(--surface); color: var(--on-surface);
+  font-family: var(--mono); font-size: 12px; font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+}
+body { padding: 36px 28px 80px; }
+button { border: 0; background: transparent; font: inherit; color: inherit; cursor: pointer; padding: 0; }
+
+h1 { font-size: 13px; font-weight: 400; letter-spacing: .12em; text-transform: uppercase;
+     color: var(--primary); margin: 0 0 6px; }
+.sub { color: var(--on-surface-variant); margin: 0 0 22px; max-width: 78ch; line-height: 1.6; }
+
+/* ------------------------------------------------------------- controls --- */
+.controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; margin: 0 0 28px; }
+.ctl { display: flex; align-items: center; gap: 6px; }
+.ctl__l { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--outline); }
+.seg { display: flex; background: var(--surface-container); border-radius: 999px; padding: 3px; gap: 2px; }
+.seg button { height: 24px; padding: 0 12px; border-radius: 999px; font-size: 11px;
+              color: var(--on-surface-variant); letter-spacing: .04em; }
+.seg button:hover { color: var(--on-surface); }
+.seg button[aria-pressed="true"] { background: var(--surface-container-high); color: var(--on-surface); }
+
+/* ---------------------------------------------------------------- grid ---- */
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 300px));
+        gap: 26px 34px; justify-content: start; }
+figure { margin: 0; }
+figcaption { margin: 0 0 8px; }
+.k { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--primary); }
+.d { display: block; margin-top: 3px; color: var(--outline); font-size: 11px; line-height: 1.45; }
+
+/* the card, at the real size it occupies in the layout */
+.vizcard { width: 300px; height: 64px; padding: 12px;
+           background: var(--surface-container); border-radius: 8px; overflow: hidden; }
+.vizcard canvas { display: block; width: 100%; height: 100%; }
+
+/* --- shared bar scaffolding ------------------------------------------------ */
+.bars { display: flex; height: 100%; justify-content: center; }
+.bars > * { flex: 0 0 auto; }
+
+/* V1 bars ------------------------------------------------------------------ */
+.v1 { align-items: flex-end; gap: 5px; }
+.v1 span { width: 6px; border-radius: 1px;
+           background: linear-gradient(to top, var(--viz-lo), var(--viz-hi)); }
+
+/* V2 peak-hold -------------------------------------------------------------- */
+.v2 { align-items: stretch; gap: 5px; }
+.v2 i { position: relative; width: 6px; display: block; }
+.v2 i b { position: absolute; left: 0; right: 0; display: block; }
+.v2 i .bar { bottom: 0; border-radius: 1px;
+             background: linear-gradient(to top, var(--viz-lo), var(--viz-hi)); }
+.v2 i .cap { height: 2px; border-radius: 1px; background: var(--on-surface-variant); }
+
+/* V3 mirrored --------------------------------------------------------------- */
+.v3 { align-items: center; gap: 4px; }
+.v3 span { width: 5px; border-radius: 1px;
+           background: linear-gradient(to top, var(--viz-hi), var(--viz-lo) 50%, var(--viz-hi)); }
+
+/* V4 segmented -------------------------------------------------------------- */
+.v4 { align-items: flex-end; gap: 5px; }
+/* The cells are a MASK, not extra elements: an alpha stencil of repeating
+   opaque/transparent stops. currentColor is used for the opaque stop purely so
+   the stencil carries no colour literal -- the mask reads only its alpha. */
+.v4 span {
+  width: 7px; color: var(--on-surface);
+  background: linear-gradient(to top, var(--viz-lo), var(--viz-hi));
+  -webkit-mask-image: repeating-linear-gradient(to top, currentColor 0 4px, transparent 4px 6px);
+          mask-image: repeating-linear-gradient(to top, currentColor 0 4px, transparent 4px 6px);
+}
+
+/* V7 matrix ----------------------------------------------------------------- */
+.v7 { align-items: flex-end; gap: 4px; }
+.v7 i { position: relative; width: 4px; height: 100%; display: block; }
+.v7 i b { position: absolute; left: 0; right: 0; bottom: 0; display: block; color: var(--on-surface);
+          -webkit-mask-image: repeating-linear-gradient(to top, currentColor 0 4px, transparent 4px 8px);
+                  mask-image: repeating-linear-gradient(to top, currentColor 0 4px, transparent 4px 8px); }
+.v7 i .off { top: 0; background: var(--dim); }
+.v7 i .on  { background: linear-gradient(to top, var(--viz-lo), var(--viz-hi)); }
+
+/* V8 hairline --------------------------------------------------------------- */
+.v8 { align-items: flex-end; gap: 2px; }
+.v8 span { width: 1px; background: var(--viz-lo); }
+
+/* ---------------------------------------------------------------- notes ---- */
+.notes { max-width: 92ch; margin: 46px 0 0; color: var(--on-surface-variant); line-height: 1.62; }
+.notes h2 { font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--primary);
+            margin: 28px 0 8px; font-weight: 400; }
+.notes p { margin: 0 0 11px; }
+.notes b { color: var(--on-surface); font-weight: 700; }
+.notes code { color: var(--on-surface); }
+.notes hr { border: 0; border-top: 1px solid var(--rule); margin: 26px 0; }
+</style>
+</head>
+<body data-ramp="A">
+
+<h1>Visualiser — nine designs</h1>
+<p class="sub">
+  Every card is the real 300&times;64 it occupies under the library, on the real
+  surface. All nine read the same signal, so differences you see are differences
+  in the design and not in the input. Form and colour are independent — pick a
+  number and a letter.
+</p>
+
+<div class="controls">
+  <div class="ctl"><span class="ctl__l">Ramp</span>
+    <div class="seg" id="ramp">
+      <button data-v="A" aria-pressed="true">A muted</button>
+      <button data-v="B" aria-pressed="false">B accent</button>
+      <button data-v="C" aria-pressed="false">C no accent</button>
+    </div>
+  </div>
+  <div class="ctl"><span class="ctl__l">Level</span>
+    <div class="seg" id="level">
+      <button data-v="1" aria-pressed="true">Loud</button>
+      <button data-v="0.45" aria-pressed="false">Quiet</button>
+      <button data-v="0" aria-pressed="false">Silent</button>
+    </div>
+  </div>
+  <div class="ctl">
+    <div class="seg" id="run"><button data-v="toggle" aria-pressed="true">Pause</button></div>
+  </div>
+</div>
+
+<div class="grid">
+  <figure><figcaption><span class="k">V1 · Bars</span>
+    <span class="d">The baseline. 6px bars on an 11px pitch, bottom-anchored.</span></figcaption>
+    <div class="vizcard"><div class="bars v1" id="v1"></div></div></figure>
+
+  <figure><figcaption><span class="k">V2 · Peak-hold</span>
+    <span class="d">Same bars plus a cap that lags and falls slowly. Adds a second layer of reading.</span></figcaption>
+    <div class="vizcard"><div class="bars v2" id="v2"></div></div></figure>
+
+  <figure><figcaption><span class="k">V3 · Mirrored</span>
+    <span class="d">Symmetric about a centre line. No floor, so it reads as an envelope rather than a chart.</span></figcaption>
+    <div class="vizcard"><div class="bars v3" id="v3"></div></div></figure>
+
+  <figure><figcaption><span class="k">V4 · Segmented</span>
+    <span class="d">Quantised into cells. The closest match to the cava bars already on this desktop.</span></figcaption>
+    <div class="vizcard"><div class="bars v4" id="v4"></div></div></figure>
+
+  <figure><figcaption><span class="k">V5 · Ridge</span>
+    <span class="d">A filled curve with a lit crest. Continuous, so nothing flickers.</span></figcaption>
+    <div class="vizcard"><canvas id="v5"></canvas></div></figure>
+
+  <figure><figcaption><span class="k">V6 · Oscilloscope</span>
+    <span class="d">The waveform itself, not the spectrum. One stroked line, centre-anchored.</span></figcaption>
+    <div class="vizcard"><canvas id="v6"></canvas></div></figure>
+
+  <figure><figcaption><span class="k">V7 · Matrix</span>
+    <span class="d">A dot grid that is always present; level lights it. Unlit structure stays visible.</span></figcaption>
+    <div class="vizcard"><div class="bars v7" id="v7"></div></div></figure>
+
+  <figure><figcaption><span class="k">V8 · Hairline</span>
+    <span class="d">92 single-pixel lines. At this density it stops being a chart and becomes texture.</span></figcaption>
+    <div class="vizcard"><div class="bars v8" id="v8"></div></div></figure>
+
+  <figure><figcaption><span class="k">V9 · Spectrogram</span>
+    <span class="d">Scrolling history — the only one that shows the last few seconds, not just now.</span></figcaption>
+    <div class="vizcard"><canvas id="v9"></canvas></div></figure>
+</div>
+
+<div class="notes">
+  <h2>The parameter that decides all of them</h2>
+  <p>
+    <b>Attack fast, decay slow.</b> A meter that rises and falls at the same rate
+    looks like noise; one that snaps up and sinks back looks like music. Every
+    design here shares one envelope — rise 55% of the remaining distance per
+    frame, fall 12% — and that single asymmetry does more for how right this
+    feels than any choice of shape. If a design ever looks frantic, check this
+    before redrawing anything.
+  </p>
+  <p>
+    V2's cap is the same idea made explicit: it holds the maximum and falls at a
+    <i>constant</i> rate rather than a proportional one, so it descends in a
+    straight line instead of easing. That difference is what makes a peak marker
+    legible rather than mushy.
+  </p>
+
+  <h2>What 64px costs</h2>
+  <p>
+    The card is 40px of drawable height after padding. That is generous for bars
+    and fine for a curve, but it is the reason there is no radial design here and
+    why V9's frequency axis is coarse — 40 rows is not much to divide a spectrum
+    across. It also means <b>tall thin bars are out</b>: below about 4px wide the
+    bar stops reading as a bar and starts aliasing, which is why V8 goes all the
+    way to 1px and becomes texture instead of trying to be a small chart.
+  </p>
+
+  <h2>Colour, and the one accent problem</h2>
+  <p>
+    The palette has <b>eight roles and a single accent</b>. cava's own theme file
+    on this desktop sweeps <code>primary → tertiary → error</code>, a hue walk
+    from calm floor to hot peak — and neither <code>tertiary</code> nor
+    <code>error</code> exists in <code>theme.css</code>. So none of these can
+    reproduce that ramp today. The three offered instead:
+  </p>
+  <p>
+    &nbsp;<b>A muted</b> — <code>outline → primary</code>. Most of a bar's area is
+    its lower half, so putting the quiet tone there sets the overall level and the
+    accent only appears at the tips.<br>
+    &nbsp;<b>B accent</b> — flat <code>primary</code>. Brightest; competes with the
+    seekbar, which is the only other accent-filled thing on screen.<br>
+    &nbsp;<b>C no accent</b> — greyscale. The visualiser becomes pure texture and
+    spends none of the theme's one accent on ambient decoration.
+  </p>
+  <p>
+    If you want the real cava gradient, that is a palette change rather than a
+    design change: add <code>tertiary</code> and <code>error</code> to
+    <code>palette.json</code> and to <code>render-theme-css.py</code> /
+    <code>render-theme-js.py</code>, and every one of these gets it for free.
+  </p>
+
+  <h2>What each costs to build for real</h2>
+  <p>
+    The panel draws with GDI through Spider Monkey Panel, so <b>rectangles are
+    cheap and curves are not</b>. V1, V2, V3, V4, V7 and V8 are all
+    <code>FillSolidRect</code> loops — trivial, and the gradient is done by
+    picking a colour per bar rather than per pixel. V5, V6 and V9 need per-pixel
+    work: V5 and V6 want a path, and V9 needs a scrolling bitmap it owns and
+    blits each frame. All three are possible, but they are the ones that could
+    reintroduce the paint cost that made scrolling laggy earlier in this project.
+  </p>
+  <p>
+    <b>Where the audio comes from is still unproven.</b> The WebView host exposes
+    a shared PCM buffer; SMP has no audio API of its own. That has not been
+    tested, and until it is, treat every one of these as a design decision rather
+    than a scheduled feature.
+  </p>
+
+  <hr>
+
+  <h2>Recommendation</h2>
+  <p>
+    <b>V8 Hairline with ramp C</b> if you want it to disappear into the theme —
+    it reads as a texture on the card rather than a gadget bolted to it, and it
+    is the only one that never competes with the seekbar for attention.
+    <b>V5 Ridge with ramp A</b> if you want it to be a deliberate feature: it is
+    the most elegant of the nine and the only one with no flicker at all, because
+    nothing about it is discrete.
+  </p>
+  <p>
+    <b>V4 Segmented</b> has an argument the others do not: cava is already running
+    on this desktop with exactly that stepped texture, so choosing it makes the
+    player agree with the rest of the environment rather than merely coexist with
+    it. That is a real reason, and it would be my pick if consistency matters more
+    than restraint.
+  </p>
+  <p>
+    I would avoid <b>V2</b> and <b>V9</b> here. V2's caps are hi-fi-equipment
+    styling that this theme has spent a lot of effort not having, and V9 is the
+    most interesting of the nine but wants three times the height to be readable —
+    at 40px it is a smear, and its information is wasted.
+  </p>
+</div>
+
+<script>
+"use strict";
+
+/* ---- one shared, deterministic signal ------------------------------------ *
+ * No Math.random anywhere: the same frame index always produces the same
+ * picture, so this page screenshots reproducibly and two runs can be diffed.  */
+var BINS = 64;
+var lvl  = new Array(BINS).fill(0);
+var pk   = new Array(BINS).fill(0);
+var WAVE = 200;
+var wave = new Array(WAVE).fill(0);
+var t = 0, level = 1, running = true;
+
+function tick() {
+  t++;
+  var beat = Math.exp(-((t % 30) / 6));           // a pulse every 30 frames
+  for (var i = 0; i < BINS; i++) {
+    var f = i / BINS;
+    var base = Math.pow(1 - f, 1.6);              // more energy low, like real music
+    var wob  = 0.5 + 0.5 * Math.sin(t * (0.05 + f * 0.11) + i * 0.8);
+    var tgt  = base * (0.32 + 0.68 * wob) * (0.45 + 0.55 * beat) * level;
+    // ATTACK FAST, DECAY SLOW -- see the notes; this is the whole feel.
+    lvl[i] += (tgt - lvl[i]) * (tgt > lvl[i] ? 0.55 : 0.12);
+    // the cap falls at a CONSTANT rate, so it descends straight rather than easing
+    pk[i] = lvl[i] > pk[i] ? lvl[i] : Math.max(0, pk[i] - 0.012);
+  }
+  for (var j = 0; j < WAVE; j++) {
+    var x = j / WAVE;
+    wave[j] = (Math.sin(x * 18.8 + t * 0.18) * 0.5 +
+               Math.sin(x * 44.0 + t * 0.11) * 0.3 +
+               Math.sin(x * 81.7 + t * 0.23) * 0.2) * (0.35 + 0.65 * beat) * level;
+  }
+}
+
+/* average BINS down to n buckets, so every design reads the same signal */
+function sample(n) {
+  var out = new Array(n), per = BINS / n;
+  for (var i = 0; i < n; i++) {
+    var a = Math.floor(i * per), b = Math.max(a + 1, Math.floor((i + 1) * per)), s = 0;
+    for (var k = a; k < b; k++) s += lvl[k];
+    out[i] = s / (b - a);
+  }
+  return out;
+}
+function samplePk(n) {
+  var out = new Array(n), per = BINS / n;
+  for (var i = 0; i < n; i++) {
+    var a = Math.floor(i * per), b = Math.max(a + 1, Math.floor((i + 1) * per)), m = 0;
+    for (var k = a; k < b; k++) m = Math.max(m, pk[k]);
+    out[i] = m;
+  }
+  return out;
+}
+
+/* ---- colour probe --------------------------------------------------------- *
+ * Canvas needs real colour strings. Rather than duplicate the palette in JS,
+ * a hidden element takes its `color` from the same custom property and the
+ * computed value is read back as rgb(). Still zero colour literals in source.  */
+var probe = document.createElement("span");
+probe.style.cssText = "position:absolute;visibility:hidden";
+document.body.appendChild(probe);
+function role(name) {
+  probe.style.color = "var(" + name + ")";
+  return getComputedStyle(probe).color;
+}
+function rgbOf(name) {
+  var m = role(name).match(/(\d+)[,\s]+(\d+)[,\s]+(\d+)/);
+  return m ? [ +m[1], +m[2], +m[3] ] : [ 0, 0, 0 ];
+}
+
+/* ---- DOM builders --------------------------------------------------------- */
+function build(id, n, html) {
+  var el = document.getElementById(id), s = "";
+  for (var i = 0; i < n; i++) s += html;
+  el.innerHTML = s;
+  return el.children;
+}
+var c1 = build("v1", 25, "<span></span>");
+var c2 = build("v2", 25, '<i><b class="bar"></b><b class="cap"></b></i>');
+var c3 = build("v3", 30, "<span></span>");
+var c4 = build("v4", 23, "<span></span>");
+var c7 = build("v7", 34, '<i><b class="off"></b><b class="on"></b></i>');
+var c8 = build("v8", 92, "<span></span>");
+
+/* ---- canvases ------------------------------------------------------------- */
+function ctxOf(id) {
+  var cv = document.getElementById(id);
+  var dpr = window.devicePixelRatio || 1;
+  var r = cv.getBoundingClientRect();
+  cv.width = Math.round(r.width * dpr);
+  cv.height = Math.round(r.height * dpr);
+  var g = cv.getContext("2d");
+  g.scale(dpr, dpr);
+  return { g: g, w: r.width, h: r.height };
+}
+var C5 = ctxOf("v5"), C6 = ctxOf("v6"), C9 = ctxOf("v9");
+
+function drawRidge() {
+  var g = C5.g, w = C5.w, h = C5.h, n = 34, v = sample(n);
+  g.clearRect(0, 0, w, h);
+  var grad = g.createLinearGradient(0, h, 0, 0);
+  grad.addColorStop(0, role("--viz-lo"));
+  grad.addColorStop(1, role("--viz-hi"));
+  g.beginPath(); g.moveTo(0, h);
+  for (var i = 0; i < n; i++) {
+    var x = i / (n - 1) * w, y = h - v[i] * h;
+    if (i === 0) g.lineTo(x, y);
+    else {
+      var px = (i - 1) / (n - 1) * w, py = h - v[i - 1] * h;
+      g.bezierCurveTo(px + (x - px) / 2, py, px + (x - px) / 2, y, x, y);
+    }
+  }
+  g.lineTo(w, h); g.closePath();
+  g.globalAlpha = 0.55; g.fillStyle = grad; g.fill(); g.globalAlpha = 1;
+  g.strokeStyle = role("--viz-hi"); g.lineWidth = 1.25; g.stroke();
+}
+
+function drawScope() {
+  var g = C6.g, w = C6.w, h = C6.h, mid = h / 2;
+  g.clearRect(0, 0, w, h);
+  g.strokeStyle = role("--dim"); g.lineWidth = 1;
+  g.beginPath(); g.moveTo(0, mid + 0.5); g.lineTo(w, mid + 0.5); g.stroke();
+  g.strokeStyle = role("--viz-hi"); g.lineWidth = 1.4; g.beginPath();
+  for (var i = 0; i < WAVE; i++) {
+    var x = i / (WAVE - 1) * w, y = mid - wave[i] * mid * 0.92;
+    i ? g.lineTo(x, y) : g.moveTo(x, y);
+  }
+  g.stroke();
+}
+
+/* The floor must be VISIBLY different from the card, or low-energy history is
+   drawn in exactly the card colour and the strip looks empty even though every
+   column is there. A spectrogram is a filled block by nature, not sparse marks. */
+var lo9 = rgbOf("--surface-container-high"), hi9 = rgbOf("--viz-hi");
+/* Scrolling needs a SCRATCH buffer. Drawing a canvas onto itself with
+   globalCompositeOperation "copy" clears the destination before the source is
+   read, and the context is already scaled by devicePixelRatio, so passing
+   backing-store dimensions to drawImage scaled the shift a second time. Copy
+   out, clear, draw back offset -- all in CSS pixels. */
+var scratch = document.createElement("canvas");
+scratch.width  = C9.g.canvas.width;
+scratch.height = C9.g.canvas.height;
+var sctx = scratch.getContext("2d");
+
+function drawSpectro() {
+  var g = C9.g, w = C9.w, h = C9.h, step = 2;
+  sctx.clearRect(0, 0, scratch.width, scratch.height);
+  sctx.drawImage(C9.g.canvas, 0, 0);
+  g.clearRect(0, 0, w, h);
+  g.drawImage(scratch, -step, 0, w, h);
+  var rows = Math.floor(h);
+  for (var r = 0; r < rows; r++) {
+    var v = lvl[Math.min(BINS - 1, Math.floor(r / rows * BINS))];
+    var a = Math.min(1, v * 1.8);
+    g.fillStyle = "rgb(" + Math.round(lo9[0] + (hi9[0] - lo9[0]) * a) + "," +
+                           Math.round(lo9[1] + (hi9[1] - lo9[1]) * a) + "," +
+                           Math.round(lo9[2] + (hi9[2] - lo9[2]) * a) + ")";
+    g.fillRect(w - step, h - 1 - r, step, 1);
+  }
+}
+
+/* ---- per-frame render ----------------------------------------------------- */
+function render() {
+  var i, v;
+  v = sample(25); for (i = 0; i < 25; i++) c1[i].style.height = (v[i] * 100).toFixed(1) + "%";
+
+  var p = samplePk(25);
+  for (i = 0; i < 25; i++) {
+    c2[i].firstChild.style.height = (v[i] * 100).toFixed(1) + "%";
+    c2[i].lastChild.style.bottom  = (Math.max(v[i], p[i]) * 100).toFixed(1) + "%";
+  }
+  v = sample(30); for (i = 0; i < 30; i++) c3[i].style.height = (v[i] * 92 + 4).toFixed(1) + "%";
+  v = sample(23); for (i = 0; i < 23; i++) c4[i].style.height = (v[i] * 100).toFixed(1) + "%";
+  v = sample(34); for (i = 0; i < 34; i++) c7[i].lastChild.style.height = (v[i] * 100).toFixed(1) + "%";
+  v = sample(92); for (i = 0; i < 92; i++) c8[i].style.height = (v[i] * 100).toFixed(1) + "%";
+
+  drawRidge(); drawScope(); drawSpectro();
+}
+
+var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+function loop() {
+  if (running) { tick(); render(); }
+  if (!reduce) requestAnimationFrame(loop);
+}
+if (reduce) { for (var i = 0; i < 90; i++) tick(); render(); running = false; }
+else loop();
+
+/* ---- controls -------------------------------------------------------------- */
+function seg(id, fn) {
+  var box = document.getElementById(id);
+  box.addEventListener("click", function (e) {
+    var b = e.target.closest("button"); if (!b) return;
+    Array.prototype.forEach.call(box.querySelectorAll("button"),
+      function (o) { o.setAttribute("aria-pressed", String(o === b)); });
+    fn(b.getAttribute("data-v"), b);
+  });
+}
+seg("ramp", function (v) {
+  document.body.setAttribute("data-ramp", v);
+  lo9 = rgbOf("--surface-container-high"); hi9 = rgbOf("--viz-hi");
+});
+seg("level", function (v) { level = parseFloat(v); });
+document.getElementById("run").addEventListener("click", function (e) {
+  var b = e.target.closest("button"); if (!b) return;
+  running = !running;
+  b.textContent = running ? "Pause" : "Play";
+  b.setAttribute("aria-pressed", String(running));
+  if (!reduce && running) loop();
+});
+</script>
+</body>
+</html>

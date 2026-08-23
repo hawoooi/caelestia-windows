@@ -1,0 +1,231 @@
+<#
+.SYNOPSIS
+    Copy the foobar2000 Caelestia panel sources into the DUPLICATE portable
+    install's foo_uie_webview profile directory.
+
+.DESCRIPTION
+    Source of truth lives in this repo under foobar2000\; the live panel files
+    live inside the duplicate install's profile. This script is the only
+    supported way to move one to the other.
+
+    Two house rules are enforced here rather than remembered:
+
+      * NO BOM. Every text file is written with
+        [System.IO.File]::WriteAllText(path, text, UTF8Encoding($false)).
+        Set-Content -Encoding UTF8 and Out-File both emit EF BB BF, and a
+        config parser rejecting a BOM'd file reports something that looks
+        entirely unrelated.
+
+      * NEVER the live player. -InstallRoot defaults to the duplicate at
+        C:\Users\PC\Music\foobar2000-caelestia and the script REFUSES to write
+        to C:\Users\PC\Music\foobar2000, which is the user's real player.
+
+    foo_uie_webview re-reads its template when the file changes, so a deploy
+    normally needs no foobar2000 restart.
+
+.PARAMETER InstallRoot
+    Root of the foobar2000 portable install to deploy into.
+
+.PARAMETER WhatIf
+    Report what would be written without writing anything.
+#>
+[CmdletBinding(SupportsShouldProcess = $true)]
+param(
+    [string] $InstallRoot = 'C:\Users\PC\Music\foobar2000-caelestia',
+
+    # A palette to theme from, instead of the checked-in foobar2000/palette.json.
+    # Apply-Theme passes the one matugen just rendered from the wallpaper.
+    #
+    # WITH this set, the generated theme.js goes to a TEMP directory rather than
+    # into the repo. A wallpaper change must not leave the working tree dirty --
+    # it happens on a keybinding, potentially many times an hour, and generated
+    # colour files appearing as modifications every time would make git status
+    # useless.
+    [string] $Palette
+)
+
+$ErrorActionPreference = 'Stop'
+
+# --- guard: never the live player ------------------------------------------
+$live = 'C:\Users\PC\Music\foobar2000'
+$rootFull = [System.IO.Path]::GetFullPath($InstallRoot).TrimEnd('\')
+if ($rootFull -eq [System.IO.Path]::GetFullPath($live).TrimEnd('\')) {
+    throw "Refusing to deploy into the LIVE player at $live. Use the duplicate install."
+}
+if (-not (Test-Path $rootFull)) { throw "Install root not found: $rootFull" }
+
+$src = $PSScriptRoot
+$dst = Join-Path $rootFull 'profile\foo_uie_webview'
+if (-not (Test-Path $dst)) { throw "foo_uie_webview profile dir not found: $dst" }
+
+$enc = New-Object System.Text.UTF8Encoding($false)
+
+function Copy-Text {
+    param([string] $From, [string] $To)
+    if (-not (Test-Path $From)) { throw "missing source: $From" }
+    $text = [System.IO.File]::ReadAllText($From)
+    $dir = Split-Path $To -Parent
+    if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+    if ($PSCmdlet.ShouldProcess($To, 'write text (UTF-8, no BOM)')) {
+        [System.IO.File]::WriteAllText($To, $text, $enc)
+        $b = [System.IO.File]::ReadAllBytes($To)
+        $bom = ($b.Length -ge 3 -and $b[0] -eq 0xEF -and $b[1] -eq 0xBB -and $b[2] -eq 0xBF)
+        if ($bom) { throw "BOM landed in $To -- this must never happen" }
+        "  {0,-28} {1,7} bytes" -f (Split-Path $To -Leaf), $b.Length
+    }
+}
+
+function Copy-Binary {
+    param([string] $From, [string] $To)
+    $dir = Split-Path $To -Parent
+    if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+    if ($PSCmdlet.ShouldProcess($To, 'copy binary')) {
+        Copy-Item $From $To -Force
+        "  {0,-28} {1,7} bytes" -f (Split-Path $To -Leaf), (Get-Item $To).Length
+    }
+}
+
+Write-Host "deploying to $dst" -ForegroundColor Cyan
+
+# ORDER MATTERS. foo_uie_webview watches its template file and reloads the
+# panel the moment it changes -- so if Template.html is written first, the panel
+# reloads against assets that have not landed yet, the stylesheet 404s, and
+# every icon renders as tofu. That looked exactly like a broken webfont and was
+# not one. Assets first, template LAST.
+Write-Host "theme:"
+# With -Palette, theme.css is REGENERATED from it rather than copied from the
+# repo -- otherwise the SMP panels would follow the wallpaper while the WebView
+# panel kept the checked-in colours, and the two halves of the window would
+# disagree. Both are rendered from the same eight roles.
+$themeCss = Join-Path $src 'theme.css'
+if ($Palette) {
+    $pyc = @('py', 'python') | Where-Object { Get-Command $_ -ErrorAction SilentlyContinue } | Select-Object -First 1
+    if (-not $pyc) { throw "no python interpreter found; cannot render theme.css from -Palette" }
+    $tmpDir = Join-Path ([System.IO.Path]::GetTempPath()) 'caelestia-foobar'
+    if (-not (Test-Path $tmpDir)) { New-Item -ItemType Directory -Force -Path $tmpDir | Out-Null }
+    $themeCss = Join-Path $tmpDir 'theme.css'
+    & $pyc (Join-Path $src 'render-theme-css.py') --out $themeCss --palette $Palette | Out-Null
+    if (-not (Test-Path $themeCss)) { throw "render-theme-css.py did not produce $themeCss" }
+}
+Copy-Text $themeCss (Join-Path $dst 'theme.css')
+
+# --- Font Awesome, INLINED as a data: URI -----------------------------------
+# The webfont is embedded in the stylesheet rather than fetched from
+# vendor\fontawesome\webfonts\. WebView2 loads Template.html and its SIBLING
+# theme.css happily, but the woff2 one directory down did not arrive and every
+# icon rendered as tofu. Inlining removes the subresource fetch entirely, which
+# also matches how the rest of this project ships assets (zebar's vendored
+# bundle, cava's theme file): offline, self-contained, no request to fail.
+#
+# The .woff2 files under vendor\ remain the source of truth; this is generated
+# from them on every deploy, so updating Font Awesome means replacing the
+# woff2 and re-running this script.
+Write-Host "vendor (Font Awesome 6 Free Solid, inlined as data: URI):"
+$woff = Join-Path $src 'vendor\fontawesome\webfonts\fa-solid-900.woff2'
+if (-not (Test-Path $woff)) { throw "missing webfont: $woff" }
+$b64 = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($woff))
+$faCss = @"
+/* GENERATED by Deploy-Panels.ps1 -- do not edit. Source of truth is
+   foobar2000\vendor\fontawesome\webfonts\fa-solid-900.woff2 (Font Awesome
+   Free 6.x; icons CC BY 4.0, fonts SIL OFL 1.1 -- see LICENSE.txt beside it).
+   The font is inlined because WebView2 did not fetch it from a subdirectory. */
+@font-face {
+  font-family: "Font Awesome 6 Free";
+  font-style: normal;
+  font-weight: 900;
+  font-display: block;
+  src: url("data:font/woff2;base64,$b64") format("woff2");
+}
+.fa-solid { font-family: "Font Awesome 6 Free"; font-weight: 900; }
+.fa-solid, .fa {
+  font-style: normal; font-variant: normal; line-height: 1;
+  text-rendering: auto; -webkit-font-smoothing: antialiased;
+}
+"@
+if ($PSCmdlet.ShouldProcess((Join-Path $dst 'fontawesome.css'), 'write inlined font CSS')) {
+    $faPath = Join-Path $dst 'fontawesome.css'
+    [System.IO.File]::WriteAllText($faPath, $faCss, $enc)
+    "  {0,-28} {1,7} bytes (woff2 {2} bytes inlined)" -f 'fontawesome.css', (Get-Item $faPath).Length, (Get-Item $woff).Length
+}
+Copy-Text (Join-Path $src 'vendor\fontawesome\LICENSE.txt') (Join-Path $dst 'fontawesome-LICENSE.txt')
+
+# --- templates LAST, so the hot reload they trigger finds everything present --
+Write-Host "panels (written last -- writing these is what triggers the reload):"
+if (Test-Path (Join-Path $src 'panels\nowplaying.html')) {
+    Copy-Text (Join-Path $src 'panels\nowplaying.html') (Join-Path $dst 'nowplaying.html')
+}
+# Template.html is the name foo_uie_webview loads by default; the top bar owns it.
+Copy-Text (Join-Path $src 'panels\topbar.html') (Join-Path $dst 'Template.html')
+
+# --- Spider Monkey Panel scripts --------------------------------------------
+# SMP loads ONE file per panel. Rather than rely on include() and its path
+# resolution, the palette and the panel are concatenated at deploy time into a
+# single self-contained script -- the same tactic used for the inlined webfont,
+# and for the same reason: one fewer thing that can fail to resolve at runtime.
+#
+# theme.js is generated from palette.json by render-theme-js.py, so the SMP
+# panels share the CSS panels' single substitution point.
+$smpSrc = Join-Path $src 'smp'
+if (Test-Path $smpSrc) {
+    Write-Host "spider monkey panel:"
+    $smpDst = Join-Path $rootFull 'profile\caelestia'
+    if (-not (Test-Path $smpDst)) { New-Item -ItemType Directory -Force -Path $smpDst | Out-Null }
+
+    # generated output stays out of the repo when a palette is supplied
+    $genDir = if ($Palette) { Join-Path ([System.IO.Path]::GetTempPath()) 'caelestia-foobar' } else { $smpSrc }
+    if (-not (Test-Path $genDir)) { New-Item -ItemType Directory -Force -Path $genDir | Out-Null }
+    $themeJs = Join-Path $genDir 'theme.js'
+    $py = @('py', 'python') | Where-Object { Get-Command $_ -ErrorAction SilentlyContinue } | Select-Object -First 1
+    if (-not $py) { throw "no python interpreter found; cannot generate theme.js" }
+    $jsArgs = @((Join-Path $src 'render-theme-js.py'), '--out', $themeJs)
+    if ($Palette) { $jsArgs += @('--palette', $Palette) }
+    & $py $jsArgs | Out-Null
+    if (-not (Test-Path $themeJs)) { throw "render-theme-js.py did not produce $themeJs" }
+
+    $theme = [System.IO.File]::ReadAllText($themeJs)
+    foreach ($panel in (Get-ChildItem $smpSrc -Filter '*.js' | Where-Object { $_.Name -ne 'theme.js' })) {
+        $body = [System.IO.File]::ReadAllText($panel.FullName)
+        $combined = $theme + "`n" + $body
+        $outPath = Join-Path $smpDst $panel.Name
+        if ($PSCmdlet.ShouldProcess($outPath, 'write combined SMP script')) {
+            [System.IO.File]::WriteAllText($outPath, $combined, $enc)
+            $b = [System.IO.File]::ReadAllBytes($outPath)
+            if ($b.Length -ge 3 -and $b[0] -eq 0xEF -and $b[1] -eq 0xBB -and $b[2] -eq 0xBF) { throw "BOM landed in $outPath" }
+            # a colour literal in a panel script would break the wallpaper seam
+            $lits = [regex]::Matches($body, '0x[0-9a-fA-F]{6,8}\b') | Where-Object { $_.Value -notmatch '^0x0000' }
+            "  {0,-28} {1,7} bytes   colour literals in panel: {2}" -f $panel.Name, $b.Length, $lits.Count
+        }
+    }
+
+    # The app mark has to be a BITMAP, not a glyph: Font Awesome's ghost is
+    # U+F6E2 and 0xProto Nerd Font is Nerd Fonts v3, which left that codepoint
+    # empty (Material Design Icons moved to plane 1) -- it renders as tofu. No
+    # Font Awesome family is installed system wide either, and GDI cannot read
+    # the vendored woff2. topbar.js loads this from fb.ProfilePath.
+    $icon = Join-Path $src 'art\foobar-icon.png'
+    if (Test-Path $icon) {
+        $iconDst = Join-Path $smpDst 'foobar-icon.png'
+        if ($PSCmdlet.ShouldProcess($iconDst, 'copy app icon')) {
+            # gdi.Image() keeps the file handle OPEN for the life of the panel, so
+            # a running foobar locks this and the copy throws. That must not fail
+            # the whole deploy: the icon changes almost never, and the scripts --
+            # which do change -- have already been written by this point. Skip it
+            # when the bytes already match, and warn rather than throw otherwise.
+            $same = (Test-Path $iconDst) -and ((Get-Item $iconDst).Length -eq (Get-Item $icon).Length)
+            if ($same) {
+                "  {0,-28} {1,7} bytes   (unchanged)" -f 'foobar-icon.png', (Get-Item $iconDst).Length
+            } else {
+                try {
+                    Copy-Item -LiteralPath $icon -Destination $iconDst -Force -ErrorAction Stop
+                    "  {0,-28} {1,7} bytes" -f 'foobar-icon.png', (Get-Item $iconDst).Length
+                } catch {
+                    Write-Warning "could not replace foobar-icon.png (a running foobar holds it open via gdi.Image); close it and re-run if the icon changed"
+                }
+            }
+        }
+    } else {
+        Write-Warning "art\foobar-icon.png missing; the top bar will draw no app mark"
+    }
+}
+
+Write-Host "done." -ForegroundColor Green

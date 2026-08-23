@@ -3,4 +3,5 @@ state/staging/
 state/last-good-new/
 state/pre-apply/
 state/config-backup/
+state/foobar2000-backup/
 state/zebar-logs/

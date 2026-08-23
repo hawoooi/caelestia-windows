@@ -69,18 +69,23 @@ register('clock', (ctx) => {
     }
   }
 
-  el.addEventListener('click', () => {
-    open = !open;
-    if (open) {
-      // The clock config rides along with the open command -- the flyout is a
-      // separate document and never reads bar.config.json itself.
-      channel.post({ open: true, panel: 'clock', clock: clockConfig ?? null, ...anchor() });
-      document.addEventListener('click', onDocumentClick, true);
-    } else {
-      channel.post({ open: false });
-      document.removeEventListener('click', onDocumentClick, true);
-    }
-  });
+  function show() {
+    if (open) return;
+    open = true;
+    // The clock config rides along with the open command -- the flyout is a
+    // separate document and never reads bar.config.json itself.
+    channel.post({ open: true, panel: 'clock', clock: clockConfig ?? null, ...anchor() });
+    document.addEventListener('click', onDocumentClick, true);
+  }
+
+  function hide() {
+    if (!open) return;
+    open = false;
+    channel.post({ open: false });
+    document.removeEventListener('click', onDocumentClick, true);
+  }
+
+  el.addEventListener('click', () => { if (open) hide(); else show(); });
 
   // Any ack means the flyout closed itself (dismiss timer, an in-panel action,
   // or its startup "I am closed" message), so clear our own flag to match.

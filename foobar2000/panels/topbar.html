@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="theme.css">
+<link rel="stylesheet" href="fontawesome.css">
+<style>
+/* =============================================================================
+   foobar2000 / Caelestia — TOP BAR panel, for foo_uie_webview 0.2.1.0.
+
+   EVERY CONTROL HERE IS REAL. The host object was enumerated from the
+   component's own symbol table before this was written, so nothing is drawn
+   that cannot be wired:
+
+     stop() play(bool) togglePause() previous() next() random()
+     seek(sec) seekDelta(sec) canSeek length position
+     volume (dBFS, read/write) volumeUp() volumeDown() toggleMute() isMuted
+     playbackOrder (index) stopAfterCurrent toggleStopAfterCurrent()
+     getFormattedText(titleformat)  getArtwork(kind)
+
+   DELIBERATELY ABSENT, because the component exposes no way to drive them:
+     - the File/Edit/View menu: there is no main-menu command API, so foobar's
+       own menu bar stays a separate toolbar row above this panel. The mockup
+       draws them on one line; the real thing cannot.
+     - "playback follows cursor": no member for it.
+
+   Colours: zero literals. Every one is var(--role) from theme.css, which is
+   generated from palette.json — the single substitution point for a future
+   matugen template.
+   ========================================================================== */
+
+:root {
+  --rule:  color-mix(in srgb, var(--outline) 22%, transparent);
+  --track: color-mix(in srgb, var(--outline) 20%, transparent);
+
+  --cell: 20px;
+  --u: 8px;
+  --r-btn: 4px;      /* buttons stay near-square — nothing here is a pill */
+  --r-full: 999px;
+
+  --mono: "0xProto Nerd Font", ui-monospace, "Cascadia Mono", Consolas,
+          "Yu Gothic UI", "Malgun Gothic", monospace;
+
+  --ms: 140ms;
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0; padding: 0; height: 100%;
+  background: var(--surface);
+  color: var(--on-surface);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: var(--cell);
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+  -webkit-user-select: none; user-select: none;
+  overflow: hidden;
+}
+
+button {
+  border: 0; background: transparent; padding: 0; margin: 0;
+  font: inherit; color: inherit; cursor: pointer;
+  display: grid; place-items: center; border-radius: var(--r-btn);
+}
+button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+.fa { font-family: "Font Awesome 6 Free"; font-weight: 900; font-style: normal;
+      line-height: 1; text-rendering: auto; -webkit-font-smoothing: antialiased; }
+
+/* The panel fills its Columns UI host exactly; the host supplies the position. */
+.bar {
+  height: 100%;
+  display: flex; align-items: center; gap: 5px;
+  padding: 0 var(--u);
+  background: var(--surface-container);
+  border-radius: 12px;
+}
+
+.btn {
+  width: 28px; height: 26px; border-radius: var(--r-btn); font-size: 12px;
+  color: var(--on-surface-variant); flex: 0 0 auto;
+  transition: background var(--ms) var(--ease), color var(--ms) var(--ease);
+}
+.btn:hover { background: var(--surface-container-high); color: var(--on-surface); }
+.btn[aria-pressed="true"] { background: var(--surface-container-high); color: var(--on-surface); }
+/* Play/pause leads by being brighter, not by being filled — the teal is
+   already spoken for by the seek bar beside it. */
+.btn--play { color: var(--on-surface); }
+
+.sep { width: 1px; height: 20px; background: var(--rule); flex: 0 0 auto; margin: 0 5px; }
+
+/* thick bars: 8px, so they read as objects rather than hairlines */
+.bar-ctl { position: relative; height: var(--cell); display: flex; align-items: center; cursor: pointer; }
+.bar-ctl__track { width: 100%; height: 8px; border-radius: 4px; background: var(--track); }
+.bar-ctl__fill {
+  position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+  height: 8px; border-radius: 4px; background: var(--primary);
+}
+.bar-ctl__knob {
+  position: absolute; top: 50%; width: 14px; height: 14px; margin-left: -7px;
+  border-radius: 50%; background: var(--primary);
+  transform: translateY(-50%) scale(0);
+  transition: transform var(--ms) var(--ease);
+}
+.bar-ctl:hover .bar-ctl__knob { transform: translateY(-50%) scale(1); }
+/* nothing to seek in: don't offer a handle that does nothing */
+.bar-ctl[data-disabled="1"] { cursor: default; }
+.bar-ctl[data-disabled="1"]:hover .bar-ctl__knob { transform: translateY(-50%) scale(0); }
+
+.seek { flex: 1 1 auto; min-width: 80px; display: flex; align-items: center; gap: var(--u); }
+.seek .bar-ctl { flex: 1 1 auto; }
+.seek .t { flex: 0 0 auto; font-size: 11px; color: var(--outline); }
+.seek .t--now { color: var(--on-surface-variant); }
+
+.vol { display: flex; align-items: center; gap: var(--u); flex: 0 0 auto; }
+.vol button { width: 20px; height: 20px; color: var(--on-surface-variant); font-size: 12px; }
+.vol button:hover { color: var(--on-surface); }
+.vol .bar-ctl { width: 96px; flex: 0 0 auto; }
+.vol .bar-ctl__fill, .vol .bar-ctl__knob { background: var(--outline); }
+.vol .bar-ctl:hover .bar-ctl__fill, .vol .bar-ctl:hover .bar-ctl__knob { background: var(--on-surface-variant); }
+
+/* Narrow host: shed the least load-bearing things first, rather than squashing
+   everything into illegibility. */
+@media (max-width: 620px) { .order { display: none; } .sep--order { display: none; } }
+@media (max-width: 460px) { .vol .bar-ctl { display: none; } }
+@media (max-width: 360px) { .seek .t { display: none; } }
+</style>
+</head>
+<body>
+
+<div class="bar">
+  <button class="btn" id="stop"  title="Stop"><span class="fa">&#xf04d;</span></button>
+  <button class="btn" id="prev"  title="Previous"><span class="fa">&#xf048;</span></button>
+  <button class="btn btn--play" id="playpause" title="Play"><span class="fa" id="playicon">&#xf04b;</span></button>
+  <button class="btn" id="next"  title="Next"><span class="fa">&#xf051;</span></button>
+
+  <span class="sep sep--order"></span>
+
+  <button class="btn order" id="order" title="Playback order"><span class="fa" id="ordericon">&#xf074;</span></button>
+  <button class="btn order" id="sac"   title="Stop after current"><span class="fa">&#xf28d;</span></button>
+
+  <span class="sep"></span>
+
+  <div class="seek">
+    <span class="t t--now" id="pos">0:00</span>
+    <div class="bar-ctl" id="seek" data-disabled="1" title="Seek">
+      <div class="bar-ctl__track"></div>
+      <div class="bar-ctl__fill" id="seekfill" style="width:0%"></div>
+      <div class="bar-ctl__knob" id="seekknob" style="left:0%"></div>
+    </div>
+    <span class="t" id="dur">0:00</span>
+  </div>
+
+  <span class="sep"></span>
+
+  <div class="vol">
+    <button id="mute" title="Mute"><span class="fa" id="volicon">&#xf028;</span></button>
+    <div class="bar-ctl" id="volbar" title="Volume">
+      <div class="bar-ctl__track"></div>
+      <div class="bar-ctl__fill" id="volfill" style="width:0%"></div>
+      <div class="bar-ctl__knob" id="volknob" style="left:0%"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+/* Host object. Absent when the file is opened in a plain browser for design
+   work, so every call site tolerates null rather than throwing a blank panel. */
+function FB() { try { return chrome.webview.hostObjects.sync.foo_uie_webview; } catch (e) { return null; } }
+
+var $ = function (id) { return document.getElementById(id); };
+
+/* Font Awesome 6 Free Solid — the same codepoints the zebar shell uses, so the
+   player and the desktop draw identical controls. */
+var GLYPH = {
+  play:    "\uF04B",   // fa-play
+  pause:   "\uF04C",   // fa-pause
+  volOn:   "\uF028",   // fa-volume-high
+  volMute: "\uF6A9",   // fa-volume-xmark
+  shuffle: "\uF074",   // fa-shuffle
+  repeat:  "\uF363",   // fa-repeat
+  repeat1: "\uF2F9",   // fa-rotate-right (stands in for repeat-one)
+  order:   "\uF0CB"    // fa-list-ol
+};
+
+/* foobar2000's stock playback orders, in index order. The component exposes
+   playbackOrder as a bare index and has NO getPlaybackOrderName(), so this
+   table is an assumption — it is verified against foobar's own toolbar
+   dropdown, not trusted. Anything past the end degrades to the raw index
+   rather than showing a wrong name. */
+var ORDERS = [
+  { name: "Default",              glyph: GLYPH.order },
+  { name: "Repeat (playlist)",    glyph: GLYPH.repeat },
+  { name: "Repeat (track)",       glyph: GLYPH.repeat1 },
+  { name: "Random",               glyph: GLYPH.shuffle },
+  { name: "Shuffle (tracks)",     glyph: GLYPH.shuffle },
+  { name: "Shuffle (albums)",     glyph: GLYPH.shuffle },
+  { name: "Shuffle (folders)",    glyph: GLYPH.shuffle }
+];
+
+var duration = 0;
+var dragging = null;          // "seek" | "vol" | null
+
+function fmt(sec) {
+  sec = Math.max(0, Math.floor(sec || 0));
+  var m = Math.floor(sec / 60), s = sec % 60;
+  return m + ":" + (s < 10 ? "0" : "") + s;
+}
+
+/* fb2k reports volume in dBFS: 0 is full, about -100 is silence. Below -60 the
+   difference is inaudible, so the slider maps that range and nothing wider. */
+var VOL_MIN = -60;
+function dbToPct(db) {
+  if (db >= 0) return 100;
+  if (db <= VOL_MIN) return 0;
+  return ((db - VOL_MIN) / (0 - VOL_MIN)) * 100;
+}
+function pctToDb(pct) { return VOL_MIN + (pct / 100) * (0 - VOL_MIN); }
+
+function setBar(fillId, knobId, pct) {
+  pct = Math.min(100, Math.max(0, pct));
+  $(fillId).style.width = pct + "%";
+  $(knobId).style.left = pct + "%";
+}
+
+/* ---------------------------------------------------------------- render -- */
+
+function renderSeek(pos) {
+  setBar("seekfill", "seekknob", duration > 0 ? (pos / duration) * 100 : 0);
+  $("pos").textContent = fmt(pos);
+  $("dur").textContent = fmt(duration);
+}
+
+function renderVolume() {
+  var fb = FB(); if (!fb) return;
+  var muted = !!fb.isMuted;
+  setBar("volfill", "volknob", muted ? 0 : dbToPct(fb.volume));
+  $("volicon").textContent = muted ? GLYPH.volMute : GLYPH.volOn;
+  $("mute").title = muted ? "Unmute" : "Mute";
+}
+
+function renderPlayIcon() {
+  var fb = FB(); if (!fb) return;
+  var playing = fb.isPlaying && !fb.isPaused;
+  $("playicon").textContent = playing ? GLYPH.pause : GLYPH.play;
+  $("playpause").title = playing ? "Pause" : "Play";
+}
+
+function renderOrder() {
+  var fb = FB(); if (!fb) return;
+  var i = fb.playbackOrder;
+  var o = ORDERS[i];
+  $("ordericon").textContent = o ? o.glyph : GLYPH.order;
+  $("order").title = "Playback order: " + (o ? o.name : "index " + i);
+  $("order").setAttribute("aria-pressed", i > 0 ? "true" : "false");
+}
+
+function renderStopAfterCurrent() {
+  var fb = FB(); if (!fb) return;
+  var on = !!fb.stopAfterCurrent;
+  $("sac").setAttribute("aria-pressed", on ? "true" : "false");
+  $("sac").title = on ? "Stop after current: on" : "Stop after current";
+}
+
+function renderTrack() {
+  var fb = FB(); if (!fb) return;
+  duration = parseFloat(fb.length) || 0;
+  $("seek").dataset.disabled = (fb.canSeek && duration > 0) ? "0" : "1";
+  renderSeek(parseFloat(fb.position) || 0);
+  renderPlayIcon();
+}
+
+function renderAll() {
+  renderTrack();
+  renderVolume();
+  renderOrder();
+  renderStopAfterCurrent();
+}
+
+function clearTrack() {
+  duration = 0;
+  $("seek").dataset.disabled = "1";
+  renderSeek(0);
+  renderPlayIcon();
+}
+
+/* ------------------------------------------------- host callbacks (fb2k) -- */
+
+function onPlaybackNewTrack()            { renderTrack(); }
+function onPlaybackStarting(cmd, paused) { renderPlayIcon(); renderStopAfterCurrent(); }
+function onPlaybackTime(time)            { if (!dragging) renderSeek(time); }
+function onPlaybackSeek(time)            { if (!dragging) renderSeek(time); }
+function onPlaybackPause(paused)         { renderPlayIcon(); }
+function onPlaybackStop(reason)          { clearTrack(); renderStopAfterCurrent(); }
+function onPlaybackEdited()              { renderTrack(); }
+function onPlaybackDynamicInfo()         { renderTrack(); }
+function onPlaybackDynamicTrackInfo()    { renderTrack(); }
+function OnVolumeChange(v)               { renderVolume(); }
+function onPlaybackOrderChanged(i)       { renderOrder(); }
+
+/* ----------------------------------------------------------------- input -- */
+
+function ratioAt(el, clientX) {
+  var r = el.getBoundingClientRect();
+  if (r.width <= 0) return 0;
+  return Math.min(1, Math.max(0, (clientX - r.left) / r.width));
+}
+
+$("stop").addEventListener("click", function () { var fb = FB(); if (fb) { fb.stop(); } });
+$("prev").addEventListener("click", function () { var fb = FB(); if (fb) fb.previous(); });
+$("next").addEventListener("click", function () { var fb = FB(); if (fb) fb.next(); });
+
+$("playpause").addEventListener("click", function () {
+  var fb = FB(); if (!fb) return;
+  if (fb.isPlaying) fb.togglePause(); else fb.play(false);
+  setTimeout(renderAll, 60);          // fb2k settles a frame later
+});
+
+$("order").addEventListener("click", function () {
+  var fb = FB(); if (!fb) return;
+  var next = (fb.playbackOrder + 1) % ORDERS.length;
+  fb.playbackOrder = next;            // writable? verified live, see docs
+  setTimeout(renderOrder, 30);
+});
+
+$("sac").addEventListener("click", function () {
+  var fb = FB(); if (!fb) return;
+  fb.toggleStopAfterCurrent();
+  setTimeout(renderStopAfterCurrent, 30);
+});
+
+/* Seek and volume both drag, not just click — a thick bar that only accepts a
+   single click feels broken at this size. */
+function wireDrag(el, kind, onRatio) {
+  el.addEventListener("pointerdown", function (e) {
+    if (el.dataset.disabled === "1") return;
+    dragging = kind;
+    el.setPointerCapture(e.pointerId);
+    onRatio(ratioAt(el, e.clientX), false);
+  });
+  el.addEventListener("pointermove", function (e) {
+    if (dragging !== kind) return;
+    onRatio(ratioAt(el, e.clientX), false);
+  });
+  el.addEventListener("pointerup", function (e) {
+    if (dragging !== kind) return;
+    onRatio(ratioAt(el, e.clientX), true);
+    dragging = null;
+    try { el.releasePointerCapture(e.pointerId); } catch (err) {}
+  });
+}
+
+wireDrag($("seek"), "seek", function (r, commit) {
+  var fb = FB(); if (!fb || duration <= 0) return;
+  renderSeek(r * duration);                 // paint immediately, seek on release
+  if (commit && fb.canSeek) fb.seek(r * duration);
+});
+
+wireDrag($("volbar"), "vol", function (r) {
+  var fb = FB(); if (!fb) return;
+  if (fb.isMuted) fb.toggleMute();
+  fb.volume = pctToDb(r * 100);
+  renderVolume();
+});
+
+$("mute").addEventListener("click", function () {
+  var fb = FB(); if (fb) { fb.toggleMute(); renderVolume(); }
+});
+
+/* The wheel over the seek bar nudges; over the volume bar it steps volume,
+   using fb2k's own increment so it matches every other volume control. */
+$("seek").addEventListener("wheel", function (e) {
+  var fb = FB(); if (!fb || !fb.canSeek) return;
+  e.preventDefault();
+  fb.seekDelta(e.deltaY < 0 ? 5 : -5);
+}, { passive: false });
+
+$("volbar").addEventListener("wheel", function (e) {
+  var fb = FB(); if (!fb) return;
+  e.preventDefault();
+  if (e.deltaY < 0) fb.volumeUp(); else fb.volumeDown();
+  renderVolume();
+}, { passive: false });
+
+/* ------------------------------------------------------------------ init -- */
+
+(function init() {
+  var fb = FB();
+  if (!fb) return;                    // design preview in a browser
+  if (fb.isPlaying) renderAll(); else { clearTrack(); renderVolume(); renderOrder(); renderStopAfterCurrent(); }
+})();
+</script>
+</body>
+</html>

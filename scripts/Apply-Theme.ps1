@@ -44,6 +44,14 @@ $script:ZebarExe    = "C:\Program Files\glzr.io\Zebar\zebar.exe"
 $script:Targets = @(
     @{ Name='wezterm';  Staged='palette.lua';      Live="$env:USERPROFILE\.config\palette.lua" }
     @{ Name='starship'; Staged='starship.toml';    Live="$env:USERPROFILE\.config\starship.toml" }
+    # cava's THEME file, not its config. cava's `[color] theme = '<name>'`
+    # key loads ~/.config/cava/themes/<name>, so the 13 KB config next to it
+    # (sensitivity, bar count, output mode, shader) stays hand-owned and is
+    # never written by this pipeline -- only the colours are. The live file
+    # deliberately has no extension: cava builds the path as themes/<name>
+    # verbatim, the same shape as the solarized_dark/tricolor themes it
+    # ships with.
+    @{ Name='cava';     Staged='cava.theme';       Live="$env:USERPROFILE\.config\cava\themes\wallpaper" }
     # Unlike the two targets above, this one lives INSIDE the repo -- the
     # zebar pack is tracked, and theme.css is a committed generated
     # artifact (see Task 9 brief).
@@ -246,6 +254,72 @@ function Test-StagedFile {
             if ($code -ne 0) {
                 Write-Warning "starship rejected the generated config (exit $code)"
                 return $false
+            }
+            return $true
+        }
+        'cava' {
+            # cava refuses to START if the theme file named by its config is
+            # missing or holds a value it cannot parse ("Error loading
+            # config. The value for 'foreground' is invalid...", verified
+            # live) -- so unlike the other targets here, a bad write is not
+            # merely cosmetic, it takes the visualiser down entirely. These
+            # checks run pre-copy, and state/pre-apply/ holds the rollback.
+
+            # On Windows cava does not use iniparser at all: config.c's
+            # entire Windows branch reads every key through
+            # GetPrivateProfileString, the Win32 INI API, which honours only
+            # ';' as a comment marker. A '#' comment that happened to contain
+            # an '=' would therefore be read as a key/value pair rather than
+            # ignored. The template is written to that rule; this is what
+            # stops a later edit from quietly breaking it.
+            foreach ($line in ($text -split "`r?`n")) {
+                if ($line -match '^\s*#') {
+                    Write-Warning "cava.theme has a '#' comment line -- cava's Windows INI reader only honours ';'"
+                    return $false
+                }
+            }
+
+            if ($text -notmatch '(?m)^\s*\[color\]\s*$') {
+                Write-Warning "cava.theme has no [color] section"
+                return $false
+            }
+            if ($text -notmatch '(?m)^\s*gradient\s*=\s*1\s*$') {
+                Write-Warning "cava.theme does not enable the gradient (gradient = 1)"
+                return $false
+            }
+
+            $stops = [regex]::Matches($text, "(?m)^\s*gradient_color_(\d+)\s*=\s*'#[0-9a-fA-F]{6}'\s*$")
+            # cava computes its per-line interpolation as
+            # gradient_size / (gradient_count - 1), so a single stop is a
+            # divide-by-zero, and MAX_GRADIENT_COLOR_DEFS caps it at 8.
+            if ($stops.Count -lt 2) {
+                Write-Warning "cava.theme defines $($stops.Count) usable gradient stop(s); cava needs at least 2"
+                return $false
+            }
+            if ($stops.Count -gt 8) {
+                Write-Warning "cava.theme defines $($stops.Count) gradient stops; cava reads at most 8"
+                return $false
+            }
+            # cava reads gradient_color_1..N by name and stops at the first
+            # gap, so a non-contiguous run silently drops every stop past
+            # the hole rather than erroring -- exactly the kind of quiet
+            # wrongness a structural check exists to catch.
+            for ($i = 0; $i -lt $stops.Count; $i++) {
+                if ([int]$stops[$i].Groups[1].Value -ne ($i + 1)) {
+                    Write-Warning "cava.theme's gradient stops are not numbered 1..$($stops.Count) contiguously"
+                    return $false
+                }
+            }
+
+            # Every remaining key must carry a quoted 6-digit hex. This is
+            # the check that catches a role rendering to something that is
+            # not a colour at all; `gradient` is the one numeric key.
+            foreach ($m in [regex]::Matches($text, "(?m)^\s*([A-Za-z_0-9]+)\s*=\s*(.+?)\s*$")) {
+                if ($m.Groups[1].Value -eq 'gradient') { continue }
+                if ($m.Groups[2].Value -notmatch "^'#[0-9a-fA-F]{6}'$") {
+                    Write-Warning "cava.theme has a non-colour value for '$($m.Groups[1].Value)': $($m.Groups[2].Value)"
+                    return $false
+                }
             }
             return $true
         }
@@ -651,7 +725,13 @@ function Restart-ZebarWidgets {
         # A listening socket does not always vanish the instant its process
         # does, and starting the widgets while it is still held renders the
         # entire desktop blank.
-        [int]$PortWaitMs      = 5000
+        [int]$PortWaitMs      = 5000,
+        # How long to wait for the FIRST widget to take the asset-server port
+        # before releasing the other fourteen at it. See the comment above the
+        # start loop for why this exists and what it prevents.
+        [int]$ServerWaitMs    = 15000,
+        # Gap between the remaining widgets once the server is up.
+        [int]$StaggerMs       = 300
     )
 
     if (-not (Test-Path $ZebarExe)) {
@@ -751,7 +831,36 @@ function Restart-ZebarWidgets {
     $logDir = Join-Path $script:Root 'state\zebar-logs'
     if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Force -Path $logDir | Out-Null }
 
-    foreach ($c in $toStart) {
+    # Every process started, checked in one pass after they are all running.
+    $started = @()
+
+    # THE FIRST WIDGET IS STARTED ALONE, AND WE WAIT FOR IT TO OWN PORT 6124
+    # BEFORE STARTING ANY OTHER.
+    #
+    # Starting all 15 in a tight loop is a RACE, and it loses often. Every
+    # `zebar start-widget-preset` process tries to become the asset server on
+    # $AssetServerPort; exactly one can bind it and the rest are supposed to
+    # hand their request to whoever won. Fired simultaneously, there is no
+    # winner yet to hand anything to, so they contend -- and the observed
+    # outcome is not a clean failure but a WEDGE: zebar ends up running and
+    # holding the port with a single widget on screen, the other fourteen
+    # gone, and NOTHING logged to explain it.
+    #
+    # Measured from the log mtimes of one such failure: all fifteen were
+    # launched at 20:51:52 and the bar did not write its first line until
+    # 20:52:34 -- 42 seconds later -- by which time the other fourteen had
+    # given up. Reported as "reload widgets doesn't start zebar again", which
+    # is exactly what it looks like from outside.
+    #
+    # So: seed the server with one widget, poll until the port is actually
+    # LISTENING, then start the rest. Polling rather than sleeping a fixed
+    # interval, because a guess is what produced this bug -- a cold start
+    # after a reboot is far slower than a warm restart, and any constant is
+    # wrong for one of them.
+    $seed = $toStart | Select-Object -First 1
+    $rest = $toStart | Select-Object -Skip 1
+
+    foreach ($c in @($seed) + @($rest)) {
         $preset = if ($c.preset) { $c.preset } else { 'default' }
 
         # One log pair per RUNNING PROCESS, not per widget name: PowerShell
@@ -781,12 +890,81 @@ function Restart-ZebarWidgets {
         # start (bad pack ID, etc.) exits almost immediately. A short poll
         # is the only way to tell "started fine" from "failed silently"
         # without hanging Apply-Theme for the widget's entire lifetime.
-        Start-Sleep -Milliseconds $StartupWaitMs
+        # Collected, NOT waited on here -- see the single wait below.
+        $started += [PSCustomObject]@{
+            Proc = $proc; Pack = $c.pack; Widget = $c.widget; Preset = $preset
+        }
+
+        # Count, not reference equality against $seed: PSCustomObject does not
+        # override Equals, and a config source that hands back copies rather
+        # than the same instances would silently make every iteration "the
+        # seed" and reintroduce the race this exists to prevent.
+        if ($started.Count -eq 1) {
+            # Wait for the seed to actually own the port before releasing the
+            # rest. If it never does, carry on anyway rather than returning
+            # with nothing started -- a slow bind is recoverable, a function
+            # that silently starts no widgets at all is not.
+            # READINESS IS "THE SEED ACTUALLY PLACED A WIDGET", NOT "THE PORT IS
+            # BOUND". Those are not the same moment and the difference is the
+            # whole bug.
+            #
+            # zebar binds $AssetServerPort early in startup, well before it can
+            # serve a widget-open request. A first version of this waited on the
+            # port and was WORSE than no wait at all: it returned almost
+            # immediately, released the other fourteen into a server that was
+            # not ready, and left zebar running and holding the port with ZERO
+            # widgets on screen.
+            #
+            # zebar logs "Positioning widget" from widget_factory the moment it
+            # places one, so the seed's own log is a true readiness signal --
+            # and reading a file needs no new P/Invoke and no fixed sleep. The
+            # port check is kept as a cheap precondition, but it is no longer
+            # what we trust.
+            $seedDeadline = (Get-Date).AddMilliseconds($ServerWaitMs)
+            $serverUp = $false
+            while ((Get-Date) -lt $seedDeadline) {
+                Start-Sleep -Milliseconds 200
+                # -Raw so a partially-written line cannot throw, and
+                # SilentlyContinue because the file may not exist for a beat.
+                $seedLog = Get-Content -LiteralPath $outLog -Raw -ErrorAction SilentlyContinue
+                if ($seedLog -and ($seedLog -match 'Positioning widget|Docked widget')) {
+                    $serverUp = $true
+                    break
+                }
+            }
+            if (-not $serverUp) {
+                Write-Warning "The first widget ($($c.widget)/$preset) never logged that it placed a window within $ServerWaitMs ms. Starting the rest anyway, but they may race a server that is not ready -- if the desktop comes up with only one widget, or none, run this again."
+            }
+        } else {
+            # Stagger the remainder. They only have to be handed to a server
+            # that already exists, so this is small -- it exists because a
+            # burst of simultaneous connections to a just-bound socket is the
+            # same contention in miniature.
+            Start-Sleep -Milliseconds $StaggerMs
+        }
+    }
+
+    # ONE wait for all of them, rather than one per widget.
+    #
+    # This used to Start-Sleep inside the loop, so a restart took
+    # StartupWaitMs x (number of widgets) -- 500ms x 14 = SEVEN SECONDS with
+    # the desktop blank the whole time, because there is no per-widget reload
+    # verb in zebar and every CSS change costs a full restart. Asked directly
+    # whether zebar was unresponsive or whether it was me: it was me.
+    #
+    # The wait exists to tell "started fine" from "failed silently":
+    # start-widget-preset blocks for as long as its widget window stays open,
+    # so it can never be -Wait-ed on, but a bad pack ID exits almost
+    # immediately. Nothing about that needs the waits to be sequential -- the
+    # processes start in parallel and are all checked after one interval.
+    Start-Sleep -Milliseconds $StartupWaitMs
+
+    foreach ($s in $started) {
         # $proc.ExitCode can be $null even when HasExited reports true (seen live
         # with redirected output). Without the explicit null check, `$null -ne 0`
         # is TRUE and this warns on every successful start.
-        if ($proc -and $proc.HasExited -and $null -ne $proc.ExitCode -and $proc.ExitCode -ne 0) {
-            Write-Warning "start-widget-preset failed for pack '$($c.pack)' widget '$($c.widget)' (exit code $($proc.ExitCode)) -- that widget's bar did NOT restart. Check the pack name and that it exists under ~/.glzr/zebar."
+        if ($s.Proc -and $s.Proc.HasExited -and $null -ne $s.Proc.ExitCode -and $s.Proc.ExitCode -ne 0) {
+            Write-Warning "start-widget-preset failed for pack '$($s.Pack)' widget '$($s.Widget)' preset '$($s.Preset)' (exit code $($s.Proc.ExitCode)) -- that widget did NOT restart. Check the pack name and that it exists under ~/.glzr/zebar."
         }
     }
 }
@@ -1332,6 +1510,66 @@ function Update-WindowsAccentTheme {
     Write-Host "Windows accent themed: accent $($colors.accent), taskbar surface $($colors.taskbar)."
 }
 
+function Update-FoobarTheme {
+    <#
+      .SYNOPSIS
+        Re-theme the foobar2000 Caelestia panels from the wallpaper palette.
+
+      .DESCRIPTION
+        foobar2000 has no single live config file to copy, so this is NOT one of
+        $script:Targets -- same shape as Update-KomorebiBorderTheme and
+        Update-WindowsAccentTheme. Its colours are baked into the panel scripts
+        at DEPLOY time: Deploy-Panels.ps1 renders the palette to theme.js (ARGB
+        integers, because GdiGraphics takes no colour strings) and theme.css,
+        concatenates each panel with it, and writes the result into the
+        DUPLICATE install's profile. The panels contain zero colour literals,
+        which is what makes eight staged values enough.
+
+        ENTIRELY FAIL-SOFT. foobar2000 is optional here: the duplicate install
+        may be absent, python may be missing, the deploy may refuse. None of
+        those may fail a theme apply that has already succeeded everywhere else.
+
+        THE COLOURS APPLY ON foobar2000's NEXT START, not immediately. Spider
+        Monkey Panel evaluates a panel's script once at load; the deployed file
+        is only re-read on a panel reload, and there is no way to ask for one
+        from outside the process. Restarting foobar automatically was rejected
+        -- it is a media player, and stopping playback to change a colour is a
+        worse trade than waiting.
+    #>
+    [CmdletBinding()]
+    param(
+        [string]$StagedPalettePath = (Join-Path $script:Staging 'foobar-palette.json'),
+        [string]$DeployScript      = (Join-Path $PSScriptRoot '..\foobar2000\Deploy-Panels.ps1')
+    )
+
+    if (-not (Test-Path -LiteralPath $StagedPalettePath)) {
+        Write-Warning "foobar-palette.json was not staged -- skipping the foobar2000 retheme"
+        return
+    }
+    $raw = [System.IO.File]::ReadAllText($StagedPalettePath)
+    if ($raw -match '\{\{') {
+        Write-Warning "foobar-palette.json still contains an unrendered template expression -- skipping the foobar2000 retheme"
+        return
+    }
+    if (-not (Test-Path -LiteralPath $DeployScript)) {
+        Write-Warning "Deploy-Panels.ps1 not found -- skipping the foobar2000 retheme"
+        return
+    }
+
+    try {
+        $out = & $DeployScript -Palette $StagedPalettePath 2>&1
+        $panels = @($out | Where-Object { $_ -match 'colour literals in panel: (\d+)' })
+        $bad = @($panels | Where-Object { $_ -notmatch 'colour literals in panel: 0' })
+        if ($bad.Count) {
+            # The deploy reports rather than throws, so the check is enforced here.
+            Write-Warning "a foobar panel carries colour literals, which the wallpaper cannot reach: $($bad -join '; ')"
+        }
+        Write-Host "  foobar2000 panels redeployed from the wallpaper palette (applies on its next start)"
+    } catch {
+        Write-Warning "the foobar2000 retheme failed: $($_.Exception.Message). The rest of the apply succeeded."
+    }
+}
+
 function Update-KomorebiBorderTheme {
     <#
       Ties the border-colour role mapping (single->surface_container_high,
@@ -1643,6 +1881,15 @@ function Apply-Theme {
         Update-WindowsAccentTheme
     } catch {
         Write-Warning "Update-WindowsAccentTheme threw unexpectedly: $($_.Exception.Message). Taskbar colours were not themed this run, but the rest of the apply succeeded."
+    }
+
+    # Re-theme foobar2000's panels from the same palette. Fail-soft for the same
+    # reason as the two steps above, and additionally because foobar2000 is
+    # optional: the duplicate install may simply not be there.
+    try {
+        Update-FoobarTheme
+    } catch {
+        Write-Warning "Update-FoobarTheme threw unexpectedly: $($_.Exception.Message). foobar2000 was not rethemed this run, but the rest of the apply succeeded."
     }
 
     # Keep the real taskbar hidden -- the dock widget replaces it, and leaving
