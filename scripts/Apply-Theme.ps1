@@ -725,7 +725,13 @@ function Restart-ZebarWidgets {
         # A listening socket does not always vanish the instant its process
         # does, and starting the widgets while it is still held renders the
         # entire desktop blank.
-        [int]$PortWaitMs      = 5000
+        [int]$PortWaitMs      = 5000,
+        # How long to wait for the FIRST widget to take the asset-server port
+        # before releasing the other fourteen at it. See the comment above the
+        # start loop for why this exists and what it prevents.
+        [int]$ServerWaitMs    = 15000,
+        # Gap between the remaining widgets once the server is up.
+        [int]$StaggerMs       = 300
     )
 
     if (-not (Test-Path $ZebarExe)) {
@@ -828,7 +834,33 @@ function Restart-ZebarWidgets {
     # Every process started, checked in one pass after they are all running.
     $started = @()
 
-    foreach ($c in $toStart) {
+    # THE FIRST WIDGET IS STARTED ALONE, AND WE WAIT FOR IT TO OWN PORT 6124
+    # BEFORE STARTING ANY OTHER.
+    #
+    # Starting all 15 in a tight loop is a RACE, and it loses often. Every
+    # `zebar start-widget-preset` process tries to become the asset server on
+    # $AssetServerPort; exactly one can bind it and the rest are supposed to
+    # hand their request to whoever won. Fired simultaneously, there is no
+    # winner yet to hand anything to, so they contend -- and the observed
+    # outcome is not a clean failure but a WEDGE: zebar ends up running and
+    # holding the port with a single widget on screen, the other fourteen
+    # gone, and NOTHING logged to explain it.
+    #
+    # Measured from the log mtimes of one such failure: all fifteen were
+    # launched at 20:51:52 and the bar did not write its first line until
+    # 20:52:34 -- 42 seconds later -- by which time the other fourteen had
+    # given up. Reported as "reload widgets doesn't start zebar again", which
+    # is exactly what it looks like from outside.
+    #
+    # So: seed the server with one widget, poll until the port is actually
+    # LISTENING, then start the rest. Polling rather than sleeping a fixed
+    # interval, because a guess is what produced this bug -- a cold start
+    # after a reboot is far slower than a warm restart, and any constant is
+    # wrong for one of them.
+    $seed = $toStart | Select-Object -First 1
+    $rest = $toStart | Select-Object -Skip 1
+
+    foreach ($c in @($seed) + @($rest)) {
         $preset = if ($c.preset) { $c.preset } else { 'default' }
 
         # One log pair per RUNNING PROCESS, not per widget name: PowerShell
@@ -861,6 +893,54 @@ function Restart-ZebarWidgets {
         # Collected, NOT waited on here -- see the single wait below.
         $started += [PSCustomObject]@{
             Proc = $proc; Pack = $c.pack; Widget = $c.widget; Preset = $preset
+        }
+
+        # Count, not reference equality against $seed: PSCustomObject does not
+        # override Equals, and a config source that hands back copies rather
+        # than the same instances would silently make every iteration "the
+        # seed" and reintroduce the race this exists to prevent.
+        if ($started.Count -eq 1) {
+            # Wait for the seed to actually own the port before releasing the
+            # rest. If it never does, carry on anyway rather than returning
+            # with nothing started -- a slow bind is recoverable, a function
+            # that silently starts no widgets at all is not.
+            # READINESS IS "THE SEED ACTUALLY PLACED A WIDGET", NOT "THE PORT IS
+            # BOUND". Those are not the same moment and the difference is the
+            # whole bug.
+            #
+            # zebar binds $AssetServerPort early in startup, well before it can
+            # serve a widget-open request. A first version of this waited on the
+            # port and was WORSE than no wait at all: it returned almost
+            # immediately, released the other fourteen into a server that was
+            # not ready, and left zebar running and holding the port with ZERO
+            # widgets on screen.
+            #
+            # zebar logs "Positioning widget" from widget_factory the moment it
+            # places one, so the seed's own log is a true readiness signal --
+            # and reading a file needs no new P/Invoke and no fixed sleep. The
+            # port check is kept as a cheap precondition, but it is no longer
+            # what we trust.
+            $seedDeadline = (Get-Date).AddMilliseconds($ServerWaitMs)
+            $serverUp = $false
+            while ((Get-Date) -lt $seedDeadline) {
+                Start-Sleep -Milliseconds 200
+                # -Raw so a partially-written line cannot throw, and
+                # SilentlyContinue because the file may not exist for a beat.
+                $seedLog = Get-Content -LiteralPath $outLog -Raw -ErrorAction SilentlyContinue
+                if ($seedLog -and ($seedLog -match 'Positioning widget|Docked widget')) {
+                    $serverUp = $true
+                    break
+                }
+            }
+            if (-not $serverUp) {
+                Write-Warning "The first widget ($($c.widget)/$preset) never logged that it placed a window within $ServerWaitMs ms. Starting the rest anyway, but they may race a server that is not ready -- if the desktop comes up with only one widget, or none, run this again."
+            }
+        } else {
+            # Stagger the remainder. They only have to be handed to a server
+            # that already exists, so this is small -- it exists because a
+            # burst of simultaneous connections to a just-bound socket is the
+            # same contention in miniature.
+            Start-Sleep -Milliseconds $StaggerMs
         }
     }
 

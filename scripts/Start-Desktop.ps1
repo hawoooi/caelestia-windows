@@ -138,8 +138,37 @@ function Start-Komorebi {
     }
     # No --whkd: this script owns whkd's lifecycle, and letting komorebi spawn a
     # second one would leave two daemons racing for the same hotkeys.
-    Start-Process $script:KomorebicExe -ArgumentList 'start' -WindowStyle Hidden
-    Write-Host "komorebi started."
+    #
+    # VERIFIED, NOT FIRED AND FORGOTTEN. `komorebic start` is genuinely flaky:
+    # run by hand it printed "komorebi.exe did not start... Trying again" and
+    # only succeeded on its second attempt. Launched detached and hidden, that
+    # first failure is completely invisible -- this used to print "komorebi
+    # started." and return regardless, so a silent failure looked identical to
+    # success. Reported as "komorebi isn't starting", with whkd up and the bar
+    # up, which is exactly what a fire-and-forget start produces.
+    #
+    # So: start it, then WAIT for the process to actually exist, and retry once
+    # if it does not. Waiting on the process rather than on `komorebic state`
+    # deliberately -- the IPC socket comes up after the process does, so
+    # polling state would report failure during a slow but healthy start.
+    for ($attempt = 1; $attempt -le 2; $attempt++) {
+        Start-Process $script:KomorebicExe -ArgumentList 'start' -WindowStyle Hidden
+
+        $deadline = (Get-Date).AddSeconds(20)
+        while ((Get-Date) -lt $deadline) {
+            if (Get-Process komorebi -ErrorAction SilentlyContinue) {
+                Write-Host "komorebi started."
+                return
+            }
+            Start-Sleep -Milliseconds 300
+        }
+
+        if ($attempt -eq 1) {
+            Write-Warning "komorebi did not come up within 20s -- retrying once."
+        }
+    }
+
+    Write-Warning "komorebi FAILED TO START after two attempts. Run '$script:KomorebicExe start' in a visible console to see why -- launched hidden, its own error output goes nowhere."
 }
 
 if ($Uninstall) { Uninstall-LoginItem; return }
