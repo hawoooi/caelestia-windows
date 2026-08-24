@@ -126,7 +126,7 @@ function playlistDir() { return fb.ProfilePath + 'caelestia-playlists\\'; }
 // sits between panels: 2 + 4 (divider) + 2 = the same 8px gap every other edge
 // has. Divider width 0 looks cleaner but makes panels impossible to resize --
 // there is nothing to grab -- so 4px of it is the price of a draggable split.
-var IN = { l: 3, t: 3, r: 8, b: 8 };
+var IN = { l: 2, t: 2, r: 8, b: 8 };   // shared edges 2, per the 2+4+2=8 above
 
 var f_ui, f_bold, f_small, f_lab, f_np, f_npSub;
 var items = [], handles = null, playlistIdx = -1;
@@ -144,6 +144,21 @@ var scroll = 0, hoverRow = -1, hoverTab = -1, hoverBtn = -1;
 var tabPress = null;   // {t, x} while the button is down on a tab
 var tabDrag  = null;   // {from, grabX, dx, target} once it has become a drag
 var TAB_SLOP = 6;
+
+// Dragging a ROW to reorder it, which is a different gesture from dragging a
+// TAB and from receiving an OLE drop, so it gets its own state rather than
+// overloading either.
+//
+// It is deliberately NOT an OLE drag (fb.DoDragDrop). An OLE drag is the right
+// tool for moving tracks BETWEEN panels, where the receiving side has to be
+// told what arrived; reordering happens entirely inside one playlist, and
+// routing it through OLE would mean the panel dropping onto itself and then
+// working out that the source was itself. Plain mouse state is simpler and has
+// no such ambiguity.
+var rowPress = null;   // {i, idx, y, wasSelected} while the button is down on a row
+var rowDrag  = false;  // true once that press has moved far enough to be a drag
+var ROW_SLOP = 5;      // px before a click becomes a drag; below a row's height
+var DRAG_EDGE = 24;    // distance from the list edge that starts auto-scrolling
 var art = {}, artPending = {};
 var npArt = null, npKey = '';
 var totalText = '';
@@ -752,6 +767,31 @@ function on_mouse_move(x, y, mask) {
         tabPress = null;
         window.Repaint(); return;
     }
+
+    // Row reorder. The threshold is vertical only: this list scrolls
+    // vertically and reorders vertically, so horizontal wander during a click
+    // should not arm a drag.
+    if (rowPress && !rowDrag && (mask & 1) && Math.abs(y - rowPress.y) > ROW_SLOP) {
+        rowDrag = true;
+    }
+    if (rowDrag) {
+        // Reuses dropAt -- the SAME indicator the OLE drop path draws, because
+        // it means the same thing to the user: "the tracks land in this gap".
+        // A second, separate indicator would be two visual languages for one
+        // idea.
+        dropAt = dropIndexAt(y);
+
+        // Auto-scroll when dragging at the edges, or a track can never be
+        // moved past the visible window. Driven by mouse movement rather than
+        // a timer: a timer would have to be created, cleared on every exit
+        // path (drop, leave, panel reload) and would keep firing if any one of
+        // those was missed. The cost is that the list only advances while the
+        // pointer is actually moving, which in practice it is.
+        if (y < listY() + DRAG_EDGE)      scroll = clamp(scroll - G.rowH, 0, maxScroll());
+        else if (y > footY() - DRAG_EDGE) scroll = clamp(scroll + G.rowH, 0, maxScroll());
+
+        window.Repaint(); return;
+    }
     var r = rowAt(x, y);
     if (r >= 0 && items[r].kind !== 'track') r = -1;
     var t = tabAt(x, y), b = tabBtnAt(x, y);
@@ -759,7 +799,14 @@ function on_mouse_move(x, y, mask) {
         hoverRow = r; hoverTab = t; hoverBtn = b; window.Repaint();
     }
 }
-function on_mouse_leave() { hoverRow = -1; hoverTab = -1; hoverBtn = -1; tabPress = null; window.Repaint(); }
+function on_mouse_leave() {
+    hoverRow = -1; hoverTab = -1; hoverBtn = -1; tabPress = null;
+    // Abandon an in-flight reorder rather than leaving dropAt painted and
+    // rowDrag armed -- the next unrelated click would otherwise finish a drag
+    // the user thought they had cancelled.
+    if (rowDrag || rowPress) { rowDrag = false; rowPress = null; dropAt = -1; }
+    window.Repaint();
+}
 
 function on_mouse_wheel(step) {
     var next = clamp(scroll - step * G.rowH * 3, 0, maxScroll());
@@ -793,9 +840,21 @@ function on_mouse_lbtn_down(x, y) {
     var i = rowAt(x, y);
     if (i < 0 || items[i].kind !== 'track') return;
     var idx = items[i].index;
-    plman.ClearPlaylistSelection(playlistIdx);
-    plman.SetPlaylistSelectionSingle(playlistIdx, idx, true);
+
+    // A press INSIDE an existing selection must not collapse it here, or a
+    // multi-row drag would be impossible: mouse-down would throw away every
+    // row but the one under the cursor before the drag had even started. The
+    // collapse still happens, just on mouse-UP and only if no drag occurred --
+    // which is what Explorer and Finder both do, and the same
+    // "keep the selection if the press is inside it" rule on_mouse_rbtn_up
+    // already uses.
+    var wasSelected = plman.IsPlaylistItemSelected(playlistIdx, idx);
+    if (!wasSelected) {
+        plman.ClearPlaylistSelection(playlistIdx);
+        plman.SetPlaylistSelectionSingle(playlistIdx, idx, true);
+    }
     plman.SetPlaylistFocusItem(playlistIdx, idx);
+    rowPress = { i: i, idx: idx, y: y, wasSelected: wasSelected };
     window.Repaint();
 }
 
@@ -808,6 +867,24 @@ function on_mouse_lbtn_up(x, y) {
         buildItems(); window.Repaint(); return;
     }
     tabPress = null;
+
+    if (rowDrag) {
+        var gap = dropAt;
+        rowDrag = false; rowPress = null; dropAt = -1;
+        applyReorder(gap);
+        buildItems(); window.Repaint(); return;
+    }
+    if (rowPress) {
+        // The click that did NOT become a drag. Collapsing here rather than on
+        // mouse-down is what makes dragging a multi-row selection possible at
+        // all -- see the comment in on_mouse_lbtn_down.
+        if (rowPress.wasSelected) {
+            plman.ClearPlaylistSelection(playlistIdx);
+            plman.SetPlaylistSelectionSingle(playlistIdx, rowPress.idx, true);
+        }
+        rowPress = null;
+        window.Repaint();
+    }
 }
 
 function on_mouse_lbtn_dblclk(x, y) {
@@ -869,6 +946,43 @@ function dropIndexAt(y) {
         if (yy < items[i].y + items[i].h / 2) return i;
     }
     return items.length;
+}
+
+// Move the current selection into the gap the drag ended in.
+//
+// plman.MovePlaylistSelection takes a DELTA, not a destination, so the gap has
+// to be converted -- and the conversion has to discount the selected rows that
+// currently sit ABOVE the gap, because they vacate their positions as part of
+// the same move. Without that discount, dragging downward always overshoots by
+// the size of the selection.
+//
+// Worked through: with A B C D and B selected (index 1), dropping in the gap
+// before D is gap 3; one selected row lies above it, so delta = 3 - 1 - 1 = 1,
+// giving A C B D. Dropping at the very top is gap 0 with none above, so
+// delta = 0 - 0 - 1 = -1, giving B A C D.
+//
+// Counting rows above the gap rather than assuming the selection is contiguous
+// keeps this correct for a disjoint selection too, which the list cannot
+// currently produce (no ctrl/shift click yet) but will.
+function applyReorder(gap) {
+    if (gap < 0 || !items.length) return;
+
+    var sel = [];
+    for (var i = 0; i < items.length; i++) {
+        if (plman.IsPlaylistItemSelected(playlistIdx, items[i].index)) sel.push(items[i].index);
+    }
+    if (!sel.length) return;
+
+    var above = 0;
+    for (var k = 0; k < sel.length; k++) { if (sel[k] < gap) above++; }
+    var delta = gap - above - sel[0];
+    if (delta === 0) return;
+
+    // foobar's own undo stack, so Ctrl+Z reverses a mis-drop. A reorder is
+    // destructive to the user's arrangement and is exactly the kind of thing
+    // people undo.
+    plman.UndoBackup(playlistIdx);
+    plman.MovePlaylistSelection(playlistIdx, delta);
 }
 
 function updateDrop(x, y) {
