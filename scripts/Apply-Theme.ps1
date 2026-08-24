@@ -1565,6 +1565,32 @@ function Update-FoobarTheme {
             Write-Warning "a foobar panel carries colour literals, which the wallpaper cannot reach: $($bad -join '; ')"
         }
         Write-Host "  foobar2000 panels redeployed from the wallpaper palette (applies on its next start)"
+
+        # The panels are only the INSIDE of the window. The title bar and frame
+        # belong to Windows, which paints them from the system accent -- mapped
+        # to `primary` on purpose (see Update-WindowsAccentTheme), so an
+        # otherwise dark window wears a bright accent cap.
+        #
+        # NOTE, and it corrects this file's own accent mapping: title bars follow
+        # DWM\AccentColor, NOT ColorizationColor. Measured -- with
+        # ColorizationColor set to surface_container_high the caption still
+        # painted the `primary` value from AccentColor.
+        #
+        # Re-pointing the system accent at a surface tone would fix the caption
+        # and flatten every selection highlight and focus ring in Windows with
+        # it, so this paints THIS WINDOW ONLY via DwmSetWindowAttribute. Fail
+        # soft and separate from the deploy above: a running foobar is not
+        # required for a theme apply to be correct, and these attributes live on
+        # the window, so they are reapplied on every foobar start rather than
+        # persisted.
+        $chrome = Join-Path (Split-Path $DeployScript -Parent) 'Set-WindowChrome.ps1'
+        if (Test-Path $chrome) {
+            try {
+                & $chrome -PalettePath $StagedPalettePath 2>&1 | ForEach-Object { Write-Host "  $_" }
+            } catch {
+                Write-Warning "  foobar window chrome not themed: $($_.Exception.Message)"
+            }
+        }
     } catch {
         Write-Warning "the foobar2000 retheme failed: $($_.Exception.Message). The rest of the apply succeeded."
     }
