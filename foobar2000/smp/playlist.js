@@ -159,6 +159,14 @@ var rowPress = null;   // {i, idx, y, wasSelected} while the button is down on a
 var rowDrag  = false;  // true once that press has moved far enough to be a drag
 var ROW_SLOP = 5;      // px before a click becomes a drag; below a row's height
 var DRAG_EDGE = 24;    // distance from the list edge that starts auto-scrolling
+
+// Modifier bits carried by SMP's mouse `mask`, the same values Win32 uses.
+var MK_SHIFT = 4, MK_CTRL = 8;
+var VK_CONTROL = 0x11, VK_A = 0x41;
+// The row a shift-range extends FROM. Kept as a ROW index rather than a
+// playlist index because ranges are visual: shift-click selects what is
+// between two rows on screen.
+var selAnchor = -1;
 var art = {}, artPending = {};
 var npArt = null, npKey = '';
 var totalText = '';
@@ -187,6 +195,11 @@ function maxScroll() { return Math.max(0, contentH() - listH()); }
 
 function buildItems() {
     items = []; art = {}; artPending = {};
+    // A shift-range anchor is a row number, and row numbers mean nothing once
+    // the list underneath them is a different playlist -- a stale anchor would
+    // silently select the wrong span. Cleared on a playlist SWITCH only, so an
+    // in-place rebuild (a reorder, a removal) leaves the anchor usable.
+    if (playlistIdx !== plman.ActivePlaylist) selAnchor = -1;
     playlistIdx = plman.ActivePlaylist;
     if (playlistIdx < 0) { window.Repaint(); return; }
 
@@ -813,7 +826,7 @@ function on_mouse_wheel(step) {
     if (next !== scroll) { scroll = next; window.Repaint(); }
 }
 
-function on_mouse_lbtn_down(x, y) {
+function on_mouse_lbtn_down(x, y, mask) {
     var b = tabBtnAt(x, y);
     if (b === 0) {
         var n = plman.CreatePlaylist(plman.PlaylistCount, '');   // '' = foobar names it
@@ -840,6 +853,48 @@ function on_mouse_lbtn_down(x, y) {
     var i = rowAt(x, y);
     if (i < 0 || items[i].kind !== 'track') return;
     var idx = items[i].index;
+
+    // ---- ctrl / shift multi-select -------------------------------------
+    // Standard list semantics, and the anchor is what makes them standard:
+    // shift extends from the row you last picked DELIBERATELY, not from
+    // whatever happens to be focused. Windows, Explorer and every playlist
+    // behave this way, and getting it wrong is immediately noticeable because
+    // repeated shift-clicks then grow the range from the wrong end.
+    //
+    // Neither modifier path arms a drag (rowPress stays null). Toggling a row
+    // and simultaneously beginning to drag it is ambiguous, and it is not
+    // needed: build the selection with ctrl/shift, then press-and-drag any row
+    // INSIDE it -- a plain press within a selection preserves it, which is
+    // exactly what the reorder gesture relies on.
+    var ctrl  = (mask & MK_CTRL)  !== 0;
+    var shift = (mask & MK_SHIFT) !== 0;
+
+    if (shift && selAnchor >= 0 && selAnchor < items.length) {
+        var lo = Math.min(selAnchor, i), hi = Math.max(selAnchor, i);
+        // Plain shift REPLACES the selection; ctrl+shift ADDS to it.
+        if (!ctrl) plman.ClearPlaylistSelection(playlistIdx);
+        var range = [];
+        for (var k = lo; k <= hi; k++) {
+            if (items[k].kind === 'track') range.push(items[k].index);
+        }
+        if (range.length) plman.SetPlaylistSelection(playlistIdx, range, true);
+        plman.SetPlaylistFocusItem(playlistIdx, idx);
+        // The anchor deliberately does NOT move: dragging the shift-click up
+        // and down should resize one range, not ratchet a new one each time.
+        window.Repaint();
+        return;
+    }
+
+    if (ctrl) {
+        var nowOn = !plman.IsPlaylistItemSelected(playlistIdx, idx);
+        plman.SetPlaylistSelectionSingle(playlistIdx, idx, nowOn);
+        plman.SetPlaylistFocusItem(playlistIdx, idx);
+        selAnchor = i;
+        window.Repaint();
+        return;
+    }
+
+    selAnchor = i;
 
     // A press INSIDE an existing selection must not collapse it here, or a
     // multi-row drag would be impossible: mouse-down would throw away every
@@ -916,12 +971,69 @@ function on_mouse_rbtn_up(x, y, mask) {
     if (!handles || !handles.Count) return true;
 
     var menu = window.CreatePopupMenu();
+
+    // REMOVE IS NOT A CONTEXT-MENU COMMAND, so it has to be added by hand.
+    // fb.CreateContextMenuManager() builds foobar's context menu, which is
+    // track ACTIONS -- play, queue, tagging, convert, properties. Removing
+    // items is a playlist EDIT, owned by the playlist viewer rather than by
+    // any track, so it never appears in that menu no matter how it is built.
+    // The stock playlist view adds its own entry the same way; this one had
+    // nothing, which is why right-click offered no way to delete a track.
+    //
+    // Our ids occupy 1..9 and the context manager is based at 10, so the two
+    // ranges cannot collide -- BuildMenu numbers its items from the base
+    // upward, and ExecuteByID expects the id minus that same base.
+    menu.AppendMenuItem(0, 1, 'Remove from playlist\tDel');
+    menu.AppendMenuSeparator();
+
     var cmm = fb.CreateContextMenuManager();
     cmm.InitContext(handles);
-    cmm.BuildMenu(menu, 1, -1);
+    cmm.BuildMenu(menu, 10, -1);
+
     var ret = menu.TrackPopupMenu(x, y);
-    if (ret > 0) cmm.ExecuteByID(ret - 1);
+    if (ret === 1)      { removeSelection(); }
+    else if (ret >= 10) { cmm.ExecuteByID(ret - 10); }
     return true;
+}
+
+// Shared by the menu entry and the Delete key, so the two can never drift.
+function removeSelection() {
+    if (playlistIdx < 0) return;
+    // A locked playlist (foobar's own "Library" views, autoplaylists) rejects
+    // edits; checking first keeps this a no-op instead of an error dialog.
+    if (plman.IsPlaylistLocked(playlistIdx)) return;
+    var sel = plman.GetPlaylistSelectedItems(playlistIdx);
+    if (!sel || !sel.Count) return;
+    // Removing tracks is destructive to the user's arrangement and is exactly
+    // what people undo, so it goes on foobar's own undo stack first -- the
+    // same reason applyReorder does it.
+    plman.UndoBackup(playlistIdx);
+    plman.RemovePlaylistSelection(playlistIdx);
+    buildItems();
+    window.Repaint();
+}
+
+// Delete removes the selection, which is what every playlist on the platform
+// does and what the menu entry above advertises. The panel's package sets
+// shouldGrabFocus, so it genuinely receives keys -- without that this callback
+// would never fire and the accelerator on the menu label would be a lie.
+var VK_DELETE = 0x2E;
+function on_key_down(vkey) {
+    if (vkey === VK_DELETE) { removeSelection(); return; }
+
+    // Ctrl+A. The modifier is read with utils.IsKeyPressed rather than from a
+    // mask, because on_key_down is given only the key -- unlike the mouse
+    // callbacks, which carry one.
+    if (vkey === VK_A && utils.IsKeyPressed(VK_CONTROL)) {
+        if (playlistIdx < 0 || !items.length) return;
+        var all = [];
+        for (var i = 0; i < items.length; i++) {
+            if (items[i].kind === 'track') all.push(items[i].index);
+        }
+        if (all.length) plman.SetPlaylistSelection(playlistIdx, all, true);
+        selAnchor = 0;
+        window.Repaint();
+    }
 }
 
 // ------------------------------------------------------------ drop target --
