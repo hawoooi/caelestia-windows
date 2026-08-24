@@ -225,7 +225,7 @@ function fillRoundE(gr, x, y, w, h, r, colour) {
 // sits between panels: 2 + 4 (divider) + 2 = the same 8px gap every other edge
 // has. Divider width 0 looks cleaner but makes panels impossible to resize --
 // there is nothing to grab -- so 4px of it is the price of a draggable split.
-var IN = { l: 8, t: 3, r: 3, b: 8 };
+var IN = { l: 8, t: 2, r: 2, b: 8 };   // shared edges 2, per the 2+4+2=8 above
 // footH is 0: the "view / by folder structure" footer is gone. It spent a whole
 // 29px band restating one word that changes maybe twice a year, and that band is
 // better spent on the tree. The setting now lives as an icon at the right of the

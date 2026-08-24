@@ -44,10 +44,10 @@ var GAP = 8;
 // proven by setting both the Global and the Core element to a Custom scheme with
 // a surface background and re-measuring: the splitter did not move. Its width is
 // also the only drag target for resizing panels, so 0px means an invisible
-// divider that CANNOT be resized. 2px is the compromise: a hairline rather than
-// a slab, still grabbable. The real fix is to merge the panels into one SMP
-// panel and draw our own divider -- see docs/foobar2000-briefing.md.
-var DIVIDER = 2;
+// divider that CANNOT be resized -- 4px is the price of a draggable split. The
+// real fix is to merge the panels into one SMP panel and draw our own divider
+// -- see docs/foobar2000-briefing.md.
+var DIVIDER = 4;   // MEASURED, not assumed: a pixel scan of the live window shows the Columns UI splitter painting #333333 across 4px. It was 2 here, so INSET.b came out 3 and every shared edge ran 3+4+3=10px against 8px at the outer rim -- the uneven gap reported before. (GAP-DIVIDER)/2 = 2 restores 2+4+2=8.
 var INSET = { l: GAP, t: GAP, r: GAP, b: (GAP - DIVIDER) / 2 };
 var CARD_R = 0;                                        // square background; hover pills keep their 4
 
