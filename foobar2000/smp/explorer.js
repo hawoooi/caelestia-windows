@@ -605,7 +605,16 @@ function on_mouse_lbtn_dblclk(x, y) {
     var pl = libraryPlaylist();
     plman.ClearPlaylist(pl);
     plman.InsertPlaylistItems(pl, 0, hl);
-    plman.ActivePlaylist = pl;
+
+    // A FILE DOES NOT STEAL THE VIEW. Double-clicking one track means "play
+    // this", not "take me somewhere", and switching the visible playlist to the
+    // Library scratch list threw away whatever the user was looking at.
+    // ExecutePlaylistDefaultAction (below) takes the playlist index as its
+    // FIRST argument, so it plays from a named playlist without that playlist
+    // having to be the active one -- which is the whole distinction needed. A
+    // folder still switches, because loading a folder IS a browsing action
+    // whose purpose is to be looked at.
+    if (!isFile) plman.ActivePlaylist = pl;
 
     // A FOLDER IS LOADED, NOT PLAYED. Opening a folder is a browsing action --
     // you are looking for something -- and hijacking playback to start its first
@@ -616,6 +625,12 @@ function on_mouse_lbtn_dblclk(x, y) {
     // The folder case still focuses and selects the first row, so the playlist
     // is ready to start from the top on Enter or a double-click there.
     if (isFile) {
+        // The playlist is named explicitly, so the view does not have to have
+        // moved here first. (An earlier version of this called
+        // plman.PlayPlaylistItem, which DOES NOT EXIST in SMP 1.7.26 -- it
+        // threw "is not a function" on every double-click. Any plman method
+        // added here should be checked against one already used in these
+        // panels before it is trusted.)
         plman.ExecutePlaylistDefaultAction(pl, 0);
     } else {
         plman.ClearPlaylistSelection(pl);
