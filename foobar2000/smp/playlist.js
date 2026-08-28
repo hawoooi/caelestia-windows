@@ -128,6 +128,361 @@ function playlistDir() { return fb.ProfilePath + 'caelestia-playlists\\'; }
 // there is nothing to grab -- so 4px of it is the price of a draggable split.
 var IN = { l: 2, t: 2, r: 8, b: 8 };   // shared edges 2, per the 2+4+2=8 above
 
+// ==================================================================== search ==
+// Ctrl+F opens a FLOATING search card over the playlist -- a command palette,
+// not a mode. Two earlier attempts are worth recording because both were worse:
+//
+//  1. Replacing the playlist rows with results. It works, but the panel then
+//     lies about what it is showing: the tabs still name a playlist that is not
+//     on screen, and there is no visual answer to "where did my list go".
+//  2. Drawing the results in the LIBRARY panel and relaying keystrokes to it
+//     over window.NotifyOthers. That put the view in the right place -- a
+//     library search belongs in the library panel -- but only by splitting one
+//     feature across two files with a message channel between them, because
+//     this panel is the only SMP *package* in the layout and therefore the only
+//     one with reliable keyboard focus (shouldGrabFocus).
+//
+// An overlay needs neither compromise: the panel that owns the keyboard also
+// owns the pixels, the playlist stays visible underneath so nothing is lost,
+// and the card is obviously temporary. Depth comes from a surface step
+// (surface_container_high over the card), never a shadow -- the same rule the
+// rest of this desktop follows.
+//
+// NOTE: foobar binds Ctrl+F to its own "Playlist Search" dialog and consumes
+// the key before any panel sees it. That binding has to be removed in
+// Preferences > Keyboard Shortcuts or none of this is reachable.
+var searchOn = false, searchQuery = '', searchSel = -1, searchScroll = 0;
+var searchHL = null;        // FbMetadbHandleList of hits
+var searchMeta = null;      // batch-evaluated columns for those hits
+var libItems = null, libIndex = null;
+var SEARCH_MAX = 500;       // a one-letter query must not build 40k rows
+
+// ROMAJI. Typing "sakura" finds さくら.
+//
+// THE HONEST LIMIT: kana only. Kanji has no reading without a dictionary -- 桜
+// is "sakura" only because you know the word, and nothing in the file says so.
+// A kanji title stays reachable through its kana, artist, album or filename.
+// Katakana folds to hiragana by codepoint (the rows are exactly 0x60 apart) so
+// one table serves both scripts instead of two that can disagree.
+var KANA2 = {
+    'きゃ':'kya','きゅ':'kyu','きょ':'kyo','しゃ':'sha','しゅ':'shu','しょ':'sho',
+    'ちゃ':'cha','ちゅ':'chu','ちょ':'cho','にゃ':'nya','にゅ':'nyu','にょ':'nyo',
+    'ひゃ':'hya','ひゅ':'hyu','ひょ':'hyo','みゃ':'mya','みゅ':'myu','みょ':'myo',
+    'りゃ':'rya','りゅ':'ryu','りょ':'ryo','ぎゃ':'gya','ぎゅ':'gyu','ぎょ':'gyo',
+    'じゃ':'ja','じゅ':'ju','じょ':'jo','びゃ':'bya','びゅ':'byu','びょ':'byo',
+    'ぴゃ':'pya','ぴゅ':'pyu','ぴょ':'pyo'
+};
+var KANA1 = {
+    'あ':'a','い':'i','う':'u','え':'e','お':'o','か':'ka','き':'ki','く':'ku','け':'ke','こ':'ko',
+    'さ':'sa','し':'shi','す':'su','せ':'se','そ':'so','た':'ta','ち':'chi','つ':'tsu','て':'te','と':'to',
+    'な':'na','に':'ni','ぬ':'nu','ね':'ne','の':'no','は':'ha','ひ':'hi','ふ':'fu','へ':'he','ほ':'ho',
+    'ま':'ma','み':'mi','む':'mu','め':'me','も':'mo','や':'ya','ゆ':'yu','よ':'yo',
+    'ら':'ra','り':'ri','る':'ru','れ':'re','ろ':'ro','わ':'wa','を':'wo','ん':'n',
+    'が':'ga','ぎ':'gi','ぐ':'gu','げ':'ge','ご':'go','ざ':'za','じ':'ji','ず':'zu','ぜ':'ze','ぞ':'zo',
+    'だ':'da','ぢ':'ji','づ':'zu','で':'de','ど':'do','ば':'ba','び':'bi','ぶ':'bu','べ':'be','ぼ':'bo',
+    'ぱ':'pa','ぴ':'pi','ぷ':'pu','ぺ':'pe','ぽ':'po'
+};
+var SOKUON = 'っ', CHOON = 'ー';
+
+function toRomaji(s) {
+    if (!s) return '';
+    var t = '', c;
+    for (var k = 0; k < s.length; k++) {
+        c = s.charCodeAt(k);
+        t += (c >= 0x30A1 && c <= 0x30F6) ? String.fromCharCode(c - 0x60) : s.charAt(k);
+    }
+    var out = '', i = 0;
+    while (i < t.length) {
+        var pair = t.substr(i, 2);
+        if (KANA2[pair]) { out += KANA2[pair]; i += 2; continue; }
+        var ch = t.charAt(i);
+        if (ch === SOKUON) {
+            var nxt = KANA2[t.substr(i + 1, 2)] || KANA1[t.charAt(i + 1)] || '';
+            if (nxt) out += nxt.charAt(0);
+            i++; continue;
+        }
+        if (ch === CHOON) { if (out.length) out += out.charAt(out.length - 1); i++; continue; }
+        if (KANA1[ch]) { out += KANA1[ch]; i++; continue; }
+        out += ch; i++;                      // latin, kanji, punctuation pass through
+    }
+    return out;
+}
+
+// Spaces stripped from BOTH sides, so "porter robinson" and "porterrobinson"
+// behave alike and a romaji reading that runs words together still matches.
+function squash(s) { return s.toLowerCase().replace(/\s+/g, ''); }
+
+// Built on the FIRST search, not at load: most sessions never search, and
+// walking the whole library is not worth paying for on every start.
+function buildLibIndex() {
+    libItems = fb.GetLibraryItems();
+    var n = libItems.Count;
+    var f = function (spec) { return fb.TitleFormat(spec).EvalWithMetadbs(libItems); };
+    var title = f('%title%'), artist = f('[%artist%]'),
+        album = f('[%album%]'), file = f('%filename_ext%');
+    libIndex = [];
+    for (var i = 0; i < n; i++) {
+        var raw = title[i] + ' ' + artist[i] + ' ' + album[i] + ' ' + file[i];
+        libIndex.push({ i: i, hay: squash(raw), rom: squash(toRomaji(raw)) });
+    }
+}
+
+function runSearch() {
+    if (!libIndex) buildLibIndex();
+    var q = squash(searchQuery);
+    searchHL = fb.CreateHandleList();
+    searchSel = -1; searchScroll = 0;
+    if (q.length) {
+        for (var k = 0; k < libIndex.length && searchHL.Count < SEARCH_MAX; k++) {
+            var e = libIndex[k];
+            if (e.hay.indexOf(q) >= 0 || e.rom.indexOf(q) >= 0) searchHL.Add(libItems[e.i]);
+        }
+    }
+    searchMeta = null;
+    if (searchHL.Count) {
+        var g = function (spec) { return fb.TitleFormat(spec).EvalWithMetadbs(searchHL); };
+        // `key` is the ALBUM-ART cache key, evaluated with the same title format
+        // the playlist rows use -- so a cover already fetched for a playlist row
+        // is reused here rather than fetched a second time under a different
+        // name, and on_get_album_art_done needs no changes at all.
+        // %added% comes from foo_playcount, which is installed here. It is
+        // wrapped in [] so a track imported before that component existed
+        // yields an empty string rather than the literal field name -- those
+        // tracks simply show no date instead of showing "?ADDED?".
+        searchMeta = {
+            title: g('%title%'), artist: g('[%artist%]'), time: g('%length%'),
+            added: g('[%added%]'), album: g('[%album%]'),
+            // The English gloss, so a track found by its TITLE_EN shows the
+            // name that was actually matched rather than only its original.
+            en: g('[%title_en%]'),
+            key: TF_GROUPKEY.EvalWithMetadbs(searchHL)
+        };
+    }
+    window.Repaint();
+}
+
+// Covers for the visible hits only. Requested during paint, exactly like the
+// playlist's own rows, so scrolling a 500-hit result set never fetches 500
+// covers -- only the dozen actually on screen.
+function requestSearchArt(i) {
+    if (!searchMeta || !searchHL) return;
+    var key = searchMeta.key[i];
+    if (!key || art[key] !== undefined || artPending[key]) return;
+    artPending[key] = true;
+    utils.GetAlbumArtAsync(window.ID, searchHL[i], 0);
+}
+
+// THE INDEX MUST DIE WHEN THE LIBRARY CHANGES.
+//
+// buildLibIndex runs once, lazily, and the result was then kept for the life of
+// the panel -- so a track added to the library after the first search simply
+// did not exist as far as search was concerned, for hours. Reported as search
+// not working for recently added songs, and that is exactly what it was: not a
+// matching failure, a stale snapshot.
+//
+// Dropping the index rather than patching it is deliberate. An incremental
+// update has to get insertions, removals and retags all correct to stay
+// truthful, and the rebuild costs one pass over the library on the NEXT search
+// -- which is only paid if the user actually searches again.
+//
+// This also keeps search honest after a retag: writing TITLE_EN fires
+// on_library_items_changed, so the new English title becomes searchable
+// immediately instead of after a restart.
+function invalidateLibIndex() {
+    libIndex = null; libItems = null;
+    // If the card is open, the results on screen are already stale -- rerun
+    // rather than leave the user looking at a list that no longer matches.
+    if (searchOn && searchQuery.length) runSearch();
+}
+function on_library_items_added()   { invalidateLibIndex(); }
+function on_library_items_removed() { invalidateLibIndex(); }
+function on_library_items_changed() { invalidateLibIndex(); }
+
+function openSearch() {
+    searchOn = true; searchQuery = ''; searchSel = -1; searchScroll = 0;
+    searchHL = fb.CreateHandleList(); searchMeta = null;
+    window.Repaint();
+}
+function closeSearch() {
+    searchOn = false; searchQuery = ''; searchHL = null; searchMeta = null;
+    searchSel = -1; searchScroll = 0;
+    window.Repaint();
+}
+
+// Row height carries a 32px cover plus breathing room above and below. The
+// first version used 30px with no art and read as a wall of text -- reported as
+// "the spacing is too tight". 46 gives the same rhythm as the playlist's own
+// 34px rows do at their smaller type.
+var OV = { headH: 42, rowH: 46, pad: 12, top: 56, artPx: 32, artR: 4 };
+
+// THE CARD IS SIZED TO WHOLE ROWS, and that is a correctness fix rather than a
+// nicety. GdiGraphics has NO CLIPPING REGION -- the same fact that forces this
+// panel to paint its fixed bands after the list -- so a row drawn at the bottom
+// edge does not get cut off at the card boundary, it simply paints past it,
+// over the playlist behind. Reported as the list overflowing, and it was: the
+// draw loop stopped when a row's TOP passed the bottom, by which point that
+// row's remaining height had already been drawn outside the card.
+//
+// Deriving the height from the row count removes the possibility entirely: the
+// last row always ends exactly on the list's last pixel, so there is never a
+// partial row to bleed. It also makes a 3-hit search a short card instead of a
+// tall mostly-empty one.
+function ovRows() {
+    var maxH = Math.min(420, Math.max(150, H - OV.top - 56));
+    var fit = Math.max(1, Math.floor((maxH - OV.headH - 1 - OV.pad) / OV.rowH));
+    var have = searchHL ? searchHL.Count : 0;
+    return have > 0 ? Math.min(fit, have) : 0;
+}
+function ovRect() {
+    var w = Math.min(520, Math.max(260, W - 56));
+    var n = ovRows();
+    // With no hits the card still needs room for the placeholder line.
+    var body = n > 0 ? (n * OV.rowH + OV.pad) : 56;
+    var h = OV.headH + 1 + body;
+    return { x: Math.floor((W - w) / 2), y: OV.top, w: w, h: h };
+}
+function ovListTop() { return ovRect().y + OV.headH + 1; }
+function ovListH()   { return ovRows() * OV.rowH; }
+function ovMaxScroll() {
+    return Math.max(0, (searchHL ? searchHL.Count : 0) * OV.rowH - ovListH());
+}
+function ovRowAt(x, y) {
+    var r = ovRect();
+    if (x < r.x || x > r.x + r.w) return -1;
+    if (y < ovListTop() || y > r.y + r.h) return -1;
+    var i = Math.floor((y - ovListTop() + searchScroll) / OV.rowH);
+    return (searchHL && i >= 0 && i < searchHL.Count) ? i : -1;
+}
+function ovHit(x, y) {
+    var r = ovRect();
+    return x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
+}
+
+// Append the highlighted hit -- or the first, which is what Enter after typing
+// means -- to the playlist underneath, then close so the result is visible.
+function appendSearchHit() {
+    if (!searchHL || !searchHL.Count) return -1;
+    var pick = (searchSel >= 0 && searchSel < searchHL.Count) ? searchSel : 0;
+    var target = playlistIdx;
+    if (target < 0 || plman.IsPlaylistLocked(target)) return -1;
+    var one = fb.CreateHandleList();
+    one.Add(searchHL[pick]);
+    var at = plman.PlaylistItemCount(target);
+    plman.UndoBackup(target);
+    plman.InsertPlaylistItems(target, at, one);
+    closeSearch();
+    buildItems();
+    plman.ClearPlaylistSelection(target);
+    plman.SetPlaylistSelectionSingle(target, at, true);
+    plman.SetPlaylistFocusItem(target, at);
+    scroll = maxScroll();
+    window.Repaint();
+    return at;
+}
+
+var GS_SEARCH = String.fromCharCode(0xF002);   // fa-search
+
+function drawSearchOverlay(gr) {
+    var r = ovRect();
+
+    // A BORDER, NOT JUST A SURFACE STEP. One step up from the playlist card was
+    // the theory -- depth from surface tones is this desktop's rule -- but at
+    // these two tones the card and the list behind it are nearly the same
+    // value, so the edge vanished. Reported as needing something to tell it
+    // apart. Drawn as an outline rect with the fill inset by 1, plus a darker
+    // rect offset down-right that reads as a shadow: GdiGraphics has no soft
+    // shadow, so a hard offset in `surface` (darker than either card) is the
+    // honest approximation.
+    fillRound(gr, r.x + 3, r.y + 4, r.w, r.h, G.tabR, THEME.surface);
+    fillRound(gr, r.x - 1, r.y - 1, r.w + 2, r.h + 2, G.tabR, THEME.outline);
+    fillRound(gr, r.x, r.y, r.w, r.h, G.tabR, THEME.surface_container_high);
+
+    var hits = searchHL ? searchHL.Count : 0;
+    // The hint is right-aligned in a box wide enough to hold it. At 84px
+    // "search library" clipped to "search li..." -- reported as the filler text
+    // being off to the right, which is what a truncated right-aligned string
+    // looks like.
+    var noteW = 150;
+    gr.GdiDrawText(GS_SEARCH, f_ui, THEME.on_surface_variant, r.x + OV.pad + 4, r.y, 18, OV.headH, DT_ROW);
+    gr.GdiDrawText(searchQuery + '│', f_ui, THEME.on_surface,
+                   r.x + OV.pad + 28, r.y, r.w - OV.pad * 2 - 28 - noteW, OV.headH, DT_ROW);
+    var note = searchQuery.length
+        ? (hits >= SEARCH_MAX ? (SEARCH_MAX + '+ hits') : (hits + (hits === 1 ? ' hit' : ' hits')))
+        : 'search library';
+    gr.GdiDrawText(note, f_small, THEME.outline,
+                   r.x + r.w - OV.pad - noteW, r.y, noteW, OV.headH, DT_ROW_R);
+    gr.FillSolidRect(r.x, r.y + OV.headH, r.w, 1, THEME.rule);
+
+    var top = ovListTop(), bot = r.y + r.h;
+    if (!hits) {
+        gr.GdiDrawText(searchQuery.length ? 'No matches' : 'Type to search — Enter adds the first hit',
+                       f_small, THEME.outline, r.x, top + 8, r.w, 40, DT_ROW_C);
+        return;
+    }
+    // The right column now carries duration AND the added date stacked, so it
+    // needs a date's width rather than a duration's -- and the title column
+    // gives up exactly that much rather than the two overlapping.
+    var RIGHT_W = 78;
+    var textX = r.x + OV.pad + OV.artPx + 12;
+    var textW = r.w - (textX - r.x) - RIGHT_W - OV.pad - 10;
+    var listBot = top + ovListH();
+    for (var i = 0; i < hits; i++) {
+        var ry = top + i * OV.rowH - searchScroll;
+        // BOTH ENDS need a fully-inside test, and for the same reason: with no
+        // clipping region a row that is only partly inside paints its whole
+        // height anyway. The bottom was fixed first and the top was missed --
+        // `ry + rowH < top` leaves a row whose bottom lands exactly ON top
+        // undrawn-by-intent but drawn-in-fact, painting upward over the search
+        // field. Reported as the first row overlapping the header.
+        //
+        // searchScroll is always a whole number of rows (the wheel steps by
+        // rowH, the arrows snap to a row, and ovMaxScroll is a row multiple
+        // because the card is sized to whole rows), so testing for fully-inside
+        // never leaves a gap.
+        if (ry < top) continue;
+        if (ry + OV.rowH > listBot) break;
+        requestSearchArt(i);
+        if (i === searchSel) fillRound(gr, r.x + 4, ry, r.w - 8, OV.rowH, G.radius, THEME.raised_hover);
+
+        // Cover, or a placeholder block so the row keeps its shape while the
+        // art is still loading -- a row that reflows on arrival is worse than
+        // one that starts empty.
+        var ax = r.x + OV.pad, ay = ry + Math.floor((OV.rowH - OV.artPx) / 2);
+        var key = searchMeta ? searchMeta.key[i] : null;
+        var img = key ? art[key] : null;
+        if (img) gr.DrawImage(img, ax, ay, OV.artPx, OV.artPx, 0, 0, img.Width, img.Height);
+        else fillRound(gr, ax, ay, OV.artPx, OV.artPx, OV.artR, THEME.surface_container);
+
+        var t = (searchMeta && searchMeta.title[i]) ? searchMeta.title[i] : '?';
+        var a = (searchMeta && searchMeta.artist[i]) ? searchMeta.artist[i] : '';
+        var d = (searchMeta && searchMeta.time[i]) ? searchMeta.time[i] : '';
+        // ALBUM ON THE SECOND LINE. It was searchable all along -- the index has
+        // covered album (and its romaji) since the first version -- but the row
+        // never showed it, so a hit that matched on album looked like a hit for
+        // no reason. Reported as not being able to search by album; the search
+        // was fine, the evidence was missing.
+        //
+        // "artist • album" is the shape foobar's own now-playing line uses, and
+        // the separator only appears when there is something on both sides.
+        var al = (searchMeta && searchMeta.album[i]) ? searchMeta.album[i] : '';
+        var sub = (a && al) ? (a + ' • ' + al) : (a || al);
+        // A track found by its English title shows it, so the matched name is
+        // visible rather than only the original.
+        var ten = (searchMeta && searchMeta.en[i]) ? searchMeta.en[i] : '';
+        if (ten) t = t + ' - ' + ten;
+        // Date only, not the time: %added% carries "2026-08-27 21:14:03" and the
+        // clock half is noise at this size. Stacked UNDER the duration so the
+        // two right-hand facts share one column and the title keeps its width.
+        var ad = (searchMeta && searchMeta.added[i]) ? searchMeta.added[i].substr(0, 10) : '';
+        gr.GdiDrawText(t, f_ui, THEME.on_surface, textX, ry + 8, textW, 16, DT_ROW);
+        gr.GdiDrawText(sub, f_small, THEME.on_surface_variant, textX, ry + 24, textW, 14, DT_ROW);
+        gr.GdiDrawText(d, f_small, THEME.on_surface_variant,
+                       r.x + r.w - OV.pad - RIGHT_W, ry + 8, RIGHT_W, 16, DT_ROW_R);
+        gr.GdiDrawText(ad, f_small, THEME.outline,
+                       r.x + r.w - OV.pad - RIGHT_W, ry + 24, RIGHT_W, 14, DT_ROW_R);
+    }
+}
+
 var f_ui, f_bold, f_small, f_lab, f_np, f_npSub;
 var items = [], handles = null, playlistIdx = -1;
 var scroll = 0, hoverRow = -1, hoverTab = -1, hoverBtn = -1;
@@ -224,6 +579,10 @@ function buildItems() {
     // filename says and therefore what the user recognises.
     var type    = f('$upper($ext(%path%))');
     var length  = f('%length%');
+    // TITLE_EN: an English or romaji title, entered by hand or auto-filled from
+    // kana. Wrapped in [] so a track without one yields an empty string rather
+    // than the literal field name.
+    var en      = f('[%title_en%]');
 
     // The index is zero-padded to a FIXED width for the whole playlist: 2
     // digits normally, 3 once it reaches 100. Padding to a fixed width keeps the
@@ -238,7 +597,7 @@ function buildItems() {
         items.push({
             kind: 'track', y: y, h: G.rowH, index: i, key: album[i],
             band: (i & 1),
-            num: num, title: title[i] || '?', artist: artist[i] || '',
+            num: num, title: title[i] || '?', artist: artist[i] || '', en: en[i] || '',
             album: albumN[i] || '', type: type[i] || '', time: length[i]
         });
         y += G.rowH;
@@ -346,6 +705,11 @@ function on_paint(gr) {
     drawTabs(gr, c);
     drawCols(gr, c);
     drawFooter(gr, c);
+
+    // LAST, over everything, for the same "no clipping region" reason the fixed
+    // bands are painted after the list: the overlay has to be able to cover the
+    // header and footer, so nothing may be drawn after it.
+    if (searchOn) drawSearchOverlay(gr);
 }
 
 // The two controls at the LEFT end of the strip. They act on the SET of
@@ -552,7 +916,12 @@ function drawList(gr, c) {
         // pair sit visibly high against the cover beside it.
         var blockH = G.titleH + G.artH;
         var by = y + Math.floor((it.h - blockH) / 2);
-        gr.GdiDrawText(it.title, fTitle, cTitle, m.textX, by, m.titleW, G.titleH, DT_ROW);
+        // "睡眠抄 - Dream Memorandum": the original title always leads, because it
+        // is what the file IS and what the artist named it; the English reading
+        // follows as a gloss. Reversing them would quietly rename the track in
+        // the user's own library view.
+        var shownTitle = it.en ? (it.title + ' - ' + it.en) : it.title;
+        gr.GdiDrawText(shownTitle, fTitle, cTitle, m.textX, by, m.titleW, G.titleH, DT_ROW);
         // An empty artist still gets a mark. Drawing nothing leaves the row a
         // different shape from its neighbours and reads as a rendering failure
         // rather than as a track with no artist tag.
@@ -822,11 +1191,27 @@ function on_mouse_leave() {
 }
 
 function on_mouse_wheel(step) {
+    // The card owns the wheel while it is up, or the playlist would scroll
+    // underneath a list the user is actually looking at.
+    if (searchOn) {
+        var ns = clamp(searchScroll - step * OV.rowH * 3, 0, ovMaxScroll());
+        if (ns !== searchScroll) { searchScroll = ns; window.Repaint(); }
+        return;
+    }
     var next = clamp(scroll - step * G.rowH * 3, 0, maxScroll());
     if (next !== scroll) { scroll = next; window.Repaint(); }
 }
 
 function on_mouse_lbtn_down(x, y, mask) {
+    if (searchOn) {
+        // Inside the card selects a hit; OUTSIDE dismisses it. That is what
+        // every command palette does, and it is what makes the card read as
+        // temporary rather than modal.
+        if (!ovHit(x, y)) { closeSearch(); return; }
+        var oi = ovRowAt(x, y);
+        if (oi >= 0) { searchSel = oi; window.Repaint(); }
+        return;
+    }
     var b = tabBtnAt(x, y);
     if (b === 0) {
         var n = plman.CreatePlaylist(plman.PlaylistCount, '');   // '' = foobar names it
@@ -943,6 +1328,22 @@ function on_mouse_lbtn_up(x, y) {
 }
 
 function on_mouse_lbtn_dblclk(x, y) {
+    if (searchOn) {
+        var oi = ovRowAt(x, y);
+        if (oi < 0) return;
+        searchSel = oi;
+        // Capture the target BEFORE appending: appendSearchHit closes the card,
+        // and reading playlistIdx afterwards would be reading it back through a
+        // rebuild rather than naming the playlist we actually added to.
+        var target = playlistIdx;
+        var at = appendSearchHit();
+        // ExecutePlaylistDefaultAction takes the playlist index explicitly, so
+        // this plays the row we just appended without depending on the view.
+        // (plman.PlayPlaylistItem was used here first and DOES NOT EXIST in
+        // SMP 1.7.26 -- it threw on every double-click in the search card.)
+        if (at >= 0) plman.ExecutePlaylistDefaultAction(target, at);
+        return;
+    }
     var i = rowAt(x, y);
     if (i < 0 || items[i].kind !== 'track') return;
     plman.ExecutePlaylistDefaultAction(playlistIdx, items[i].index);
@@ -985,15 +1386,127 @@ function on_mouse_rbtn_up(x, y, mask) {
     // upward, and ExecuteByID expects the id minus that same base.
     menu.AppendMenuItem(0, 1, 'Remove from playlist\tDel');
     menu.AppendMenuSeparator();
+    menu.AppendMenuItem(0, 2, 'Set English title…');
+    menu.AppendMenuItem(0, 3, 'Auto-fill romaji from kana');
+    menu.AppendMenuItem(0, 4, 'Clear English title');
+    menu.AppendMenuSeparator();
 
     var cmm = fb.CreateContextMenuManager();
     cmm.InitContext(handles);
     cmm.BuildMenu(menu, 10, -1);
 
     var ret = menu.TrackPopupMenu(x, y);
-    if (ret === 1)      { removeSelection(); }
+    if      (ret === 1) { removeSelection(); }
+    else if (ret === 2) { setEnglishPrompt(); }
+    else if (ret === 3) { autoRomajiSelection(); }
+    else if (ret === 4) { clearEnglish(); }
     else if (ret >= 10) { cmm.ExecuteByID(ret - 10); }
     return true;
+}
+
+// ---------------------------------------------------- English titles -------
+// A place to put "Dream Memorandum" next to 睡眠抄.
+//
+// WHY THIS IS A MANUAL FIELD AND NOT A CONVERSION. 睡眠抄 -> "Dream Memorandum"
+// is a TRANSLATION -- a human decision about meaning. No transliterator
+// produces it, and nothing in the file implies it. What CAN be derived
+// mechanically is romaji from kana, so that is offered as a starting point and
+// nothing more; everything else is typed by the person who knows the song.
+//
+// Stored in a custom TITLE_EN tag rather than overwriting TITLE, so the
+// original title -- what the artist actually named the track -- is never lost,
+// and removing the gloss later is a matter of clearing one field.
+var TAG_EN = 'TITLE_EN';
+
+function hasKana(s) {
+    for (var i = 0; i < s.length; i++) {
+        var c = s.charCodeAt(i);
+        if ((c >= 0x3041 && c <= 0x3096) || (c >= 0x30A1 && c <= 0x30FA)) return true;
+    }
+    return false;
+}
+
+// Romaji reads as a title when each word is capitalised: "yoru ni kakeru" is a
+// transliteration, "Yoru Ni Kakeru" is a name.
+function titleCase(s) {
+    return s.replace(/(^|\s)([a-z])/g, function (m, p, c) { return p + c.toUpperCase(); });
+}
+
+// UpdateFileInfoFromJSON takes an ARRAY of objects, one per handle, so a single
+// call can give every selected track a different value. Verified present in
+// this SMP build by reading the component binary -- not assumed, after
+// plman.PlayPlaylistItem turned out not to exist.
+function writeEnglish(handleList, values) {
+    if (!handleList || !handleList.Count) return false;
+    var arr = [];
+    for (var i = 0; i < values.length; i++) { var o = {}; o[TAG_EN] = values[i]; arr.push(o); }
+    try {
+        handleList.UpdateFileInfoFromJSON(JSON.stringify(arr));
+        return true;
+    } catch (e) {
+        console.log('Caelestia: could not write ' + TAG_EN + ' -- ' + e);
+        return false;
+    }
+}
+
+function selectedHandles() {
+    if (playlistIdx < 0) return null;
+    var sel = plman.GetPlaylistSelectedItems(playlistIdx);
+    return (sel && sel.Count) ? sel : null;
+}
+
+function setEnglishPrompt() {
+    var sel = selectedHandles();
+    if (!sel) return;
+    var t   = fb.TitleFormat('%title%').EvalWithMetadb(sel[0]);
+    var cur = fb.TitleFormat('[%title_en%]').EvalWithMetadb(sel[0]);
+    // Prefill with what already exists, else a romaji reading if the title has
+    // kana to read. A kanji-only title gets an empty box: there is nothing
+    // honest to suggest.
+    var suggest = cur || (hasKana(t) ? titleCase(toRomaji(t)) : '');
+    var v;
+    try {
+        v = utils.InputBox(window.ID,
+            'English title for:\n' + t + '\n\n(applies to all ' + sel.Count + ' selected)',
+            'Caelestia', suggest, true);
+    } catch (e) { return; }          // cancelled
+    if (v === null || v === undefined) return;
+    var vals = [];
+    for (var i = 0; i < sel.Count; i++) vals.push(v);
+    if (writeEnglish(sel, vals)) { buildItems(); window.Repaint(); }
+}
+
+// Fills only what can be DERIVED. A track whose title has no kana is skipped
+// rather than given a meaningless value, and the count of skips is reported so
+// "it did nothing" is never a silent outcome.
+function autoRomajiSelection() {
+    var sel = selectedHandles();
+    if (!sel) return;
+    var titles = fb.TitleFormat('%title%').EvalWithMetadbs(sel);
+    var hl = fb.CreateHandleList(), vals = [], skipped = 0;
+    for (var i = 0; i < sel.Count; i++) {
+        var t = titles[i] || '';
+        if (!hasKana(t)) { skipped++; continue; }
+        var r = titleCase(toRomaji(t));
+        if (!r || r === t) { skipped++; continue; }
+        hl.Add(sel[i]); vals.push(r);
+    }
+    if (!hl.Count) {
+        console.log('Caelestia: no kana titles in the selection (' + skipped + ' skipped)');
+        return;
+    }
+    if (writeEnglish(hl, vals)) {
+        console.log('Caelestia: filled ' + hl.Count + ' romaji title(s), ' + skipped + ' skipped');
+        buildItems(); window.Repaint();
+    }
+}
+
+function clearEnglish() {
+    var sel = selectedHandles();
+    if (!sel) return;
+    var vals = [];
+    for (var i = 0; i < sel.Count; i++) vals.push('');   // empty removes the tag
+    if (writeEnglish(sel, vals)) { buildItems(); window.Repaint(); }
 }
 
 // Shared by the menu entry and the Delete key, so the two can never drift.
@@ -1017,8 +1530,61 @@ function removeSelection() {
 // does and what the menu entry above advertises. The panel's package sets
 // shouldGrabFocus, so it genuinely receives keys -- without that this callback
 // would never fire and the accelerator on the menu label would be a lie.
-var VK_DELETE = 0x2E;
+var VK_DELETE = 0x2E, VK_F = 0x46, VK_ESC = 0x1B, VK_BACK = 0x08;
+var VK_RETURN = 0x0D, VK_UP = 0x26, VK_DOWN = 0x28;
+
+function on_char(code) {
+    if (!searchOn || code < 32) return;   // control chars arrive via on_key_down
+    searchQuery += String.fromCharCode(code);
+    runSearch();
+}
+
 function on_key_down(vkey) {
+    // Checked first so the same key closes what it opened.
+    if (vkey === VK_F && utils.IsKeyPressed(VK_CONTROL)) {
+        if (searchOn) closeSearch(); else openSearch();
+        return;
+    }
+    if (searchOn) {
+        if (vkey === VK_ESC)    { closeSearch(); return; }
+
+        // Ctrl+Backspace and Ctrl+Delete both delete the last WORD.
+        //
+        // Both, because there is no caret to be in front of or behind: this
+        // field only ever appends, so "delete forward" has nothing to act on
+        // and would otherwise be a dead key. Binding it to the same backward
+        // word-delete makes it useful instead of inert, and matches the way
+        // people reach for either key when they mean "undo that word".
+        //
+        // Trailing spaces go first, THEN the word -- so "porter robinson "
+        // becomes "porter " rather than "porter robinso", and a second press
+        // clears it entirely.
+        if (vkey === VK_BACK || vkey === VK_DELETE) {
+            if (utils.IsKeyPressed(VK_CONTROL)) {
+                searchQuery = searchQuery.replace(/\s+$/, '').replace(/\S+$/, '');
+                runSearch(); return;
+            }
+            if (vkey === VK_BACK) { searchQuery = searchQuery.slice(0, -1); runSearch(); return; }
+            return;                       // plain Delete: nothing to delete forward
+        }
+        if (vkey === VK_RETURN) { appendSearchHit(); return; }
+        if (vkey === VK_DOWN || vkey === VK_UP) {
+            if (searchHL && searchHL.Count) {
+                searchSel = (searchSel < 0) ? 0 : searchSel + (vkey === VK_DOWN ? 1 : -1);
+                searchSel = clamp(searchSel, 0, searchHL.Count - 1);
+                var ry = searchSel * OV.rowH;
+                if (ry < searchScroll) searchScroll = ry;
+                else if (ry + OV.rowH > searchScroll + ovListH()) searchScroll = ry + OV.rowH - ovListH();
+                searchScroll = clamp(searchScroll, 0, ovMaxScroll());
+                window.Repaint();
+            }
+            return;
+        }
+        // While the card is up every other key belongs to it, or Delete would
+        // quietly remove rows from the playlist hidden behind it.
+        return;
+    }
+
     if (vkey === VK_DELETE) { removeSelection(); return; }
 
     // Ctrl+A. The modifier is read with utils.IsKeyPressed rather than from a
