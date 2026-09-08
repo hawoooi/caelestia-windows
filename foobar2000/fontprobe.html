@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="theme.css">
+<link rel="stylesheet" href="fontawesome.css">
+<style>
+/* Why the Font Awesome glyphs render as tofu inside foo_uie_webview's WebView2.
+   theme.css demonstrably loads (the palette is right), so a sibling stylesheet
+   is fetched fine. This asks the page itself, rather than inferring:
+     - did fontawesome.css actually attach, and how many rules did it bring?
+     - is the @font-face rule present, and what does its src start with?
+     - does the font descriptor load, and does document.fonts.check() pass?
+     - do glyphs measure differently in the FA family vs a fallback? (a real
+       render test: identical widths mean the family never applied)          */
+:root { --m: "0xProto Nerd Font", ui-monospace, Consolas, monospace; }
+* { box-sizing: border-box; }
+html, body { margin:0; padding:0; height:100%; background:var(--surface); color:var(--on-surface);
+             font-family:var(--m); font-size:11px; line-height:15px; }
+body { padding:6px; overflow-y:auto; }
+h2 { font-size:10px; letter-spacing:.1em; text-transform:uppercase; color:var(--primary);
+     margin:8px 0 2px; font-weight:400; }
+h2:first-child { margin-top:0; }
+pre { margin:0; white-space:pre-wrap; word-break:break-all; color:var(--on-surface-variant); }
+.big { font-size:22px; line-height:30px; }
+.fa { font-family:"Font Awesome 6 Free"; font-weight:900; }
+.fallback { font-family:var(--m); }
+</style>
+</head>
+<body>
+<h2>Sheets</h2><pre id="sheets">…</pre>
+<h2>@font-face</h2><pre id="face">…</pre>
+<h2>fonts API</h2><pre id="fonts">…</pre>
+<h2>Width test</h2><pre id="width">…</pre>
+<h2>Rendered</h2>
+<pre class="big"><span class="fa">&#xf04b;&#xf04c;&#xf048;&#xf051;&#xf028;</span></pre>
+<pre class="big fallback">&#xf04b;&#xf04c;&#xf048;&#xf051;&#xf028;</pre>
+<script>
+"use strict";
+var $ = function (id) { return document.getElementById(id); };
+
+/* 1. which stylesheets attached, and could their rules be read */
+try {
+  var lines = [];
+  for (var i = 0; i < document.styleSheets.length; i++) {
+    var s = document.styleSheets[i], n = "?";
+    try { n = s.cssRules ? s.cssRules.length : "null"; } catch (e) { n = "BLOCKED " + e.name; }
+    lines.push(i + ": " + (s.href ? s.href.replace(/^.*\//, "") : "<inline>") + "  rules=" + n);
+  }
+  $("sheets").textContent = lines.join("\n");
+} catch (e) { $("sheets").textContent = "ERROR " + e; }
+
+/* 2. is the @font-face rule actually there, and what is its src */
+try {
+  var found = null;
+  for (var i = 0; i < document.styleSheets.length; i++) {
+    var rules;
+    try { rules = document.styleSheets[i].cssRules; } catch (e) { continue; }
+    if (!rules) continue;
+    for (var j = 0; j < rules.length; j++) {
+      if (rules[j].type === 5 /* FONT_FACE_RULE */) {
+        found = rules[j];
+        break;
+      }
+    }
+    if (found) break;
+  }
+  if (!found) $("face").textContent = "NO @font-face rule found in any sheet";
+  else {
+    var src = found.style.getPropertyValue("src") || "";
+    $("face").textContent =
+      "family=" + found.style.getPropertyValue("font-family") +
+      "\nweight=" + found.style.getPropertyValue("font-weight") +
+      "\nsrc len=" + src.length +
+      "\nsrc head=" + src.slice(0, 70);
+  }
+} catch (e) { $("face").textContent = "ERROR " + e; }
+
+/* 3. the Font Loading API's own verdict */
+function fontsReport(tag) {
+  var bits = [];
+  try { bits.push("status=" + document.fonts.status); } catch (e) { bits.push("status ERR"); }
+  try { bits.push('check 12px="' + document.fonts.check('12px "Font Awesome 6 Free"') + '"'); } catch (e) { bits.push("check ERR " + e); }
+  try {
+    var n = 0; document.fonts.forEach(function (f) { n++; });
+    bits.push("faces registered=" + n);
+  } catch (e) { bits.push("forEach ERR"); }
+  $("fonts").textContent = tag + "\n" + bits.join("\n");
+}
+fontsReport("(immediate)");
+
+try {
+  document.fonts.load('900 12px "Font Awesome 6 Free"', "").then(function (list) {
+    fontsReport("after load(): matched " + list.length + " face(s)");
+    widthTest();
+  }, function (e) {
+    $("fonts").textContent = "load() REJECTED: " + e;
+    widthTest();
+  });
+} catch (e) { $("fonts").textContent = "load() threw: " + e; }
+
+/* 4. the render test that cannot be fooled: measure a glyph in both families.
+      Identical widths means the FA family never applied to the text. */
+function widthTest() {
+  try {
+    var mk = function (fam, weight) {
+      var s = document.createElement("span");
+      s.style.cssText = "position:absolute;visibility:hidden;white-space:pre;font-size:64px;font-weight:" + weight + ";font-family:" + fam;
+      s.textContent = "";
+      document.body.appendChild(s);
+      var w = s.getBoundingClientRect().width;
+      document.body.removeChild(s);
+      return w;
+    };
+    var fa = mk('"Font Awesome 6 Free"', 900);
+    var fb = mk('"0xProto Nerd Font", monospace', 400);
+    $("width").textContent =
+      "U+F04B in FA        = " + fa.toFixed(2) + "px\n" +
+      "U+F04B in fallback  = " + fb.toFixed(2) + "px\n" +
+      (Math.abs(fa - fb) < 0.5
+        ? "SAME -> the Font Awesome family is NOT being applied"
+        : "DIFFERENT -> the family IS applied");
+  } catch (e) { $("width").textContent = "ERROR " + e; }
+}
+setTimeout(widthTest, 1500);
+</script>
+</body>
+</html>

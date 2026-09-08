@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>foo_uie_webview API probe</title>
+<link rel="stylesheet" href="theme.css">
+<style>
+/* =============================================================================
+   foo_uie_webview host-object PROBE.
+
+   Read-only. It calls nothing that creates, removes, reorders or modifies a
+   playlist, and nothing that starts or stops playback. Its whole job is to
+   answer, on screen, the questions the design depends on:
+
+     1. What does getPlaylistItems() actually return per item? If it carries
+        title/artist/album/duration/play count, the playlist can be rendered in
+        HTML from one call. If it only carries a path, it cannot.
+     2. Is playbackOrder readable, and what are the order names?
+     3. Does readDirectory() work, and what shape are its entries?
+     4. Does the shared audio buffer arrive? (decides whether a level meter is
+        honest or has to be dropped)
+     5. Which playback members exist at all.
+
+   Everything is wrapped: a member that throws is reported as its error rather
+   than killing the page, because a blank panel tells us nothing.
+   ========================================================================== */
+:root { --mono: "0xProto Nerd Font", ui-monospace, Consolas, monospace; }
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; padding: 0; height: 100%;
+  background: var(--surface); color: var(--on-surface);
+  font-family: var(--mono); font-size: 11px; line-height: 15px;
+}
+body { padding: 8px; overflow-y: auto; }
+h2 {
+  font-size: 11px; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--primary); margin: 12px 0 4px; font-weight: 400;
+}
+h2:first-child { margin-top: 0; }
+pre {
+  margin: 0; white-space: pre-wrap; word-break: break-all;
+  color: var(--on-surface-variant);
+}
+.k { color: var(--outline); }
+.bad { color: var(--error, var(--outline)); text-decoration: underline; }
+</style>
+</head>
+<body>
+<h2>Component</h2><pre id="ver">…</pre>
+<h2>Playback members</h2><pre id="pb">…</pre>
+<h2>playbackOrder</h2><pre id="po">…</pre>
+<h2>Playlists</h2><pre id="pl">…</pre>
+<h2>getPlaylistItems(active) — first 2 items, ALL fields</h2><pre id="items">…</pre>
+<h2>readDirectory</h2><pre id="dir">…</pre>
+<h2>Shared audio buffer</h2><pre id="buf">waiting…</pre>
+
+<script>
+"use strict";
+
+function FB()  { try { return chrome.webview.hostObjects.sync.foo_uie_webview; } catch (e) { return null; } }
+function FBA() { try { return chrome.webview.hostObjects.foo_uie_webview; }      catch (e) { return null; } }
+
+var out = function (id, text) { document.getElementById(id).textContent = text; };
+
+// Read one member and describe it, never throwing out to the caller.
+function probe(fb, name) {
+  try {
+    var v = fb[name];
+    if (typeof v === "function") return name + " : function";
+    return name + " = " + JSON.stringify(v);
+  } catch (e) {
+    return name + " : ERROR " + (e && e.message ? e.message : e);
+  }
+}
+
+var fb = FB();
+if (!fb) {
+  out("ver", "NO HOST OBJECT — this page is not running inside foo_uie_webview.");
+} else {
+
+  /* ---- component ---- */
+  try {
+    var v = fb.componentVersion;
+    out("ver", fb.componentVersionText + "  (v" + ((v >> 24) & 255) + "." + ((v >> 16) & 255)
+        + "." + ((v >> 8) & 255) + "." + (v & 255) + ")");
+  } catch (e) { out("ver", "ERROR " + e); }
+
+  /* ---- playback surface ---- */
+  var members = ["isPlaying", "isPaused", "stopAfterCurrent", "length", "position",
+                 "canSeek", "volume", "isMuted", "playbackOrder", "playlistCount",
+                 "activePlaylist", "playingPlaylist"];
+  out("pb", members.map(function (m) { return probe(fb, m); }).join("\n"));
+
+  /* ---- playback order: read it, and find out how many orders exist ---- */
+  try {
+    var cur = fb.playbackOrder, names = [];
+    for (var i = 0; i < 12; i++) {
+      try { names.push(i + "=" + fb.getPlaybackOrderName(i)); } catch (e) { break; }
+    }
+    out("po", "current = " + cur + "\n" + (names.length ? names.join("\n")
+        : "getPlaybackOrderName() not available — order names unknown"));
+  } catch (e) { out("po", "ERROR " + e); }
+
+  /* ---- playlists ---- */
+  try {
+    var n = fb.playlistCount, lines = [];
+    for (var i = 0; i < n; i++) {
+      lines.push(i + ": \"" + fb.getPlaylistName(i) + "\"  items=" + fb.getPlaylistItemCount(i)
+                 + "  auto=" + fb.isAutoPlaylist(i)
+                 + "  focused=" + fb.getFocusedPlaylistItem(i));
+    }
+    out("pl", "count=" + n + "  active=" + fb.activePlaylist + "  playing=" + fb.playingPlaylist
+        + "\n" + lines.join("\n"));
+  } catch (e) { out("pl", "ERROR " + e); }
+
+  /* ---- THE decisive one: what does an item look like? ---- */
+  var afb = FBA();
+  if (!afb) { out("items", "no async host object"); }
+  else {
+    afb.getPlaylistItems(fb.activePlaylist).then(function (text) {
+      try {
+        var items = JSON.parse(text);
+        if (!items.length) { out("items", "playlist is empty"); return; }
+        out("items",
+          "returned " + items.length + " items\n" +
+          "fields: " + Object.keys(items[0]).join(", ") + "\n\n" +
+          JSON.stringify(items.slice(0, 2), null, 1));
+      } catch (e) { out("items", "parse failed: " + e + "\n\nraw head:\n" + String(text).slice(0, 600)); }
+    }, function (e) { out("items", "call rejected: " + e); });
+
+    afb.readDirectory("C:/Users/PC/Music", "*").then(function (text) {
+      try {
+        var d = JSON.parse(text);
+        out("dir", "entries=" + d.length + "\nfields: " + (d.length ? Object.keys(d[0]).join(", ") : "-")
+            + "\n\n" + JSON.stringify(d.slice(0, 4), null, 1));
+      } catch (e) { out("dir", "parse failed: " + e + "\n\nraw head:\n" + String(text).slice(0, 400)); }
+    }, function (e) { out("dir", "call rejected: " + e); });
+  }
+}
+
+/* ---- shared audio buffer: does real PCM actually arrive? ---- */
+var frames = 0, maxAbs = 0, meta = null;
+window.chrome && window.chrome.webview && window.chrome.webview.addEventListener("sharedbufferreceived", function (e) {
+  meta = e.additionalData;
+  try {
+    var b = e.getBuffer(), s = new Float64Array(b);
+    out("buf", "buffer received: " + s.length + " doubles\n" + JSON.stringify(meta));
+  } catch (err) { out("buf", "getBuffer failed: " + err); }
+});
+
+function OnTimer(sampleCount, sampleRate, channelCount, channelConfig) {
+  frames++;
+  out("buf", "OnTimer fired " + frames + "x — " + sampleCount + " samples, "
+      + sampleRate + " Hz, " + channelCount + " ch, config 0x" + channelConfig.toString(16)
+      + (meta ? "\nsharedbufferreceived: " + JSON.stringify(meta) : "\nsharedbufferreceived: NOT seen"));
+}
+
+/* keep the page honest about whether nothing at all is arriving */
+setTimeout(function () {
+  if (frames === 0) {
+    out("buf", "OnTimer never fired in 6s"
+        + (meta ? " (but sharedbufferreceived did: " + JSON.stringify(meta) + ")"
+                : " and sharedbufferreceived never fired")
+        + "\nPlay a track and reload if this says nothing.");
+  }
+}, 6000);
+</script>
+</body>
+</html>
