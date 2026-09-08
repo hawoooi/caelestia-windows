@@ -339,7 +339,7 @@ function ovRect() {
     // With no hits the card still needs room for the placeholder line.
     var body = n > 0 ? (n * OV.rowH + OV.pad) : 56;
     var h = OV.headH + 1 + body;
-    return { x: Math.floor((W - w) / 2), y: OV.top, w: w, h: h };
+    return { x: PX + Math.floor((W - w) / 2), y: PY + OV.top, w: w, h: h };
 }
 function ovListTop() { return ovRect().y + OV.headH + 1; }
 function ovListH()   { return ovRows() * OV.rowH; }
@@ -525,7 +525,25 @@ var selAnchor = -1;
 var art = {}, artPending = {};
 var npArt = null, npKey = '';
 var totalText = '';
+// ------------------------------------------------------------- viewport ----
+// Merge step 3. PX/PY are this panel's REGION origin inside the host panel;
+// standalone they stay 0,0. See topbar.js for why the three panels are being
+// collapsed into one.
+//
+// This file needed no renaming at all -- it KEEPS the unprefixed globals and
+// the other two were prefixed around it, because it is by far the largest and
+// every avoided edit is an avoided mistake.
+//
+// It also re-bases in the fewest places of the three: everything funnels
+// through card() and the four Y helpers below, so those five plus the ground
+// fill and the search overlay are the entire change.
+var PX = 0, PY = 0;
 var W = 0, H = 0;
+
+function PL_setViewport(x, y, w, h) {
+    PX = x; PY = y; W = w; H = h;
+    scroll = clamp(scroll, 0, maxScroll());
+}
 
 var TF_GROUPKEY = fb.TitleFormat('%album artist% - [%album%]');
 
@@ -533,14 +551,14 @@ function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }
 
 // ------------------------------------------------------------ card regions --
 
-function card()   { return { x: IN.l, y: IN.t, w: W - IN.l - IN.r, h: H - IN.t - IN.b }; }
-function tabsY()  { return IN.t; }
+function card()   { return { x: PX + IN.l, y: PY + IN.t, w: W - IN.l - IN.r, h: H - IN.t - IN.b }; }
+function tabsY()  { return PY + IN.t; }
 // No +1 here. That leftover offset left a 1px band of window ground between the
 // active tab's bottom edge and the top of the column header, which read as a
 // gap the tab was floating above rather than merging into.
-function colsY()  { return IN.t + G.tabsH; }
+function colsY()  { return PY + IN.t + G.tabsH; }
 function listY()  { return colsY() + G.colsH + 1; }
-function footY()  { return H - IN.b - G.footH; }
+function footY()  { return PY + H - IN.b - G.footH; }
 function listH()  { return Math.max(0, footY() - 1 - listY()); }
 
 function contentH() { return items.length ? items[items.length - 1].y + items[items.length - 1].h + G.listPad : 0; }
@@ -686,7 +704,7 @@ function fillRound(gr, x, y, w, h, r, colour) {
 function on_paint(gr) {
     // the panel's own margin is painted surface, so the gap between panels
     // reads as the desktop ground rather than as Columns UI's splitter grey
-    gr.FillSolidRect(0, 0, W, H, THEME.surface);
+    gr.FillSolidRect(PX, PY, W, H, THEME.surface);
     var c = card();
     fillRound(gr, c.x, c.y, c.w, c.h, G.cardR, THEME.surface_container);
     gr.SetTextRenderingHint(5);
