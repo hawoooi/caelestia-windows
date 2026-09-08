@@ -70,7 +70,7 @@ E.iconOff = E.nodePad + E.twW + E.twGap;        // row x -> folder/file glyph
 E.fileIndent = E.iconOff + E.iconW + E.iconGap;
 E.levelIndent = E.guideIn + E.guideOut;
 
-var f_ui, f_bold, f_icon, f_small;
+var ex_f_ui, ex_f_bold, ex_f_icon, ex_f_small;
 var root = null;          // {name, children:[], files:[], count, open}
 var rows = [];            // flattened visible rows
 var scrollY = 0;
@@ -92,7 +92,29 @@ var hThumb = null;        // {x, w} of the drawn thumb, for hit-testing
 var hDrag = null;         // {grabX, startScroll} while dragging it
 var hover = -1;
 var selected = -1;
+// ------------------------------------------------------------- viewport ----
+// Merge step 2. VX/VY are this panel's REGION origin inside the host panel;
+// standalone they stay 0,0 so behaviour is unchanged. See topbar.js for why
+// the three panels are being collapsed into one.
+//
+// The four accessors below are the entire coordinate frame. Everything that
+// needs an ABSOLUTE position goes through them; anything computing a WIDTH or
+// HEIGHT still subtracts the insets directly and must NOT be offset -- mixing
+// those two up is the whole risk in this conversion, which is why they were
+// re-based one site at a time rather than by blanket regex.
+var VX = 0, VY = 0;
 var VW = 0, VH = 0;
+
+function exL() { return VX + ex_IN.l; }              // card left edge
+function exT() { return VY + ex_IN.t; }              // card top edge
+function exR() { return VX + VW - ex_IN.r; }         // card right edge
+function exB() { return VY + VH - ex_IN.b; }         // card bottom edge
+
+function EX_setViewport(x, y, w, h) {
+    VX = x; VY = y; VW = w; VH = h;
+    scrollY = clampE(scrollY, 0, maxScrollE());
+    scrollX = clampE(scrollX, 0, maxScrollX());
+}
 var building = false;
 
 function clampE(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }
@@ -166,7 +188,7 @@ function flatten() {
         // record the spine for this level, if it has anything to bracket
         if (depth > 0 && kids) {
             // spine x is absolute, so it must include the card inset the rows use
-            spines.push({ x: IN.l + E.pad + indent - E.levelIndent + E.guideIn,
+            spines.push({ x: exL() + E.pad + indent - E.levelIndent + E.guideIn,
                           y0: startY, y1: y - E.gapY });
         }
     }
@@ -196,7 +218,7 @@ function measureContent() {
     }
     contentW = maxW + E.pad;
 }
-function viewW()      { return Math.max(0, VW - IN.l - IN.r - E.scrollW); }
+function viewW()      { return Math.max(0, VW - ex_IN.l - ex_IN.r - E.scrollW); }
 function maxScrollX() { return Math.max(0, contentW - viewW()); }
 
 // -------------------------------------------------------------------- paint --
@@ -225,7 +247,7 @@ function fillRoundE(gr, x, y, w, h, r, colour) {
 // sits between panels: 2 + 4 (divider) + 2 = the same 8px gap every other edge
 // has. Divider width 0 looks cleaner but makes panels impossible to resize --
 // there is nothing to grab -- so 4px of it is the price of a draggable split.
-var IN = { l: 8, t: 2, r: 2, b: 8 };   // shared edges 2, per the 2+4+2=8 above
+var ex_IN = { l: 8, t: 2, r: 2, b: 8 };   // shared edges 2, per the 2+4+2=8 above
 // footH is 0: the "view / by folder structure" footer is gone. It spent a whole
 // 29px band restating one word that changes maybe twice a year, and that band is
 // better spent on the tree. The setting now lives as an icon at the right of the
@@ -243,9 +265,9 @@ var VIEW_MODES = ['By folder structure', 'By album', 'By artist', 'By genre'];
 var viewMode = 0;
 
 function viewBtnRect() {
-    var cw = VW - IN.l - IN.r;
-    return { x: IN.l + cw - VIEW_BTN.pad - VIEW_BTN.w,
-             y: IN.t + Math.floor((CARD.headH - VIEW_BTN.h) / 2),
+    var cw = VW - ex_IN.l - ex_IN.r;
+    return { x: exL() + cw - VIEW_BTN.pad - VIEW_BTN.w,
+             y: exT() + Math.floor((CARD.headH - VIEW_BTN.h) / 2),
              w: VIEW_BTN.w, h: VIEW_BTN.h };
 }
 function inViewBtn(x, y) {
@@ -264,25 +286,25 @@ function showViewMenu() {
     window.Repaint();
 }
 
-function cardTop()  { return IN.t + CARD.headH + 1; }
-function cardFoot() { return VH - IN.b - CARD.footH; }
+function cardTop()  { return exT() + CARD.headH + 1; }
+function cardFoot() { return exB() - CARD.footH; }
 function treeH()    { return Math.max(0, cardFoot() - 1 - cardTop()); }
 
 function on_paint(gr) {
-    gr.FillSolidRect(0, 0, VW, VH, THEME.surface);
-    var cx = IN.l, cy = IN.t, cw = VW - IN.l - IN.r, ch = VH - IN.t - IN.b;
+    gr.FillSolidRect(VX, VY, VW, VH, THEME.surface);
+    var cx = exL(), cy = exT(), cw = VW - ex_IN.l - ex_IN.r, ch = VH - ex_IN.t - ex_IN.b;
     fillRoundE(gr, cx, cy, cw, ch, CARD.r, THEME.surface_container);
     if (!root) return;
     gr.SetTextRenderingHint(5);
 
     // One character width, measured once. 0xProto is monospace, so this is all
     // that is needed to know how wide any row is without measuring each one.
-    if (!charW) { charW = gr.CalcTextWidth('0', f_ui); measureContent(); }
+    if (!charW) { charW = gr.CalcTextWidth('0', ex_f_ui); measureContent(); }
 
     var top = cardTop();
-    var availW = VW - IN.r - E.scrollW;
+    var availW = exR() - E.scrollW;
     // the banding spans the card, not the indented row -- see the note below
-    var bandX = IN.l + E.pad, bandW = Math.max(0, availW - E.pad - bandX);
+    var bandX = exL() + E.pad, bandW = Math.max(0, availW - E.pad - bandX);
     // the pinned count column, fixed against the panel's right edge
     var cntX = availW - CNT_PAD - CNT_W;
     // No ellipsis while there is somewhere to scroll to: an ellipsis would keep
@@ -310,7 +332,7 @@ function on_paint(gr) {
 
         // ONE offset moves the whole grid. Widths are computed from the
         // unscrolled origin so a row keeps its shape at any scroll position.
-        var x0 = IN.l + E.pad + r.indent;
+        var x0 = exL() + E.pad + r.indent;
         var x = x0 - scrollX;
         var w = availW - x0 - E.pad;
 
@@ -333,11 +355,11 @@ function on_paint(gr) {
                            i === selected ? THEME.raised_hover : THEME.surface_container_high);
             }
 
-            gr.GdiDrawText(r.node.open ? GLYPH_CARET_D : GLYPH_CARET_R, f_small,
+            gr.GdiDrawText(r.node.open ? GLYPH_CARET_D : GLYPH_CARET_R, ex_f_small,
                            THEME.outline, x + E.nodePad, y, E.twW, E.rowH,
                            DTX.SINGLELINE | DTX.VCENTER | DTX.NOPREFIX | DTX.CENTER);
 
-            gr.GdiDrawText(r.node.open ? GLYPH_FOLDER_OPEN : GLYPH_FOLDER, f_icon,
+            gr.GdiDrawText(r.node.open ? GLYPH_FOLDER_OPEN : GLYPH_FOLDER, ex_f_icon,
                            THEME.on_surface_variant,
                            x + E.iconOff, y, E.iconW, E.rowH,
                            DTX.SINGLELINE | DTX.VCENTER | DTX.NOPREFIX);
@@ -350,9 +372,9 @@ function on_paint(gr) {
             // them against. The name is clipped short of it so the two never
             // collide -- GdiDrawText clips to its rect, which is the only
             // clipping this API has.
-            gr.GdiDrawText(r.node.name, (i === selected) ? f_bold : f_ui, THEME.on_surface,
+            gr.GdiDrawText(r.node.name, (i === selected) ? ex_f_bold : ex_f_ui, THEME.on_surface,
                            nameX, y, Math.max(10, cntX - E.iconGap - nameX), E.rowH, nameFmt);
-            gr.GdiDrawText(String(r.node.count), f_small, THEME.outline,
+            gr.GdiDrawText(String(r.node.count), ex_f_small, THEME.outline,
                            cntX, y, CNT_W, E.rowH, DTX_ROW_R);
         } else {
             if (i === hover || i === selected) {
@@ -364,10 +386,10 @@ function on_paint(gr) {
             // read as floating at a different left offset from the folders
             // above them even though the text x was identical. The caret column
             // is reserved and left empty for the same reason.
-            gr.GdiDrawText(GLYPH_FILE, f_icon, THEME.outline,
+            gr.GdiDrawText(GLYPH_FILE, ex_f_icon, THEME.outline,
                            x + E.iconOff, y, E.iconW, E.rowH,
                            DTX.SINGLELINE | DTX.VCENTER | DTX.NOPREFIX);
-            gr.GdiDrawText(r.file.name, f_ui,
+            gr.GdiDrawText(r.file.name, ex_f_ui,
                            (i === hover || i === selected) ? THEME.on_surface : THEME.on_surface_variant,
                            x + E.fileIndent, y,
                            Math.max(10, cntX + CNT_W - (x + E.fileIndent)), E.rowH, nameFmt);
@@ -380,7 +402,7 @@ function on_paint(gr) {
         var thumbH = Math.max(28, avail * avail / total);
         var ms = maxScrollE();
         var ty = top + (avail - thumbH) * (ms > 0 ? scrollY / ms : 0);
-        fillRoundE(gr, VW - IN.r - E.scrollW + 2, ty, E.scrollW - 4, thumbH, 3, THEME.track);
+        fillRoundE(gr, exR() - E.scrollW + 2, ty, E.scrollW - 4, thumbH, 3, THEME.track);
     }
 
     // horizontal scrollbar, along the bottom of the tree area, only when there
@@ -389,9 +411,9 @@ function on_paint(gr) {
     hThumb = null;
     var mx = maxScrollX();
     if (mx > 0) {
-        var trackX = IN.l + E.pad, trackW = viewW() - E.pad;
+        var trackX = exL() + E.pad, trackW = viewW() - E.pad;
         var by = cardFoot() - 1 - E.scrollW;
-        gr.FillSolidRect(IN.l, by, VW - IN.l - IN.r, E.scrollW, THEME.surface_container);
+        gr.FillSolidRect(exL(), by, VW - ex_IN.l - ex_IN.r, E.scrollW, THEME.surface_container);
         var thumbW = Math.max(28, trackW * viewW() / contentW);
         var tx = trackX + (trackW - thumbW) * (scrollX / mx);
         fillRoundE(gr, tx, by + 2, thumbW, E.scrollW - 4, 3,
@@ -404,7 +426,7 @@ function on_paint(gr) {
     // past the card's bottom edge and into the panel's own margin. The footer
     // used to hide that, and removing the footer exposed it: the last row bled
     // out under the card. Repainting the margin as panel ground is the clip.
-    gr.FillSolidRect(0, cardFoot(), VW, VH - cardFoot(), THEME.surface);
+    gr.FillSolidRect(VX, cardFoot(), VW, (VY + VH) - cardFoot(), THEME.surface);
 
     // Header drawn AFTER the tree and painting its own ground: a scrolled row
     // that is only partly inside the tree region still gets drawn (there is no
@@ -412,12 +434,12 @@ function on_paint(gr) {
     // the same collision that put "01 sunder" over the playlist's column
     // header. Extended DOWN by the radius so the card's TOP corners stay round.
     fillRoundE(gr, cx, cy, cw, CARD.headH + CARD.r, CARD.r, THEME.surface_container);
-    gr.GdiDrawText('LIBRARY', f_small, THEME.outline, cx + 14, cy, cw - 28, CARD.headH,
+    gr.GdiDrawText('LIBRARY', ex_f_small, THEME.outline, cx + 14, cy, cw - 28, CARD.headH,
                    DTX.SINGLELINE | DTX.VCENTER | DTX.NOPREFIX);
 
     var vb = viewBtnRect();
     if (hoverView) fillRoundE(gr, vb.x, vb.y, vb.w, vb.h, 4, THEME.surface_container_high);
-    gr.GdiDrawText(GLYPH_VIEW, f_icon, hoverView ? THEME.on_surface : THEME.outline,
+    gr.GdiDrawText(GLYPH_VIEW, ex_f_icon, hoverView ? THEME.on_surface : THEME.outline,
                    vb.x, vb.y, vb.w, vb.h,
                    DTX.SINGLELINE | DTX.VCENTER | DTX.NOPREFIX | 0x1);
 
@@ -476,7 +498,7 @@ function rowAtE(y) {
 //
 // DoDragDrop BLOCKS until the drop completes, so nothing may be left half-set
 // when it is called.
-var DROP_COPY = 1;                 // DROPEFFECT_COPY
+var ex_DROP_COPY = 1;                 // DROPEFFECT_COPY
 var DRAG_SLOP = 5;                 // px before a press becomes a drag
 var pressAt = null;
 
@@ -502,7 +524,7 @@ function on_mouse_move(x, y, mask) {
         if (Math.abs(x - pressAt.x) > DRAG_SLOP || Math.abs(y - pressAt.y) > DRAG_SLOP) {
             var hl = collectHandles(pressAt.row);
             pressAt = null;
-            if (hl) { try { fb.DoDragDrop(window.ID, hl, DROP_COPY); } catch (e) {} }
+            if (hl) { try { fb.DoDragDrop(window.ID, hl, ex_DROP_COPY); } catch (e) {} }
             return;
         }
     }
@@ -570,13 +592,13 @@ function on_mouse_lbtn_down(x, y) {
 // The scratch playlist every library activation lands in. Because it is
 // understood to be scratch, replacing its contents is not destructive and needs
 // no confirmation -- which is the whole point.
-var LIBRARY_PLAYLIST = 'Library';
+var ex_LIBRARY_PLAYLIST = 'Library';
 
 function libraryPlaylist() {
     for (var i = 0; i < plman.PlaylistCount; i++) {
-        if (plman.GetPlaylistName(i) === LIBRARY_PLAYLIST) return i;
+        if (plman.GetPlaylistName(i) === ex_LIBRARY_PLAYLIST) return i;
     }
-    return plman.CreatePlaylist(plman.PlaylistCount, LIBRARY_PLAYLIST);
+    return plman.CreatePlaylist(plman.PlaylistCount, ex_LIBRARY_PLAYLIST);
 }
 
 // Double-click sends the folder (or the file) to the LIBRARY playlist and plays
@@ -656,10 +678,10 @@ function on_library_items_changed() { rebuild(); }
 
 // -------------------------------------------------------------------- init --
 
-f_ui    = gdi.Font('0xProto Nerd Font', 12, 0);
-f_bold  = gdi.Font('0xProto Nerd Font', 12, 1);
-f_small = gdi.Font('0xProto Nerd Font', 11, 0);
-f_icon  = gdi.Font('0xProto Nerd Font', 11, 0);
+ex_f_ui    = gdi.Font('0xProto Nerd Font', 12, 0);
+ex_f_bold  = gdi.Font('0xProto Nerd Font', 12, 1);
+ex_f_small = gdi.Font('0xProto Nerd Font', 11, 0);
+ex_f_icon  = gdi.Font('0xProto Nerd Font', 11, 0);
 
 VW = window.Width; VH = window.Height;
 rebuild();
