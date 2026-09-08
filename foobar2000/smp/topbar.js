@@ -114,14 +114,36 @@ var MENUS = ['File', 'Edit', 'View', 'Playback', 'Library', 'Help'];
 // runs before the hook exists and fails silently, forever. Retry on a timer.
 // See docs/foobar2000-briefing.md.
 
-var f_ui, f_icon, f_small, f_badge;
+var tb_f_ui, tb_f_icon, tb_f_small, tb_f_badge;
+
+// ------------------------------------------------------------- viewport ----
+// STEP 1 OF THE MERGE INTO ONE PANEL. Every Columns UI splitter paints a
+// hardcoded #333333 that no theme setting reaches, so the only way to a themed
+// divider is to stop having splitters: one SMP panel owning the whole window,
+// drawing its own dividers. That means this file can no longer assume it owns
+// 0,0..window.Width,window.Height.
+//
+// TX/TY are the origin of this panel's REGION inside the host. Standalone they
+// are 0,0 and nothing changes, which is what lets the three panels convert one
+// at a time instead of in a single unshippable jump.
+//
+// Everything this file draws derives from cardT(), so re-basing that one
+// function re-bases the whole panel -- no draw call had to be touched.
+var TX = 0, TY = 0;
 var TW = 0, TH = 0;
-var hoverBtn = -1, hoverMenu = -1;
+
+// Called by the host once it owns the layout. Standalone, on_size keeps the
+// full-window values below.
+function TB_setViewport(x, y, w, h) {
+    TX = x; TY = y; TW = w; TH = h;
+    _layout = null;                    // geometry cache is viewport-dependent
+}
+var tb_hoverBtn = -1, hoverMenu = -1;
 var dragging = null;
 var seekPos = 0;
 
 function clampT(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }
-function cardT() { return { x: INSET.l, y: INSET.t, w: TW - INSET.l - INSET.r, h: TH - INSET.t - INSET.b }; }
+function cardT() { return { x: TX + INSET.l, y: TY + INSET.t, w: TW - INSET.l - INSET.r, h: TH - INSET.t - INSET.b }; }
 
 function fillRoundT(gr, x, y, w, h, r, colour) {
     if (w <= 0 || h <= 0) return;
@@ -156,7 +178,7 @@ function layout(gr) {
     var x = c.x + T.pad;
 
     for (var i = 0; i < MENUS.length; i++) {
-        var w = (gr ? gr.CalcTextWidth(MENUS[i], f_ui) : MENUS[i].length * 7) + T.menuPad * 2;
+        var w = (gr ? gr.CalcTextWidth(MENUS[i], tb_f_ui) : MENUS[i].length * 7) + T.menuPad * 2;
         L.menus.push({ i: i, x: x, w: w, name: MENUS[i] });
         x += w;
     }
@@ -223,7 +245,10 @@ function drawInBarRight(gr, s, font, x, right, fillR, sb) {
 }
 
 function on_paint(gr) {
-    gr.FillSolidRect(0, 0, TW, TH, THEME.surface);
+    // The ONE draw in this file that is not derived from cardT(), so the one
+    // that had to learn about the viewport by hand. Everything else follows the
+    // card and re-based for free.
+    gr.FillSolidRect(TX, TY, TW, TH, THEME.surface);
     var c = cardT();
     fillRoundT(gr, c.x, c.y, c.w, c.h, CARD_R, THEME.surface_container);
     gr.SetTextRenderingHint(5);
@@ -234,7 +259,7 @@ function on_paint(gr) {
     for (var i = 0; i < L.menus.length; i++) {
         var m = L.menus[i];
         if (i === hoverMenu) fillRoundT(gr, m.x, c.y + 5, m.w, c.h - 10, 4, THEME.surface_container_high);
-        gr.GdiDrawText(m.name, f_ui, i === hoverMenu ? THEME.on_surface : THEME.on_surface_variant,
+        gr.GdiDrawText(m.name, tb_f_ui, i === hoverMenu ? THEME.on_surface : THEME.on_surface_variant,
                        m.x, c.y, m.w, c.h, DTT_C);
     }
 
@@ -250,12 +275,12 @@ function on_paint(gr) {
         else if (bt.id === 'order') { glyph = GL.repeat;  on = plman.PlaybackOrder === 1 || plman.PlaybackOrder === 2; }
         else if (bt.id === 'shuffle') { glyph = GL.shuffle; on = plman.PlaybackOrder >= 3; }
 
-        if (b === hoverBtn || on) fillRoundT(gr, bt.x + 1, by, bt.w - 2, T.btnH, 4, THEME.surface_container_high);
+        if (b === tb_hoverBtn || on) fillRoundT(gr, bt.x + 1, by, bt.w - 2, T.btnH, 4, THEME.surface_container_high);
         // play/pause leads by being brighter, not by being filled -- the teal is
         // already spoken for by the seek fill beside it
         var col = (bt.id === 'play') ? THEME.on_surface
-                : (b === hoverBtn || on) ? THEME.on_surface : THEME.on_surface_variant;
-        gr.GdiDrawText(glyph, f_icon, col, bt.x, c.y, bt.w, c.h, DTT_C);
+                : (b === tb_hoverBtn || on) ? THEME.on_surface : THEME.on_surface_variant;
+        gr.GdiDrawText(glyph, tb_f_icon, col, bt.x, c.y, bt.w, c.h, DTT_C);
 
         // Repeat-playlist and repeat-track share one glyph, because Font
         // Awesome v4 -- the only icon set 0xProto Nerd Font embeds (see GL
@@ -269,7 +294,7 @@ function on_paint(gr) {
         // accent: it is part of the icon, not a separate signal, and the lit
         // pill behind it already says "this mode is on".
         if (bt.id === 'order' && plman.PlaybackOrder === 2) {
-            gr.GdiDrawText('1', f_badge, col, bt.x + bt.w - 13, c.y + 6, 10, c.h, DTT_C);
+            gr.GdiDrawText('1', tb_f_badge, col, bt.x + bt.w - 13, c.y + 6, 10, c.h, DTT_C);
         }
     }
 
@@ -282,8 +307,8 @@ function on_paint(gr) {
     var pos = (dragging === 'seek') ? seekPos : (fb.PlaybackTime || 0);
     var sb = drawSlab(gr, L.seek.x, c.y, L.seek.w, len > 0 ? pos / len : 0, THEME.primary);
     var tl = L.seek.x + T.barPad, tr = L.seek.x + L.seek.w - T.barPad;
-    drawInBarLeft(gr, fmtT(pos), f_small, tl, tr, sb.fillR, sb);
-    if (len > 0) drawInBarRight(gr, fmtT(len), f_small, tl, tr, sb.fillR, sb);
+    drawInBarLeft(gr, fmtT(pos), tb_f_small, tl, tr, sb.fillR, sb);
+    if (len > 0) drawInBarRight(gr, fmtT(len), tb_f_small, tl, tr, sb.fillR, sb);
 
     // volume bar, with its icon inside it. The fill is `outline`, not `primary`,
     // so the icon over it takes surface_container rather than on_primary.
@@ -291,9 +316,9 @@ function on_paint(gr) {
     var vx = L.vol.x + T.barPad, vw = 14;
     var muted = fb.Volume <= -100;
     var vg = muted ? GL.volMute : GL.volOn;
-    gr.GdiDrawText(vg, f_icon, THEME.on_surface_variant, vx, vb.y, vw, vb.h, DTT_L);
+    gr.GdiDrawText(vg, tb_f_icon, THEME.on_surface_variant, vx, vb.y, vw, vb.h, DTT_L);
     if (vb.fillR > vx) {
-        gr.GdiDrawText(vg, f_icon, THEME.surface_container, vx, vb.y,
+        gr.GdiDrawText(vg, tb_f_icon, THEME.surface_container, vx, vb.y,
                        Math.min(vw, vb.fillR - vx), vb.h, DTT_L);
     }
 
@@ -397,9 +422,9 @@ function on_mouse_move(x, y) {
         fb.Volume = pctToDb(clampT((x - L.vol.x) / L.vol.w, 0, 1));
         window.Repaint(); return;
     }
-    if (b !== hoverBtn || m !== hoverMenu) { hoverBtn = b; hoverMenu = m; window.Repaint(); }
+    if (b !== tb_hoverBtn || m !== hoverMenu) { tb_hoverBtn = b; hoverMenu = m; window.Repaint(); }
 }
-function on_mouse_leave() { hoverBtn = -1; hoverMenu = -1; window.Repaint(); }
+function on_mouse_leave() { tb_hoverBtn = -1; hoverMenu = -1; window.Repaint(); }
 
 function on_mouse_lbtn_down(x, y) {
     var L = L_current(), c = L.c;
@@ -496,12 +521,12 @@ function on_playback_order_changed() { window.Repaint(); }
 
 // -------------------------------------------------------------------- init --
 
-f_ui    = gdi.Font('0xProto Nerd Font', 11, 0);   // menus: 11px, tighter padding
-f_icon  = gdi.Font('0xProto Nerd Font', 12, 0);
-f_small = gdi.Font('0xProto Nerd Font', 11, 0);
+tb_f_ui    = gdi.Font('0xProto Nerd Font', 11, 0);   // menus: 11px, tighter padding
+tb_f_icon  = gdi.Font('0xProto Nerd Font', 12, 0);
+tb_f_small = gdi.Font('0xProto Nerd Font', 11, 0);
 // 8px bold: the repeat-one badge. Small enough to read as part of the repeat
 // glyph rather than as a second icon beside it -- see where it is drawn.
-f_badge = gdi.Font('0xProto Nerd Font', 8, 1);
+tb_f_badge = gdi.Font('0xProto Nerd Font', 8, 1);
 
 // The app mark, copied next to the scripts by Deploy-Panels.ps1. Loaded once --
 // gdi.Image hits the disk, and this is a paint path.
