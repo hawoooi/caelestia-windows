@@ -310,10 +310,61 @@ function on_paint(gr) {
 
 }
 
-// fb2k reports volume in dBFS: 0 is full, about -100 silence. Below -60 the
-// difference is inaudible, so the slider maps that range and nothing wider.
-function dbToPct(db) { if (db >= 0) return 1; if (db <= -60) return 0; return (db + 60) / 60; }
-function pctToDb(p)  { return -60 + p * 60; }
+// THE ONE PLACE THE VOLUME RANGE IS SET.
+//
+// fb2k reports volume in dBFS: 0 is full and about -100 is silence. dB is
+// logarithmic, so mapping the whole -100..0 span across the slider spends most
+// of its width on levels that all sound like silence, and squeezes every
+// useful level into the last inch. The floor below decides how much of that
+// span the slider actually covers.
+//
+//   -60  the default. Everything audible, with the quiet end still reachable.
+//   -40  more of the bar spent on normal listening levels; finer control where
+//        it is actually used, at the cost of the very quiet end.
+//   -30  finest control at ordinary volumes; below the floor the bar reads
+//        empty, and the wheel will not take it lower.
+//   -100 the full hardware range; technically complete, mostly unusable,
+//        because the top half of the slider is all inaudible.
+//
+// Change this ONE value. It was hard-coded in four places before, so a
+// retune had to find every copy and any that were missed silently disagreed
+// -- the fill could show one level while the wheel clamped to another.
+var VOL_FLOOR = -15;
+
+// THE TAPER. How slider travel maps onto the dB range above.
+//
+// dB is ALREADY a log scale, so mapping it linearly across the bar sounds like
+// it should be perceptually even -- and is not. With a -40 floor the lower half
+// of a linear bar covers -40..-20 dB, which is the difference between "barely
+// audible" and "quiet", while every level anyone actually listens at is squeezed
+// into the top half. Real volume controls have never been linear for exactly
+// this reason; they use an audio taper.
+//
+//   dB(t) = FLOOR * (1 - t)^VOL_CURVE
+//
+// which pins dB(0) = FLOOR and dB(1) = 0 for any curve value, so raising the
+// exponent redistributes travel WITHOUT changing either end -- there is no dead
+// zone at the bottom, which a naive amplitude curve clamped to the floor would
+// produce.
+//
+//   1  linear in dB -- the previous behaviour, kept reachable
+//   2  moderate taper: the top half of the bar covers the top quarter of the
+//      range (-10..0 dB at a -40 floor), which is where listening happens
+//   3  strong taper: very fine at the top, coarse at the bottom
+var VOL_CURVE = 2;
+
+function pctToDb(p) {
+    p = clampT(p, 0, 1);
+    return VOL_FLOOR * Math.pow(1 - p, VOL_CURVE);
+}
+function dbToPct(db) {
+    if (db >= 0) return 1;
+    if (db <= VOL_FLOOR) return 0;
+    // Exact inverse of the above, so the fill always lands on the position the
+    // click that set it came from -- a curve and an inverse that disagree show
+    // up as the handle jumping slightly away from the cursor on every click.
+    return 1 - Math.pow(db / VOL_FLOOR, 1 / VOL_CURVE);
+}
 
 // ------------------------------------------------------------------- input --
 
@@ -404,7 +455,10 @@ function on_mouse_lbtn_up(x, y) {
 }
 
 function on_mouse_wheel(step) {
-    fb.Volume = clampT(fb.Volume + step * 2, -60, 0);
+    // Clamped to the SAME floor the bar draws, or the wheel could push the
+    // volume below what the slider can represent and the fill would sit at
+    // zero while the audio kept getting quieter.
+    fb.Volume = clampT(fb.Volume + step * 2, VOL_FLOOR, 0);
     window.Repaint();
 }
 
